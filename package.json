@@ -1,0 +1,40 @@
+{
+  "name": "project-brain",
+  "version": "0.1.0",
+  "description": "Autonomous project analysis engine that builds context, memory, and agent-driven reports for any software repository.",
+  "bin": {
+    "project-brain": "dist/cli/project-brain.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:smoke": "vitest run tests/smoke",
+    "analyze": "npm run build && node dist/cli/project-brain.js analyze . --output ./sample-output/self-analysis",
+    "weekly": "npm run build && node dist/cli/project-brain.js weekly . --output ./sample-output/self-analysis",
+    "report": "npm run build && node dist/cli/project-brain.js report . --output ./sample-output/self-analysis"
+  },
+  "keywords": [
+    "agents",
+    "autonomous-systems",
+    "code-analysis",
+    "context-engineering",
+    "developer-tools"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^14.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.7.2",
+    "@typescript-eslint/parser": "^8.57.0",
+    "dependency-cruiser": "^17.3.8",
+    "eslint": "^10.0.3",
+    "ts-node": "^10.9.2",
+    "ts-prune": "^0.10.3",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  }
+}
