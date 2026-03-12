@@ -1,12 +1,13 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-import { fileExists, readTextSafe, walkDirectory, writeFileEnsured } from "../../shared/fs-utils";
+import { fileExists, readTextSafe, uniqueSorted, walkDirectory, writeFileEnsured } from "../../shared/fs-utils";
 import type { ProjectContext, RiskLevel } from "../../shared/types";
 
 export type SupportedComponent =
   | "Dashboard"
   | "Sidebar"
+  | "AdminConsoleNav"
   | "Forms"
   | "Workspace"
   | "Tables"
@@ -23,8 +24,21 @@ interface ComponentRule {
 
 interface FrontendCatalog {
   sourceRoot: string;
+  scannedDirectories: string[];
   files: string[];
   byComponent: Record<SupportedComponent, string[]>;
+}
+
+export interface FrontendUsabilityAnalysis {
+  frontendDetected: boolean;
+  sourceRoot?: string;
+  scannedDirectories: string[];
+  pageCount: number;
+  layoutCount: number;
+  componentFiles: Record<SupportedComponent, string[]>;
+  findings: string[];
+  recommendations: string[];
+  suggestedTasks: UXTask[];
 }
 
 export interface UXTask {
@@ -43,6 +57,7 @@ export interface UXImprovementInputs {
   recommendations: string[];
   frontendDetected: boolean;
   scannedSourceRoot?: string;
+  scannedDirectories: string[];
   componentFiles: Record<SupportedComponent, string[]>;
 }
 
@@ -50,6 +65,7 @@ export interface UXImprovementArtifacts {
   implementationTasksPath: string;
   navigationRestructurePath: string;
   formSimplificationTasksPath: string;
+  workspaceImprovementsPath: string;
   tasks: UXTask[];
   navigationTasks: UXTask[];
   formTasks: UXTask[];
@@ -63,6 +79,80 @@ interface ReportInsights {
 }
 
 const REPORT_FILES = ["ux_report.md", "usability_findings.md", "workflow_analysis.md"] as const;
+const PRIORITY_UI_DIRECTORIES = ["app", "domains", "shared/ui"] as const;
+const FALLBACK_UI_DIRECTORIES = ["components", "layouts", "pages", "features"] as const;
+const ERP_FRONTEND_PRIORITY_FILES = {
+  Sidebar: ["shared/ui/layout/Sidebar.tsx"],
+  AdminConsoleNav: ["domains/admin-console/components/AdminConsoleNav.tsx"],
+  Workspace: [
+    "domains/expediente-workspace/components/ExpedienteWorkspace.tsx",
+    "domains/procedimiento-wizard/components/ProcedimientoWizard.tsx",
+    "domains/procedimiento-wizard/components/NextStepCard.tsx"
+  ],
+  Forms: [
+    "domains/necesidades/components/NecesidadForm.tsx",
+    "domains/inventario-write/components/InventoryAjustesPanel.tsx",
+    "domains/finanzas/components/FinanzasPanel.tsx"
+  ],
+  Dashboard: [
+    "domains/dashboard-institucional/components/InstitutionalDashboard.tsx",
+    "domains/dashboard-operativo/components/OperativeDashboard.tsx"
+  ],
+  Tables: [
+    "domains/dashboard-operativo/components/ExpedientesRiesgoTable.tsx",
+    "domains/dashboard-operativo/components/OperacionesFueraSecuenciaTable.tsx",
+    "domains/dashboard-operativo/components/ProveedoresAlertadosTable.tsx"
+  ],
+  Search: [],
+  Dropdowns: [
+    "domains/dashboard-institucional/components/InstitutionalDashboard.tsx",
+    "domains/inventario-write/components/InventoryAjustesPanel.tsx"
+  ]
+} satisfies Record<SupportedComponent, string[]>;
+const OPERATIONAL_UX_PATTERNS = [
+  /navigation/i,
+  /sidebar/i,
+  /menu/i,
+  /dashboard/i,
+  /form/i,
+  /field/i,
+  /input/i,
+  /label/i,
+  /terminology/i,
+  /table/i,
+  /search/i,
+  /filter/i,
+  /workflow/i,
+  /workspace/i,
+  /step/i,
+  /error/i,
+  /validation/i,
+  /dropdown/i,
+  /select/i,
+  /combobox/i,
+  /searchable/i,
+  /plain[- ]language/i,
+  /click/i,
+  /record/i,
+  /task/i,
+  /operator/i
+] as const;
+const NON_OPERATIONAL_UX_PATTERNS = [
+  /readme/i,
+  /onboarding/i,
+  /developer documentation/i,
+  /documentation/i,
+  /installation/i,
+  /install/i,
+  /setup/i,
+  /contributor/i,
+  /api contract/i,
+  /openapi/i,
+  /prisma/i,
+  /server logic/i,
+  /backend/i,
+  /developer/i
+] as const;
 
 const COMPONENT_RULES: ComponentRule[] = [
   {
@@ -78,6 +168,13 @@ const COMPONENT_RULES: ComponentRule[] = [
     fileKeywords: [/sidebar/i, /nav/i, /menu/i, /layout/i, /shell/i],
     defaultImpact: "Users lose orientation and need extra clicks to reach core workflows.",
     defaultFix: "Reduce navigation depth, group items by task, and make the current location obvious."
+  },
+  {
+    name: "AdminConsoleNav",
+    issueKeywords: [/admin/i, /catalog/i, /configuration/i, /observability/i, /administrative navigation/i],
+    fileKeywords: [/adminconsolenav/i, /admin-console/i, /catalog/i, /configuracion/i],
+    defaultImpact: "Administrative users must interpret technical categories before they can complete a basic task.",
+    defaultFix: "Rename technical labels in the admin menu, group related settings, and surface the highest-frequency options first."
   },
   {
     name: "Forms",
@@ -165,7 +262,7 @@ const STOP_WORDS = new Set([
 ]);
 
 const IGNORED_FINDINGS = [/ai insights were unavailable for this cycle/i, /^none$/i];
-const NAVIGATION_COMPONENTS = new Set<SupportedComponent>(["Dashboard", "Sidebar", "Workspace", "Search"]);
+const NAVIGATION_COMPONENTS = new Set<SupportedComponent>(["Sidebar", "AdminConsoleNav", "Workspace"]);
 const FORM_COMPONENTS = new Set<SupportedComponent>(["Forms", "Dropdowns"]);
 
 function normalizeMarkdownText(value: string): string {
@@ -209,6 +306,13 @@ function extractListItems(lines: string[]): string[] {
     .filter(Boolean);
 }
 
+function canonicalizeUXText(value: string): string {
+  return normalizeMarkdownText(value)
+    .replace(/^\[(high|medium|low)\]\s*/i, "")
+    .replace(/^(the|a|an)\s+/i, "")
+    .toLowerCase();
+}
+
 function dedupeItems(items: string[]): string[] {
   const seen = new Set<string>();
   const deduped: string[] = [];
@@ -218,7 +322,7 @@ function dedupeItems(items: string[]): string[] {
       continue;
     }
 
-    const normalized = item.toLowerCase();
+    const normalized = canonicalizeUXText(item);
     if (seen.has(normalized)) {
       continue;
     }
@@ -269,6 +373,23 @@ function tokenize(value: string): string[] {
     .filter((token) => token.length > 3 && !STOP_WORDS.has(token));
 }
 
+function isOperationalUXText(value: string): boolean {
+  const normalized = normalizeMarkdownText(value);
+  if (!normalized) {
+    return false;
+  }
+
+  if (NON_OPERATIONAL_UX_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return false;
+  }
+
+  return OPERATIONAL_UX_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+export function filterOperationalUXItems(items: string[]): string[] {
+  return dedupeItems(items.filter((item) => isOperationalUXText(item)));
+}
+
 function scoreRecommendation(issue: string, recommendation: string, component: SupportedComponent): number {
   let score = 0;
   const issueTokens = new Set(tokenize(issue));
@@ -299,10 +420,28 @@ async function scanFrontendComponents(targetPath: string): Promise<FrontendCatal
     return undefined;
   }
 
-  const files = (await walkDirectory(sourceRoot))
-    .filter((file) => /\.(tsx?|jsx?)$/i.test(file))
-    .map((file) => file.replace(/^\.\/+/, ""))
-    .sort((left, right) => left.localeCompare(right));
+  const preferredDirectories = PRIORITY_UI_DIRECTORIES.map((directory) => path.join(sourceRoot, directory)).filter((directory) =>
+    existsSync(directory)
+  );
+  const fallbackDirectories = FALLBACK_UI_DIRECTORIES.map((directory) => path.join(sourceRoot, directory)).filter((directory) =>
+    existsSync(directory)
+  );
+  const directoriesToScan = [...preferredDirectories, ...fallbackDirectories];
+  const scanRoots = directoriesToScan.length > 0 ? directoriesToScan : [sourceRoot];
+  const files = uniqueSorted(
+    (
+      await Promise.all(
+        scanRoots.map(async (scanRoot) =>
+          (await walkDirectory(scanRoot))
+            .filter((file) => /\.(tsx?|jsx?)$/i.test(file))
+            .map((file) => path.relative(sourceRoot, path.join(scanRoot, file.replace(/^\.\/+/, ""))))
+        )
+      )
+    )
+      .flat()
+      .map((file) => file.replace(/\\/g, "/"))
+      .filter((file) => !file.startsWith(".."))
+  ).sort((left, right) => left.localeCompare(right));
 
   if (files.length === 0) {
     return undefined;
@@ -317,6 +456,7 @@ async function scanFrontendComponents(targetPath: string): Promise<FrontendCatal
 
   return {
     sourceRoot,
+    scannedDirectories: scanRoots.map((directory) => path.relative(targetPath, directory) || "."),
     files,
     byComponent
   };
@@ -343,7 +483,22 @@ function selectComponent(issue: string, catalog: FrontendCatalog): ComponentRule
 }
 
 function selectComponentFile(rule: ComponentRule, catalog: FrontendCatalog): string {
-  const directMatch = catalog.byComponent[rule.name]?.[0];
+  const priorityFiles = ERP_FRONTEND_PRIORITY_FILES[rule.name] as string[];
+  const directMatch = preferredFilesForComponent(rule.name, catalog).sort((left, right) => {
+    const leftExactPriority = priorityFiles.includes(left) ? 0 : 1;
+    const rightExactPriority = priorityFiles.includes(right) ? 0 : 1;
+    if (leftExactPriority !== rightExactPriority) {
+      return leftExactPriority - rightExactPriority;
+    }
+
+    const leftSurfacePriority = /^(app|domains|shared\/ui|components|features|layouts|pages)\//.test(left) ? 0 : 1;
+    const rightSurfacePriority = /^(app|domains|shared\/ui|components|features|layouts|pages)\//.test(right) ? 0 : 1;
+    if (leftSurfacePriority !== rightSurfacePriority) {
+      return leftSurfacePriority - rightSurfacePriority;
+    }
+
+    return left.localeCompare(right);
+  })[0];
   if (directMatch) {
     return `src/${directMatch}`;
   }
@@ -477,7 +632,9 @@ function filterNavigationTasks(tasks: UXTask[]): UXTask[] {
   return tasks.filter(
     (task) =>
       NAVIGATION_COMPONENTS.has(task.component) ||
-      /navigation|sidebar|menu|workflow|workspace|search|filter/i.test(`${task.problem} ${task.proposedChange}`)
+      /navigation|sidebar|menu|admin menu|workflow visibility|next action|wizard/i.test(
+        `${task.problem} ${task.proposedChange}`
+      )
   );
 }
 
@@ -485,7 +642,9 @@ function filterFormTasks(tasks: UXTask[]): UXTask[] {
   return tasks.filter(
     (task) =>
       FORM_COMPONENTS.has(task.component) ||
-      /form|field|validation|label|dropdown|select|helper text/i.test(`${task.problem} ${task.proposedChange}`)
+      /form|field|validation|label|dropdown|select|helper text|technical labels|uuid|identifier/i.test(
+        `${task.problem} ${task.proposedChange}`
+      )
   );
 }
 
@@ -546,6 +705,73 @@ ${tasks.map((task) => renderTaskReport(task)).join("\n")}
 `;
 }
 
+function renderWorkspaceImprovements(
+  tasks: UXTask[],
+  inputFiles: string[],
+  analysis: FrontendUsabilityAnalysis
+): string {
+  if (!analysis.frontendDetected) {
+    return renderEmptyReport(
+      "Workspace Improvements",
+      inputFiles,
+      "No frontend UI surface was detected, so no workspace-level usability improvements were generated."
+    );
+  }
+
+  const priorityTasks = tasks.filter((task) =>
+    ["Workspace", "Dashboard", "Sidebar", "Tables", "Search", "Dropdowns"].includes(task.component)
+  );
+  const frictionPoints = dedupeItems([
+    ...analysis.findings,
+    ...priorityTasks.map((task) => task.problem)
+  ]);
+  const actionPlan = dedupeItems([
+    ...analysis.recommendations,
+    ...priorityTasks.map((task) => task.proposedChange)
+  ]);
+
+  return `# Workspace Improvements
+
+Generated from:
+${inputFiles.map((file) => `- ${file}`).join("\n")}
+
+## User Persona
+
+- Government administrative staff
+- Non-technical
+- Repetitive form-based work
+- Needs minimal steps and clear language
+
+## Operating Rule
+
+- Prioritize functional usability over visual design.
+
+## UI Surfaces Reviewed
+
+- Scanned directories: ${analysis.scannedDirectories.join(", ") || "none detected"}
+- Routed pages: ${analysis.pageCount}
+- Layout shells: ${analysis.layoutCount}
+- Sidebar files: ${analysis.componentFiles.Sidebar.length}
+- Dashboard files: ${analysis.componentFiles.Dashboard.length}
+- Workspace files: ${analysis.componentFiles.Workspace.length}
+- Form files: ${analysis.componentFiles.Forms.length}
+- Table files: ${analysis.componentFiles.Tables.length}
+- Search/filter files: ${analysis.componentFiles.Search.length}
+
+## Priority Friction Points
+
+${renderBulletList(frictionPoints)}
+
+## Improvement Directions
+
+${renderBulletList(actionPlan)}
+
+## Component-Level Tasks
+
+${priorityTasks.length > 0 ? priorityTasks.map((task) => renderTaskReport(task)).join("\n") : "No workspace-level tasks were derived from the current UX inputs.\n"}
+`;
+}
+
 function buildTasks(findings: string[], recommendations: string[], catalog: FrontendCatalog): UXTask[] {
   const dedupedTasks: UXTask[] = [];
   const seen = new Set<string>();
@@ -564,7 +790,7 @@ function buildTasks(findings: string[], recommendations: string[], catalog: Fron
       effort
     };
 
-    const dedupeKey = `${task.component}::${task.problem.toLowerCase()}`;
+    const dedupeKey = `${task.component}::${canonicalizeUXText(task.problem)}::${canonicalizeUXText(task.proposedChange)}`;
     if (seen.has(dedupeKey)) {
       continue;
     }
@@ -592,8 +818,485 @@ export function formatComponentCatalog(inputs: UXImprovementInputs): string {
   return [
     `Frontend detected: ${inputs.frontendDetected ? "yes" : "no"}`,
     `Source root: ${inputs.scannedSourceRoot ?? "not detected"}`,
+    `Scanned directories: ${inputs.scannedDirectories.join(", ") || "none detected"}`,
     "Component file hints:",
     ...lines
+  ].join("\n");
+}
+
+function countMatches(value: string, pattern: RegExp): number {
+  const matches = value.match(pattern);
+  return matches?.length ?? 0;
+}
+
+interface FrontendFileEntry {
+  file: string;
+  content: string;
+}
+
+function preferredFilesForComponent(component: SupportedComponent, catalog: FrontendCatalog): string[] {
+  const preferred = ERP_FRONTEND_PRIORITY_FILES[component].filter((candidate) => catalog.files.includes(candidate));
+  const fallback = (catalog.byComponent[component] ?? []).filter((candidate) => !preferred.includes(candidate));
+  return [...preferred, ...fallback];
+}
+
+function getFileEntry(entries: FrontendFileEntry[], file: string): FrontendFileEntry | undefined {
+  return entries.find((entry) => entry.file === file);
+}
+
+function createDeterministicTask(
+  component: SupportedComponent,
+  file: string,
+  problem: string,
+  userImpact: string,
+  proposedChange: string,
+  risk: RiskLevel,
+  effort: UXTask["effort"]
+): UXTask {
+  return {
+    component,
+    file: `src/${file}`,
+    problem,
+    userImpact,
+    proposedChange,
+    risk,
+    effort
+  };
+}
+
+function dedupeTasks(tasks: UXTask[]): UXTask[] {
+  const seen = new Set<string>();
+  const deduped: UXTask[] = [];
+
+  for (const task of tasks) {
+    const key = [
+      task.component,
+      task.file,
+      canonicalizeUXText(task.problem),
+      canonicalizeUXText(task.proposedChange)
+    ].join("::");
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    deduped.push(task);
+  }
+
+  return deduped;
+}
+
+function buildERPFrontendTasks(catalog: FrontendCatalog, contents: FrontendFileEntry[]): UXTask[] {
+  const tasks: UXTask[] = [];
+  const pageCount = contents.filter(
+    (entry) => /(^|\/)app\/.+\/page\.(tsx?|jsx?)$/i.test(entry.file) || /(^|\/)pages\/.+\.(tsx?|jsx?)$/i.test(entry.file)
+  ).length;
+
+  const sidebarFile = preferredFilesForComponent("Sidebar", catalog)[0];
+  if (sidebarFile) {
+    const sidebarEntry = getFileEntry(contents, sidebarFile);
+    const navItems = sidebarEntry ? countMatches(sidebarEntry.content, /href:\s*['"]/g) : 0;
+    const sections = sidebarEntry ? countMatches(sidebarEntry.content, /title:\s*['"]/g) : 0;
+    if (navItems >= 18 || pageCount >= 40) {
+      tasks.push(
+        createDeterministicTask(
+          "Sidebar",
+          sidebarFile,
+          `The navigation is spread across ${pageCount} routed screens, ${sections} sidebar sections, and ${navItems} menu options, which is too dense for non-technical administrative users.`,
+          "Users lose orientation and need extra clicks before they reach the procurement step they use every day.",
+          "Group menu entries by procurement workflow, surface the top 5-7 daily actions first, and rename ambiguous labels in plain administrative language.",
+          "high",
+          "High"
+        )
+      );
+    }
+  }
+
+  const adminConsoleNavFile = preferredFilesForComponent("AdminConsoleNav", catalog)[0];
+  if (adminConsoleNavFile) {
+    const adminEntry = getFileEntry(contents, adminConsoleNavFile);
+    const adminItems = adminEntry ? countMatches(adminEntry.content, /href:\s*['"]/g) : 0;
+    if (adminItems >= 5) {
+      tasks.push(
+        createDeterministicTask(
+          "AdminConsoleNav",
+          adminConsoleNavFile,
+          `The administrative navigation exposes ${adminItems} peer options with technical labels such as observability and importaciones, which forces staff to interpret system categories instead of business tasks.`,
+          "Administrative users spend more time deciding where to click and are more likely to choose the wrong configuration area.",
+          "Rename technical options in user language, move the most frequent actions first, and reserve advanced technical tools for a secondary group.",
+          "medium",
+          "Low"
+        )
+      );
+    }
+  }
+
+  const workspaceFile = preferredFilesForComponent("Workspace", catalog)[0];
+  if (workspaceFile) {
+    const workspaceEntry = getFileEntry(contents, workspaceFile);
+    const linkedPanels = workspaceEntry ? countMatches(workspaceEntry.content, /Panel\b/g) : 0;
+    if (linkedPanels >= 5) {
+      tasks.push(
+        createDeterministicTask(
+          "Workspace",
+          workspaceFile,
+          "The main workspace combines timeline, risks, financial tracking, inventory status, and the procedure wizard in one dense surface, which weakens the visibility of the current step and next action.",
+          "Staff have to infer what to do next and may leave the workspace without completing the required procurement step.",
+          "Make the current step and next action persistent at the top of the workspace and move secondary monitoring panels below the primary workflow area.",
+          "high",
+          "High"
+        )
+      );
+    }
+  }
+
+  const wizardFile = preferredFilesForComponent("Workspace", catalog).find((file) => /ProcedimientoWizard\.tsx$/i.test(file));
+  if (wizardFile) {
+    const wizardEntry = getFileEntry(contents, wizardFile);
+    const quickActions = wizardEntry ? countMatches(wizardEntry.content, /Acciones rápidas|QuickAction|getWizardQuickActionTarget/g) : 0;
+    if (quickActions > 0) {
+      tasks.push(
+        createDeterministicTask(
+          "Workspace",
+          wizardFile,
+          "The procedure wizard exposes multiple quick actions and stage switches before explaining the current step in plain language.",
+          "Users can jump to the wrong procurement stage or miss the legally required order of actions.",
+          "Show a short explanation of the current stage, keep one primary next action visible, and demote secondary quick actions behind clearer labels.",
+          "medium",
+          "Medium"
+        )
+      );
+    }
+  }
+
+  const nextStepCardFile = preferredFilesForComponent("Workspace", catalog).find((file) => /NextStepCard\.tsx$/i.test(file));
+  if (nextStepCardFile) {
+    tasks.push(
+      createDeterministicTask(
+        "Workspace",
+        nextStepCardFile,
+        "The next-step card uses generic text like 'Siguiente paso recomendado' and 'Ir al paso', which does not explain the concrete action that the operator must complete.",
+        "Users do not understand why the next step matters or what they should complete before leaving the screen.",
+        "Rewrite the heading and button copy in action-oriented language and add a one-line explanation of the pending administrative task.",
+        "low",
+        "Low"
+      )
+    );
+  }
+
+  const necesidadFormFile = preferredFilesForComponent("Forms", catalog).find((file) => /NecesidadForm\.tsx$/i.test(file));
+  if (necesidadFormFile) {
+    const necesidadEntry = getFileEntry(contents, necesidadFormFile);
+    const technicalLabels = necesidadEntry
+      ? [
+          "expedienteId",
+          "area_id",
+          "clasificacion_bien",
+          "justificacion"
+        ].filter((label) => necesidadEntry.content.includes(label))
+      : [];
+    if (technicalLabels.length >= 3) {
+      tasks.push(
+        createDeterministicTask(
+          "Forms",
+          necesidadFormFile,
+          `NecesidadForm still shows technical labels (${technicalLabels.join(", ")}) instead of plain-language procurement terms.`,
+          "Users have to translate internal field names before they can capture the request correctly.",
+          "Replace technical labels with administrative language, keep helper text next to complex fields, and convert area or classification capture to guided selection where possible.",
+          "medium",
+          "Low"
+        )
+      );
+    }
+  }
+
+  const inventoryAjustesFile = preferredFilesForComponent("Forms", catalog).find((file) => /InventoryAjustesPanel\.tsx$/i.test(file));
+  if (inventoryAjustesFile) {
+    const inventoryEntry = getFileEntry(contents, inventoryAjustesFile);
+    const technicalSignals = inventoryEntry
+      ? [
+          "inventarioId",
+          "productoId",
+          "expedienteId",
+          "correlationId",
+          "Endpoints contractuales"
+        ].filter((signal) => inventoryEntry.content.includes(signal))
+      : [];
+    if (technicalSignals.length >= 4) {
+      tasks.push(
+        createDeterministicTask(
+          "Forms",
+          inventoryAjustesFile,
+          "InventoryAjustesPanel exposes UUID-driven fields and endpoint terminology in the main form, which is too technical for day-to-day inventory adjustments.",
+          "Operators need technical identifiers before they can register an adjustment, increasing delays and data-entry mistakes.",
+          "Rename technical fields in user language, remove endpoint references from the main panel, and guide users through inventory, product, and expediente selection with clearer prompts.",
+          "high",
+          "Medium"
+        )
+      );
+    }
+  }
+
+  const finanzasPanelFile = preferredFilesForComponent("Forms", catalog).find((file) => /FinanzasPanel\.tsx$/i.test(file));
+  if (finanzasPanelFile) {
+    const finanzasEntry = getFileEntry(contents, finanzasPanelFile);
+    const idPrompts = finanzasEntry
+      ? ["contratoId", "ordenCompraId", "Capture contratoId"].filter((token) => finanzasEntry.content.includes(token))
+      : [];
+    if (idPrompts.length >= 2) {
+      tasks.push(
+        createDeterministicTask(
+          "Forms",
+          finanzasPanelFile,
+          "FinanzasPanel starts the financial flow by asking for contratoId and ordenCompraId, which assumes technical knowledge instead of business context.",
+          "Administrative staff cannot continue unless they already know internal identifiers for the contract and purchase order.",
+          "Rename identifiers in plain language, explain the required context, and guide the user to select the contract or order before loading the financial flow.",
+          "high",
+          "Medium"
+        )
+      );
+    }
+  }
+
+  const institutionalDashboardFile = preferredFilesForComponent("Dashboard", catalog).find((file) =>
+    /InstitutionalDashboard\.tsx$/i.test(file)
+  );
+  if (institutionalDashboardFile) {
+    const institutionalEntry = getFileEntry(contents, institutionalDashboardFile);
+    const viewCount = institutionalEntry ? countMatches(institutionalEntry.content, /key:\s*['"][a-z-]+['"]/g) : 0;
+    if (viewCount >= 4) {
+      tasks.push(
+        createDeterministicTask(
+          "Dashboard",
+          institutionalDashboardFile,
+          `InstitutionalDashboard mixes ${viewCount} dashboard views before showing the most urgent public procurement actions.`,
+          "Users must choose between several monitoring perspectives before they understand what is pending today.",
+          "Prioritize pending actions and alerts in the first view, simplify tab labels, and use plain-language summaries that explain what requires attention now.",
+          "medium",
+          "Medium"
+        )
+      );
+    }
+  }
+
+  const operativeDashboardFile = preferredFilesForComponent("Dashboard", catalog).find((file) => /OperativeDashboard\.tsx$/i.test(file));
+  if (operativeDashboardFile) {
+    const operativeEntry = getFileEntry(contents, operativeDashboardFile);
+    const tableCount = operativeEntry ? countMatches(operativeEntry.content, /Table\b/g) : 0;
+    const searchSignals = operativeEntry ? countMatches(operativeEntry.content, /\bsearch\b|\bfilter\b/i) : 0;
+    if (tableCount >= 2 && searchSignals === 0) {
+      tasks.push(
+        createDeterministicTask(
+          "Dashboard",
+          operativeDashboardFile,
+          "The operative dashboard shows multiple tables and alert lists without an obvious filtering or narrowing mechanism for high-priority records.",
+          "Users must scan every row manually to find the expediente or supplier that needs attention.",
+          "Introduce clearer prioritization labels and a visible filter/search entry point for the highest-volume dashboard lists.",
+          "medium",
+          "Medium"
+        )
+      );
+    }
+  }
+
+  return dedupeTasks(tasks);
+}
+
+function buildGenericOperationalTasks(
+  catalog: FrontendCatalog,
+  counts: {
+    pageCount: number;
+    layoutCount: number;
+    rawInputSignals: number;
+    guidedSelectionSignals: number;
+    searchSignals: number;
+    filterSignals: number;
+    errorSignals: number;
+  }
+): UXTask[] {
+  const tasks: UXTask[] = [];
+  const sidebarFile = preferredFilesForComponent("Sidebar", catalog)[0];
+  const formFile = preferredFilesForComponent("Forms", catalog)[0];
+  const workspaceFile = preferredFilesForComponent("Workspace", catalog)[0];
+  const tableFile = preferredFilesForComponent("Tables", catalog)[0];
+
+  if (sidebarFile && (counts.pageCount >= 3 || counts.layoutCount >= 1)) {
+    tasks.push(
+      createDeterministicTask(
+        "Sidebar",
+        sidebarFile,
+        `Navigation is spread across ${counts.pageCount} routed screens and shared layout shells, which is difficult for non-technical operators to scan quickly.`,
+        "Users need extra clicks before they can reach the screen required for their daily task.",
+        "Reduce menu depth, group the most common actions together, and keep workflow labels explicit.",
+        "medium",
+        "Medium"
+      )
+    );
+  }
+
+  if (formFile && counts.rawInputSignals > counts.guidedSelectionSignals) {
+    tasks.push(
+      createDeterministicTask(
+        "Forms",
+        formFile,
+        "Form workflows appear to rely more on raw text inputs than guided selectors, increasing typing and classification errors.",
+        "Users take longer to complete repetitive forms and are more likely to enter inconsistent data.",
+        "Replace raw IDs or category inputs with dropdowns, comboboxes, or clearer field labels where valid values are known.",
+        "medium",
+        "Low"
+      )
+    );
+  }
+
+  if (workspaceFile) {
+    tasks.push(
+      createDeterministicTask(
+        "Workspace",
+        workspaceFile,
+        "Workspace views need clearer workflow visibility so users can see the current step, next action, and completion state.",
+        "Users lose context while moving through a multi-step operational flow.",
+        "Keep the current stage and next action visible in the same workspace and demote secondary information.",
+        "medium",
+        "Medium"
+      )
+    );
+  }
+
+  if (formFile && counts.errorSignals < counts.rawInputSignals) {
+    tasks.push(
+      createDeterministicTask(
+        "Forms",
+        formFile,
+        "Error guidance appears weaker than the amount of data entry required in the interface.",
+        "Users do not know how to fix mistakes when a form fails validation.",
+        "Show inline validation and plain-language error messages next to the affected field.",
+        "medium",
+        "Low"
+      )
+    );
+  }
+
+  if (tableFile && counts.searchSignals + counts.filterSignals === 0) {
+    tasks.push(
+      createDeterministicTask(
+        "Tables",
+        tableFile,
+        "Record-heavy views do not expose an obvious search or filter entry point.",
+        "Users must inspect rows manually to locate the correct record.",
+        "Add a visible search/filter control near the main table surface and support lookup by business terms.",
+        "medium",
+        "Medium"
+      )
+    );
+  }
+
+  return dedupeTasks(tasks);
+}
+
+function buildOperationalUsabilityFindings(
+  catalog: FrontendCatalog,
+  counts: {
+    pageCount: number;
+    layoutCount: number;
+    rawInputSignals: number;
+    guidedSelectionSignals: number;
+    searchSignals: number;
+    filterSignals: number;
+    errorSignals: number;
+  },
+  suggestedTasks: UXTask[]
+): FrontendUsabilityAnalysis {
+  return {
+    frontendDetected: true,
+    sourceRoot: catalog.sourceRoot,
+    scannedDirectories: catalog.scannedDirectories,
+    pageCount: counts.pageCount,
+    layoutCount: counts.layoutCount,
+    componentFiles: catalog.byComponent,
+    findings: filterOperationalUXItems(suggestedTasks.map((task) => task.problem)),
+    recommendations: filterOperationalUXItems(suggestedTasks.map((task) => task.proposedChange)),
+    suggestedTasks
+  };
+}
+
+export async function analyzeFrontendUsability(targetPath: string): Promise<FrontendUsabilityAnalysis> {
+  const catalog = await scanFrontendComponents(targetPath);
+
+  if (!catalog) {
+    return {
+      frontendDetected: false,
+      scannedDirectories: [],
+      pageCount: 0,
+      layoutCount: 0,
+      componentFiles: emptyComponentCatalog(),
+      findings: [],
+      recommendations: [],
+      suggestedTasks: []
+    };
+  }
+
+  const contents = await Promise.all(
+    catalog.files.map(async (file) => ({
+      file,
+      content: await readTextSafe(path.join(catalog.sourceRoot, file))
+    }))
+  );
+
+  const counts = contents.reduce(
+    (summary, entry) => {
+      if (/(^|\/)app\/.+\/page\.(tsx?|jsx?)$/i.test(entry.file) || /(^|\/)pages\/.+\.(tsx?|jsx?)$/i.test(entry.file)) {
+        summary.pageCount += 1;
+      }
+
+      if (/(^|\/)layout\.(tsx?|jsx?)$/i.test(entry.file)) {
+        summary.layoutCount += 1;
+      }
+
+      summary.rawInputSignals += countMatches(entry.content, /<input\b|<textarea\b|\bInput\b/g);
+      summary.guidedSelectionSignals += countMatches(entry.content, /<select\b|\bSelect\b|\bCombobox\b|\bAutocomplete\b|\bDropdown\b/g);
+      summary.searchSignals += countMatches(entry.content, /\bsearch\b|\bSearch(Input|Bar|Field)?\b/g);
+      summary.filterSignals += countMatches(entry.content, /\bfilter\b|\bFilter(s|Panel|Bar)?\b/g);
+      summary.errorSignals += countMatches(
+        entry.content,
+        /\berror\b|\bvalidation\b|\bhelperText\b|\bFormMessage\b|\baria-invalid\b|\bAlert\b/g
+      );
+
+      return summary;
+    },
+    {
+      pageCount: 0,
+      layoutCount: 0,
+      rawInputSignals: 0,
+      guidedSelectionSignals: 0,
+      searchSignals: 0,
+      filterSignals: 0,
+      errorSignals: 0
+    }
+  );
+
+  const erpTasks = buildERPFrontendTasks(catalog, contents);
+  const suggestedTasks = erpTasks.length > 0 ? erpTasks : buildGenericOperationalTasks(catalog, counts);
+  return buildOperationalUsabilityFindings(catalog, counts, suggestedTasks);
+}
+
+export function formatFrontendUsabilityAnalysis(analysis: FrontendUsabilityAnalysis): string {
+  const componentLines = Object.entries(analysis.componentFiles).map(([component, files]) => {
+    const sample = files.length > 0 ? files.slice(0, 3).join(", ") : "none detected";
+    return `- ${component}: ${sample}`;
+  });
+
+  return [
+    `Frontend detected: ${analysis.frontendDetected ? "yes" : "no"}`,
+    `Source root: ${analysis.sourceRoot ?? "not detected"}`,
+    `Scanned directories: ${analysis.scannedDirectories.join(", ") || "none detected"}`,
+    `Routed pages: ${analysis.pageCount}`,
+    `Layouts: ${analysis.layoutCount}`,
+    `Deterministic UX tasks: ${analysis.suggestedTasks.length}`,
+    "Priority UI surfaces:",
+    ...componentLines,
+    `Operational findings: ${analysis.findings.join(" | ") || "None"}`,
+    `Operational recommendations: ${analysis.recommendations.join(" | ") || "None"}`
   ].join("\n");
 }
 
@@ -618,10 +1321,11 @@ export async function loadUXImprovementInputs(context: ProjectContext): Promise<
 
   return {
     inputFiles: existingInputs,
-    findings: dedupeItems(findings),
-    recommendations: dedupeItems(recommendations),
+    findings: filterOperationalUXItems(findings),
+    recommendations: filterOperationalUXItems(recommendations),
     frontendDetected: Boolean(catalog),
     scannedSourceRoot: catalog?.sourceRoot,
+    scannedDirectories: catalog?.scannedDirectories ?? [],
     componentFiles: catalog?.byComponent ?? emptyComponentCatalog()
   };
 }
@@ -639,26 +1343,36 @@ export async function generateUXImprovementArtifacts(
 ): Promise<UXImprovementArtifacts> {
   const inputs = await loadUXImprovementInputs(context);
   const catalog = await scanFrontendComponents(context.targetPath);
+  const usabilityAnalysis = await analyzeFrontendUsability(context.targetPath);
   const inputFiles = options.inputFiles ?? inputs.inputFiles;
-  const findings = dedupeItems(options.findings ?? inputs.findings);
-  const recommendations = dedupeItems(options.recommendations ?? inputs.recommendations);
+  const findings = filterOperationalUXItems([
+    ...(options.findings ?? inputs.findings),
+    ...usabilityAnalysis.findings
+  ]);
+  const recommendations = filterOperationalUXItems([
+    ...(options.recommendations ?? inputs.recommendations),
+    ...usabilityAnalysis.recommendations
+  ]);
 
   const implementationTasksPath = path.join(context.outputPath, "UX_IMPLEMENTATION_TASKS.md");
   const navigationRestructurePath = path.join(context.outputPath, "NAVIGATION_RESTRUCTURE.md");
   const formSimplificationTasksPath = path.join(context.outputPath, "FORM_SIMPLIFICATION_TASKS.md");
+  const workspaceImprovementsPath = path.join(context.outputPath, "WORKSPACE_IMPROVEMENTS.md");
 
   if (!catalog) {
     const message = options.emptyMessage ?? "No frontend component surface was detected under src, so no UI implementation tasks were generated.";
     await Promise.all([
       writeFileEnsured(implementationTasksPath, renderEmptyReport("UX Implementation Tasks", inputFiles, message)),
       writeFileEnsured(navigationRestructurePath, renderEmptyReport("Navigation Restructure", inputFiles, message)),
-      writeFileEnsured(formSimplificationTasksPath, renderEmptyReport("Form Simplification Tasks", inputFiles, message))
+      writeFileEnsured(formSimplificationTasksPath, renderEmptyReport("Form Simplification Tasks", inputFiles, message)),
+      writeFileEnsured(workspaceImprovementsPath, renderEmptyReport("Workspace Improvements", inputFiles, message))
     ]);
 
     return {
       implementationTasksPath,
       navigationRestructurePath,
       formSimplificationTasksPath,
+      workspaceImprovementsPath,
       tasks: [],
       navigationTasks: [],
       formTasks: [],
@@ -668,7 +1382,11 @@ export async function generateUXImprovementArtifacts(
   }
 
   const taskSeeds = findings.length > 0 ? findings : recommendations;
-  const tasks = buildTasks(taskSeeds, recommendations, catalog);
+  const coveredProblems = new Set(usabilityAnalysis.suggestedTasks.map((task) => canonicalizeUXText(task.problem)));
+  const inferredTasks = buildTasks(taskSeeds, recommendations, catalog).filter(
+    (task) => !coveredProblems.has(canonicalizeUXText(task.problem))
+  );
+  const tasks = dedupeTasks([...usabilityAnalysis.suggestedTasks, ...inferredTasks]);
   const navigationTasks = filterNavigationTasks(tasks);
   const formTasks = filterFormTasks(tasks);
 
@@ -677,13 +1395,15 @@ export async function generateUXImprovementArtifacts(
     await Promise.all([
       writeFileEnsured(implementationTasksPath, renderEmptyReport("UX Implementation Tasks", inputFiles, message)),
       writeFileEnsured(navigationRestructurePath, renderEmptyReport("Navigation Restructure", inputFiles, message)),
-      writeFileEnsured(formSimplificationTasksPath, renderEmptyReport("Form Simplification Tasks", inputFiles, message))
+      writeFileEnsured(formSimplificationTasksPath, renderEmptyReport("Form Simplification Tasks", inputFiles, message)),
+      writeFileEnsured(workspaceImprovementsPath, renderWorkspaceImprovements(tasks, inputFiles, usabilityAnalysis))
     ]);
   } else {
     await Promise.all([
       writeFileEnsured(implementationTasksPath, renderTaskReportFile(tasks, inputFiles)),
       writeFileEnsured(navigationRestructurePath, renderNavigationRestructure(navigationTasks, inputFiles)),
-      writeFileEnsured(formSimplificationTasksPath, renderFormSimplificationTasks(formTasks, inputFiles))
+      writeFileEnsured(formSimplificationTasksPath, renderFormSimplificationTasks(formTasks, inputFiles)),
+      writeFileEnsured(workspaceImprovementsPath, renderWorkspaceImprovements(tasks, inputFiles, usabilityAnalysis))
     ]);
   }
 
@@ -691,6 +1411,7 @@ export async function generateUXImprovementArtifacts(
     implementationTasksPath,
     navigationRestructurePath,
     formSimplificationTasksPath,
+    workspaceImprovementsPath,
     tasks,
     navigationTasks,
     formTasks,

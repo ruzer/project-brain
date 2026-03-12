@@ -62,12 +62,14 @@ describe("UX implementation task generation", () => {
       `# ERP Frontend Usability Findings
 
 ## Main usability problems
+- The README onboarding guide is missing and new developers may need more setup instructions.
 - Navigation relies on a crowded sidebar that hides the most common actions.
 - Several forms use technical terminology and unclear labels that increase data entry errors.
 
 ## Recommendations
-1. Reduce sidebar depth and group navigation items around the main operator workflows.
-2. Simplify forms, clarify field labels, and add inline helper text for complex fields.
+1. Add a better onboarding guide for developers.
+2. Reduce sidebar depth and group navigation items around the main operator workflows.
+3. Simplify forms, clarify field labels, and add inline helper text for complex fields.
 `
     );
     await writeFileEnsured(
@@ -86,9 +88,11 @@ describe("UX implementation task generation", () => {
     const tasksPath = path.join(outputDir, "UX_IMPLEMENTATION_TASKS.md");
     const navigationPath = path.join(outputDir, "NAVIGATION_RESTRUCTURE.md");
     const formsPath = path.join(outputDir, "FORM_SIMPLIFICATION_TASKS.md");
+    const workspacePath = path.join(outputDir, "WORKSPACE_IMPROVEMENTS.md");
     const content = await readFile(tasksPath, "utf8");
     const navigationContent = await readFile(navigationPath, "utf8");
     const formContent = await readFile(formsPath, "utf8");
+    const workspaceContent = await readFile(workspacePath, "utf8");
 
     expect(report.outputPath.endsWith("UX_IMPLEMENTATION_TASKS.md")).toBe(true);
     expect(content).toContain("# UX Implementation Tasks");
@@ -103,6 +107,7 @@ describe("UX implementation task generation", () => {
     expect(content).toContain("Proposed change:");
     expect(content).toContain("Risk:");
     expect(content).toContain("Effort:");
+    expect(content).not.toContain("README");
     expect(navigationContent).toContain("# Navigation Restructure");
     expect(navigationContent).toContain("## Friction Points");
     expect(navigationContent).toContain("Component: Sidebar");
@@ -110,6 +115,9 @@ describe("UX implementation task generation", () => {
     expect(formContent).toContain("# Form Simplification Tasks");
     expect(formContent).toContain("## Form Friction Points");
     expect(formContent).toContain("Component: Forms");
+    expect(workspaceContent).toContain("# Workspace Improvements");
+    expect(workspaceContent).toContain("Government administrative staff");
+    expect(workspaceContent).toContain("Prioritize functional usability over visual design.");
     expect(existsSync(path.join(repoDir, "UX_IMPLEMENTATION_TASKS.md"))).toBe(false);
   });
 });

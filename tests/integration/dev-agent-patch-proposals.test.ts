@@ -88,6 +88,15 @@ User impact: Users take longer to complete tasks and are more likely to submit i
 Proposed change: Clarify field labels, replace technical terms, and add inline helper text for complex fields.
 Risk: high
 Effort: Medium
+
+### Task
+Component: Sidebar
+File: src/server/auth.ts
+Problem: Authentication flow should be rewritten as part of the navigation cleanup.
+User impact: None
+Proposed change: Change server-side auth logic.
+Risk: high
+Effort: High
 `
     );
 

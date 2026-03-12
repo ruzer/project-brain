@@ -1,5 +1,8 @@
 import { BaseAgent } from "../base-agent";
 import {
+  analyzeFrontendUsability,
+  filterOperationalUXItems,
+  formatFrontendUsabilityAnalysis,
   formatComponentCatalog,
   generateUXImprovementArtifacts,
   loadUXImprovementInputs
@@ -32,13 +35,15 @@ export class UXImprovementAgent extends BaseAgent {
 
   private async buildPlan(context: ProjectContext): Promise<UXImprovementPlan> {
     const inputs = await loadUXImprovementInputs(context);
+    const analysis = await analyzeFrontendUsability(context.targetPath);
 
     if (!inputs.frontendDetected) {
       return {
         evaluation: {
           title: "UX Improvement Tasks",
-          summary: "UXImprovementAgent skipped task generation because no frontend source surface was detected under src.",
-          findings: ["No frontend component surface was detected under src."],
+          summary:
+            "UXImprovementAgent skipped task generation because no frontend source surface was detected under the expected UI roots.",
+          findings: ["No frontend component surface was detected under src/components, src/app, src/layouts, src/pages, or src/features."],
           recommendations: [],
           riskLevel: "low"
         },
@@ -71,21 +76,28 @@ export class UXImprovementAgent extends BaseAgent {
       task: "ux-improvement",
       systemPromptFile: "ux-improvement.system.md",
       analysisPrompt: [
-        "Read the existing UX reports and turn them into implementation-ready frontend improvements.",
+        "Convert operational UX findings into implementation-ready frontend improvements for ERP users.",
+        "Primary users: non-technical government administrative staff performing repetitive form-based work.",
+        "Critical rule: prioritize functional usability and workflow clarity over visual design.",
+        "Ignore README files, onboarding guides, installation instructions, and developer documentation.",
+        "Do not propose backend, OpenAPI, Prisma, or server-side changes.",
         `Source reports: ${inputs.inputFiles.join(", ")}.`,
+        formatFrontendUsabilityAnalysis(analysis),
         formatComponentCatalog(inputs),
         `Findings: ${summarizeItems(inputs.findings, "None")}.`,
         `Recommendations: ${summarizeItems(inputs.recommendations, "None")}.`
       ].join("\n")
     });
 
-    const mergedFindings = combineRecommendations(
-      inputs.findings,
-      aiResponse?.issues.map(normalizeAIInsight) ?? []
+    const mergedFindings = filterOperationalUXItems(
+      combineRecommendations(inputs.findings, analysis.findings, aiResponse?.issues.map(normalizeAIInsight) ?? [])
     );
-    const mergedRecommendations = combineRecommendations(
-      inputs.recommendations,
-      aiResponse?.proposed_improvements.map(normalizeAIImprovement) ?? []
+    const mergedRecommendations = filterOperationalUXItems(
+      combineRecommendations(
+        inputs.recommendations,
+        analysis.recommendations,
+        aiResponse?.proposed_improvements.map(normalizeAIImprovement) ?? []
+      )
     );
 
     const summary =
@@ -100,8 +112,10 @@ export class UXImprovementAgent extends BaseAgent {
         findings: mergedFindings,
         recommendations: mergedRecommendations,
         riskLevel: mergeRiskLevel(
-          mergedFindings.some((finding) => /workflow|navigation|cognitive load/i.test(finding)) ? "medium" : "low",
-          aiResponse?.issues ?? []
+          mergedFindings.some((finding) => /workflow|navigation|form|table|dashboard|search|error clarity/i.test(finding))
+            ? "medium"
+            : "low",
+          (aiResponse?.issues ?? []).filter((issue) => filterOperationalUXItems([normalizeAIInsight(issue)]).length > 0)
         )
       },
       findings: mergedFindings,
@@ -136,7 +150,8 @@ export class UXImprovementAgent extends BaseAgent {
       recommendations: plan.evaluation.recommendations.length,
       reportPath: artifacts.implementationTasksPath,
       navigationPath: artifacts.navigationRestructurePath,
-      formPath: artifacts.formSimplificationTasksPath
+      formPath: artifacts.formSimplificationTasksPath,
+      workspacePath: artifacts.workspaceImprovementsPath
     });
 
     return {
