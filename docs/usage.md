@@ -17,63 +17,64 @@ npm test
 ## Analyze a repository
 
 ```bash
-node dist/cli/project-brain.js analyze /path/to/repo
+project-brain analyze /path/to/repo
 ```
 
-Ollama inference defaults to `180000` ms (3 minutes). Override it for heavier AI analysis runs:
+Write generated output outside the target repository:
 
 ```bash
-node dist/cli/project-brain.js analyze /path/to/repo --ollama-timeout 240000
+project-brain analyze /path/to/repo --output /path/to/output
 ```
 
-With governance trigger selection:
+Use a longer Ollama timeout for local AI analysis:
 
 ```bash
-node dist/cli/project-brain.js analyze /path/to/repo --trigger weekly-review
+project-brain analyze /path/to/repo --ollama-timeout 240000
 ```
 
-You can also set the timeout outside the CLI:
+## Typical ERP-GOB workflow
+
+Frontend usability cycle:
 
 ```bash
-OLLAMA_TIMEOUT_MS=240000 node dist/cli/project-brain.js analyze /path/to/repo
+project-brain analyze \
+  "/Users/ruzer/ProyectosLocales/ERP/Sistema Unificado/erp-gob-frontend" \
+  --output "/Users/ruzer/ProyectosLocales/Agentes/pb-output/erp-gob-frontend" \
+  --trigger repository-change \
+  --ollama-timeout 240000 \
+  --verbose
 ```
 
-If neither the CLI flag nor the environment variable is set, `project-brain` reads `ollama_timeout_ms` from [/Users/ruzer/ProyectosLocales/Agentes/config/models.json](/Users/ruzer/ProyectosLocales/Agentes/config/models.json) and falls back to `180000`.
-
-## Initialize memory only
+Workspace-wide analysis:
 
 ```bash
-node dist/cli/project-brain.js init /path/to/repo
+project-brain analyze \
+  "/Users/ruzer/ProyectosLocales/ERP/Sistema Unificado" \
+  --output "/Users/ruzer/ProyectosLocales/Agentes/pb-output/erp-gob-workspace" \
+  --trigger repository-change
 ```
 
-## Run the agents suite
+## Prompt template usage
+
+The templates in `prompts/context_templates/` are intended for external repositories. Use them when a coding agent needs high-quality context before proposing frontend, UX, architecture, or performance changes.
+
+Recommended process:
+
+1. Run `project-brain analyze` against the target repository.
+2. Collect the generated `AI_CONTEXT`, reports, and task artifacts.
+3. Combine those artifacts with one of the prompt templates.
+4. Use the resulting context in the downstream coding agent.
+
+## Common commands
 
 ```bash
-node dist/cli/project-brain.js agents /path/to/repo
+project-brain init /path/to/repo
+project-brain agents /path/to/repo
+project-brain weekly /path/to/repo
+project-brain report /path/to/output
+project-brain models
 ```
 
-## Generate weekly artifacts
+## Safety
 
-```bash
-node dist/cli/project-brain.js weekly /path/to/repo
-```
-
-## Record human learning feedback
-
-```bash
-node dist/cli/project-brain.js feedback /path/to/repo \
-  --agent qa-agent \
-  --task task_qa-agent_123 \
-  --context "Weekly review validation" \
-  --problem "No automated tests detected" \
-  --action "Escalated smoke-test baseline proposal" \
-  --outcome SUCCESSFUL_PROPOSAL
-```
-
-## Show generated artifacts
-
-```bash
-node dist/cli/project-brain.js report /path/to/repo
-```
-
-If you want to keep generated output outside the target repository, add `--output /separate/folder`.
+`project-brain` analyzes and proposes. It does not modify target code automatically. Generated patch proposals remain review-only.

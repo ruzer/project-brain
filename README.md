@@ -1,41 +1,65 @@
 # project-brain
 
-`project-brain` is a modular TypeScript engine for analyzing software repositories, building durable project context, running specialist agents, and generating non-destructive recommendations.
+`project-brain` is a non-destructive repository analysis engine for software systems and AI-assisted engineering workflows. It analyzes target repositories, builds durable context, runs specialist agents, generates reports, and produces review-only patch proposals.
+
+The current primary use case is external repository analysis for ERP-GOB, especially:
+
+- frontend usability analysis
+- architecture review
+- backlog generation
+- context prompt generation for downstream coding agents
+
+`project-brain` never applies code changes automatically to the target repository.
 
 ## What it does
 
-- Scans repository structure, languages, frameworks, APIs, infrastructure, dependencies, and testing signals
-- Creates persistent `AI_CONTEXT` memory for the analyzed project
-- Runs a hierarchy of specialist agents coordinated by a `ChiefAgent`
-- Adds an `Agent Self-Governance System` with task planning, agent supervision, learnings, proposals, and structured inter-agent messaging
-- Produces reports for product, QA, security, observability, legal, optimization, documentation, and development concerns
-- Generates weekly and risk reports without changing the target codebase
+- scans repositories and workspaces
+- builds `AI_CONTEXT` memory artifacts
+- runs specialist agents for QA, UX, architecture, optimization, documentation, and development review
+- generates backlog-style implementation tasks
+- produces review-only patch proposals for human approval
+- exports reusable prompt templates for external repositories such as ERP-GOB
 
-## Principles
+## Architecture
 
-- Never modify target code automatically
-- Understand the project before acting
-- Persist context and learned findings
-- Keep decisions, rules, errors, and learnings visible
-- Stay portable across stacks and repository layouts
+Current runtime flow:
+
+```text
+CLI -> Orchestrator -> Discovery -> Context Builder -> Agents -> Reports -> Patch Proposals
+```
+
+Key modules:
+
+- `agents/`: specialist analysis agents
+- `analysis/`: repository scanners and deterministic analyzers
+- `core/`: orchestration, routing, and runtime coordination
+- `memory/`: context, learnings, and persistent analysis state
+- `tools/`: patch proposal and repo inspection utilities
+- `cli/`: command entrypoints
+- `prompts/context_templates/`: reusable prompt templates for external projects
+
+The codebase intentionally keeps the existing top-level runtime layout for compatibility. A physical move into `src/` was not performed because that would require import-path and build refactors.
 
 ## Repository layout
 
 ```text
 project-brain/
-  core/
-    orchestrator/
-    discovery_engine/
-    context_builder/
-    scheduler/
   agents/
   analysis/
-  memory/
-  tools/
-  integrations/
-  reports/templates/
   cli/
+  config/
+  core/
   docs/
+  governance/
+  integrations/
+  memory/
+  orchestrator/
+  prompts/
+    agent_prompts/
+    context_templates/
+  scripts/
+  shared/
+  tools/
 ```
 
 ## Installation
@@ -52,82 +76,70 @@ npm run typecheck
 npm test
 ```
 
+## Typical usage
+
+Analyze a repository in place:
+
+```bash
+project-brain analyze /path/to/repo
+```
+
+Keep generated artifacts outside the target repository:
+
+```bash
+project-brain analyze /path/to/repo --output /path/to/output
+```
+
+Analyze ERP-GOB frontend with local AI routing:
+
+```bash
+project-brain analyze \
+  "/Users/ruzer/ProyectosLocales/ERP/Sistema Unificado/erp-gob-frontend" \
+  --output "/Users/ruzer/ProyectosLocales/Agentes/pb-output/erp-gob-frontend" \
+  --trigger repository-change \
+  --ollama-timeout 240000 \
+  --verbose
+```
+
 ## Local AI runtime
 
-`project-brain` uses Ollama for offline inference. The Ollama request timeout is configurable and defaults to `180000` ms (3 minutes).
+`project-brain` supports local inference through Ollama and can operate offline when local models are available.
 
-Timeout precedence is:
+Timeout precedence:
 
-- `project-brain analyze --ollama-timeout <ms>`
-- `OLLAMA_TIMEOUT_MS`
-- `config/models.json` -> `ollama_timeout_ms`
-- built-in default: `180000`
+1. `project-brain analyze --ollama-timeout <ms>`
+2. `OLLAMA_TIMEOUT_MS`
+3. `config/models.json -> ollama_timeout_ms`
+4. built-in default: `180000`
 
-Example:
-
-```bash
-project-brain analyze /path/to/repo --ollama-timeout 240000
-```
-
-CI is defined in [.github/workflows/ci.yml](/Users/ruzer/ProyectosLocales/Agentes/.github/workflows/ci.yml) and runs install, typecheck, build, and tests.
-
-## CLI
+Inspect configured models:
 
 ```bash
-project-brain init /path/to/repo
-project-brain analyze /path/to/repo
-project-brain analyze /path/to/repo --ollama-timeout 240000
-project-brain agents /path/to/repo
-project-brain weekly /path/to/repo
-project-brain report /path/to/repo
-project-brain feedback /path/to/repo --agent qa-agent --task <taskId> --context "..." --problem "..." --action "..." --outcome SUCCESSFUL_PROPOSAL
+project-brain models
 ```
 
-All commands accept `--output <dir>`. By default, output is written into the target repository so `AI_CONTEXT`, `reports`, and generated `docs` live with the analyzed project.
+## Prompt-first workflow
 
-## Example
+The repository now includes reusable templates in `prompts/context_templates/` for:
 
-```bash
-node dist/cli/project-brain.js analyze /Users/me/ERP-GOB
-```
+- frontend analysis
+- UX improvement planning
+- architecture review
+- performance review
 
-To extend Ollama inference time for larger repositories:
+These templates are designed to be copied into other repositories or used as context prompts for coding agents working on ERP-GOB.
 
-```bash
-node dist/cli/project-brain.js analyze /Users/me/ERP-GOB --ollama-timeout 240000
-```
+## Safety rules
 
-Expected outputs inside the target repository:
+- never modify target repositories automatically
+- keep patch proposals review-only
+- never push from generated proposals
+- require human approval before implementation
+- constrain generated patches to the approved surface area
 
-- `AI_CONTEXT/PROJECT_MODEL.md`
-- `AI_CONTEXT/ARCHITECTURE_MAP.md`
-- `AI_CONTEXT/API_MAP.md`
-- `AI_CONTEXT/DEPENDENCY_GRAPH.md`
-- `AI_CONTEXT/STACK_PROFILE.md`
-- `AI_CONTEXT/AGENTS.md`
-- `AI_CONTEXT/ARCHITECTURE.md`
-- `AI_CONTEXT/CONTEXT.md`
-- `AI_CONTEXT/RULES.md`
-- `AI_CONTEXT/ERRORS.md`
-- `AI_CONTEXT/DECISIONS.md`
-- `AI_CONTEXT/TASKS.md`
-- `AI_CONTEXT/STYLE_GUIDE.md`
-- `AI_CONTEXT/LEARNINGS.md`
-- `reports/weekly_system_report.md`
-- `reports/risk_report.md`
-- `reports/improvement_proposals.md`
-- `reports/agent_activity_report.md`
-- `reports/improvement_report.md`
-- `docs/architecture.md`
-- `docs/api.md`
-- `docs/runbook.md`
-- `tasks/backlog.json`
-- `tasks/active.json`
-- `tasks/completed.json`
-- `tasks/messages.json`
-- `memory/learnings/index.json`
-- `proposal/improved_<agent>.md`
+## Documentation
 
-## Architecture
-
-See [docs/architecture.md](/Users/ruzer/ProyectosLocales/Agentes/docs/architecture.md), [docs/usage.md](/Users/ruzer/ProyectosLocales/Agentes/docs/usage.md), and [docs/agent-self-governance.md](/Users/ruzer/ProyectosLocales/Agentes/docs/agent-self-governance.md).
+- [Architecture](/Users/ruzer/ProyectosLocales/Agentes/docs/architecture.md)
+- [Agents](/Users/ruzer/ProyectosLocales/Agentes/docs/agents.md)
+- [Usage](/Users/ruzer/ProyectosLocales/Agentes/docs/usage.md)
+- [ERP-GOB Integration](/Users/ruzer/ProyectosLocales/Agentes/docs/erp-gob-integration.md)

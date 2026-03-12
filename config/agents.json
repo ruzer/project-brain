@@ -1,0 +1,66 @@
+{
+  "runtime_prompt_directory": "agents/prompts",
+  "export_prompt_directory": "prompts/agent_prompts",
+  "agents": [
+    {
+      "id": "product-owner-agent",
+      "display_name": "ProductOwnerAgent",
+      "allowed_actions": ["analyze", "propose", "report"]
+    },
+    {
+      "id": "qa-agent",
+      "display_name": "QAAgent",
+      "allowed_actions": ["analyze", "propose", "report"]
+    },
+    {
+      "id": "ux-agent",
+      "display_name": "UXAgent",
+      "allowed_actions": ["analyze", "propose", "report"]
+    },
+    {
+      "id": "ux-improvement-agent",
+      "display_name": "UXImprovementAgent",
+      "allowed_actions": ["analyze", "propose", "report"]
+    },
+    {
+      "id": "security-agent",
+      "display_name": "SecurityAgent",
+      "allowed_actions": ["analyze", "propose", "report"]
+    },
+    {
+      "id": "dependency-agent",
+      "display_name": "DependencyAgent",
+      "allowed_actions": ["analyze", "propose", "report"]
+    },
+    {
+      "id": "architecture-agent",
+      "display_name": "ArchitectureAgent",
+      "allowed_actions": ["analyze", "propose", "report"]
+    },
+    {
+      "id": "observability-agent",
+      "display_name": "ObservabilityAgent",
+      "allowed_actions": ["analyze", "propose", "report"]
+    },
+    {
+      "id": "legal-agent",
+      "display_name": "LegalAgent",
+      "allowed_actions": ["analyze", "propose", "report"]
+    },
+    {
+      "id": "optimization-agent",
+      "display_name": "OptimizationAgent",
+      "allowed_actions": ["analyze", "propose", "report"]
+    },
+    {
+      "id": "documentation-agent",
+      "display_name": "DocumentationAgent",
+      "allowed_actions": ["analyze", "propose", "report"]
+    },
+    {
+      "id": "dev-agent",
+      "display_name": "DevAgent",
+      "allowed_actions": ["analyze", "propose", "report"]
+    }
+  ]
+}
