@@ -8,7 +8,7 @@ export class OptimizationAgent extends BaseAgent {
   }
 
   protected async evaluate(context: ProjectContext): Promise<AgentEvaluation> {
-    const findings: string[] = [];
+    const deterministicFindings: string[] = [];
     const recommendations: string[] = [];
     const { discovery } = context;
     const dependencyCount = new Set(
@@ -16,26 +16,43 @@ export class OptimizationAgent extends BaseAgent {
     ).size;
 
     if (dependencyCount > 80) {
-      findings.push(`High dependency surface detected (${dependencyCount} unique packages).`);
+      deterministicFindings.push(`High dependency surface detected (${dependencyCount} unique packages).`);
       recommendations.push("Review unused packages and separate production dependencies from tooling dependencies.");
     }
 
     if (discovery.infrastructure.includes("Dockerfile") && discovery.dockerStageCount === 1) {
-      findings.push("Docker builds appear single-stage, which often increases image size and attack surface.");
+      deterministicFindings.push("Docker builds appear single-stage, which often increases image size and attack surface.");
       recommendations.push("Adopt a multi-stage Docker build to reduce runtime footprint.");
     }
 
     if (discovery.structure.sourceFileCount > 250 && discovery.ci.providers.length === 0) {
-      findings.push("Large codebase detected without CI acceleration or caching signals.");
+      deterministicFindings.push("Large codebase detected without CI acceleration or caching signals.");
       recommendations.push("Add build caching, parallel quality gates, and dependency pruning to keep cycle time stable.");
     }
 
-    return {
-      title: "Optimization Report",
-      summary: "OptimizationAgent evaluated dependency weight and deployment efficiency signals.",
-      findings,
-      recommendations,
-      riskLevel: findings.length >= 2 ? "medium" : findings.length === 1 ? "low" : "low"
-    };
+    const aiResponse = await this.requestStructuredAI(context, {
+      task: "performance-analysis",
+      systemPromptFile: "optimization.system.md",
+      analysisPrompt: [
+        `Review the repository for low-risk optimization opportunities.`,
+        `Unique dependencies: ${dependencyCount}.`,
+        `Infrastructure: ${discovery.infrastructure.join(", ") || "Not detected"}.`,
+        `Docker stages: ${discovery.dockerStageCount}.`,
+        `Source files: ${discovery.structure.sourceFileCount}.`,
+        `CI providers: ${discovery.ci.providers.join(", ") || "Not detected"}.`,
+        `Deterministic findings: ${deterministicFindings.join(" | ") || "None"}.`
+      ].join("\n")
+    });
+
+    return this.buildAIEnhancedEvaluation(
+      {
+        title: "Optimization Report",
+        summary: "OptimizationAgent evaluated dependency weight and deployment efficiency signals.",
+        deterministicFindings,
+        recommendations,
+        riskLevel: deterministicFindings.length >= 2 ? "medium" : deterministicFindings.length === 1 ? "low" : "low"
+      },
+      aiResponse
+    );
   }
 }

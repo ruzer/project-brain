@@ -15,8 +15,12 @@ describe("AgentRegistry", () => {
 
     expect(allAgents.length).toBeGreaterThanOrEqual(10);
     expect(allAgents.some((agent) => agent.descriptor.agentId === "qa-agent")).toBe(true);
+    expect(allAgents.some((agent) => agent.descriptor.agentId === "ux-agent")).toBe(true);
+    expect(allAgents.some((agent) => agent.descriptor.agentId === "ux-improvement-agent")).toBe(true);
     expect(weeklyAgents.some((agent) => agent.descriptor.agentId === "architecture-agent")).toBe(true);
     expect(weeklyAgents.some((agent) => agent.descriptor.agentId === "documentation-agent")).toBe(true);
+    expect(weeklyAgents.some((agent) => agent.descriptor.agentId === "ux-agent")).toBe(true);
+    expect(weeklyAgents.some((agent) => agent.descriptor.agentId === "ux-improvement-agent")).toBe(true);
     expect(architectureReviewAgents.some((agent) => agent.descriptor.agentId === "architecture-agent")).toBe(true);
     expect(architectureReviewAgents.some((agent) => agent.descriptor.agentId === "dev-agent")).toBe(true);
     expect(securityAuditAgents.some((agent) => agent.descriptor.agentId === "security-agent")).toBe(true);

@@ -47,12 +47,16 @@ function priorityFor(trigger: GovernanceTrigger, agentId: string): AgentTask["pr
     "repository-change": {
       "dev-agent": "high",
       "qa-agent": "high",
+      "ux-agent": "high",
+      "ux-improvement-agent": "high",
       "documentation-agent": "normal",
       "security-agent": "normal"
     },
     "weekly-review": {
       "product-owner-agent": "high",
       "qa-agent": "high",
+      "ux-agent": "high",
+      "ux-improvement-agent": "high",
       "dev-agent": "high",
       "architecture-agent": "high",
       "optimization-agent": "high",

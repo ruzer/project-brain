@@ -1,15 +1,25 @@
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ProjectBrainOrchestrator } from "../../core/orchestrator/main";
 import { cleanupDir, createTempOutputDir, fixtureRepoPath } from "../helpers";
 
 describe("Orchestrator integration", () => {
   const cleanupTargets: string[] = [];
+  const originalOllamaTimeout = process.env.OLLAMA_TIMEOUT_MS;
+
+  beforeEach(() => {
+    process.env.OLLAMA_TIMEOUT_MS = "1";
+  });
 
   afterEach(async () => {
+    if (originalOllamaTimeout === undefined) {
+      delete process.env.OLLAMA_TIMEOUT_MS;
+    } else {
+      process.env.OLLAMA_TIMEOUT_MS = originalOllamaTimeout;
+    }
     await Promise.all(cleanupTargets.splice(0).map((target) => cleanupDir(target)));
   });
 

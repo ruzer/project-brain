@@ -22,8 +22,8 @@ export class AutonomousScheduler {
       {
         cadence: "event-driven",
         trigger: "repository-change",
-        agentIds: ["product-owner-agent", "qa-agent", "dev-agent", "documentation-agent"],
-        rationale: "Immediate repo-change review focused on regressions, maintainability, and docs drift."
+        agentIds: ["product-owner-agent", "qa-agent", "ux-agent", "ux-improvement-agent", "dev-agent", "documentation-agent"],
+        rationale: "Immediate repo-change review focused on regressions, usability friction, frontend follow-up tasks, maintainability, and docs drift."
       },
       {
         cadence: "daily",
@@ -34,8 +34,8 @@ export class AutonomousScheduler {
       {
         cadence: "weekly",
         trigger: "weekly-review",
-        agentIds: ["product-owner-agent", "qa-agent", "dev-agent", "optimization-agent", "documentation-agent"],
-        rationale: "Weekly platform review of product friction, quality, performance, and documentation."
+        agentIds: ["product-owner-agent", "qa-agent", "ux-agent", "ux-improvement-agent", "dev-agent", "optimization-agent", "documentation-agent"],
+        rationale: "Weekly platform review of product friction, UX risk, frontend implementation backlog, quality, performance, and documentation."
       },
       {
         cadence: "weekly",

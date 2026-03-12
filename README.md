@@ -52,6 +52,23 @@ npm run typecheck
 npm test
 ```
 
+## Local AI runtime
+
+`project-brain` uses Ollama for offline inference. The Ollama request timeout is configurable and defaults to `180000` ms (3 minutes).
+
+Timeout precedence is:
+
+- `project-brain analyze --ollama-timeout <ms>`
+- `OLLAMA_TIMEOUT_MS`
+- `config/models.json` -> `ollama_timeout_ms`
+- built-in default: `180000`
+
+Example:
+
+```bash
+project-brain analyze /path/to/repo --ollama-timeout 240000
+```
+
 CI is defined in [.github/workflows/ci.yml](/Users/ruzer/ProyectosLocales/Agentes/.github/workflows/ci.yml) and runs install, typecheck, build, and tests.
 
 ## CLI
@@ -59,6 +76,7 @@ CI is defined in [.github/workflows/ci.yml](/Users/ruzer/ProyectosLocales/Agente
 ```bash
 project-brain init /path/to/repo
 project-brain analyze /path/to/repo
+project-brain analyze /path/to/repo --ollama-timeout 240000
 project-brain agents /path/to/repo
 project-brain weekly /path/to/repo
 project-brain report /path/to/repo
@@ -71,6 +89,12 @@ All commands accept `--output <dir>`. By default, output is written into the tar
 
 ```bash
 node dist/cli/project-brain.js analyze /Users/me/ERP-GOB
+```
+
+To extend Ollama inference time for larger repositories:
+
+```bash
+node dist/cli/project-brain.js analyze /Users/me/ERP-GOB --ollama-timeout 240000
 ```
 
 Expected outputs inside the target repository:

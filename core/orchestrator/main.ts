@@ -209,6 +209,7 @@ export class ProjectBrainOrchestrator {
       learningFiles: files.filter((file) => file.startsWith("memory/learnings/")),
       knowledgeFiles: files.filter((file) => file.startsWith("memory/knowledge_graph/")),
       taskFiles: files.filter((file) => file.startsWith("tasks/")),
+      patchProposalFiles: files.filter((file) => file.startsWith("patch_proposals/")),
       proposalFiles: files.filter(
         (file) => file.startsWith("docs/proposals/") || file.startsWith("proposal/")
       )

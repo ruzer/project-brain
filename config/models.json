@@ -1,0 +1,18 @@
+{
+  "local_model": "qwen2.5-coder:7b",
+  "fallback_model": "deepseek-coder:6.7b",
+  "reasoning_model": "llama3.1:8b",
+  "cloud_provider": "openai",
+  "cloud_model": "gpt-4.1",
+  "ollama_timeout_ms": 180000,
+  "offline_mode": true,
+  "routing": {
+    "ux-audit": "local",
+    "ux-improvement": "local",
+    "qa-analysis": "local",
+    "performance-analysis": "local",
+    "documentation-review": "local",
+    "architecture-review": "cloud",
+    "large-refactor-analysis": "cloud"
+  }
+}

@@ -12,6 +12,7 @@ export type GovernanceTrigger =
 export type AgentMessageType = "ANALYSIS_RESULT" | "PROPOSAL" | "QUESTION" | "FEEDBACK" | "ESCALATION";
 export type TaskState = "NEW" | "ANALYZING" | "PROPOSED" | "APPROVED" | "REJECTED" | "ARCHIVED";
 export type ProposalStatus = "APPROVED" | "REQUIRES_HUMAN_REVIEW" | "REJECTED";
+export type WorkflowStage = "ANALYZE" | "PROPOSE" | "PROPOSE_PATCHES" | "REPORT";
 export type LearningOutcome =
   | "SUCCESSFUL_PROPOSAL"
   | "REJECTED_PROPOSAL"
@@ -125,6 +126,7 @@ export interface ProjectContext {
   learningDir: string;
   taskBoardDir: string;
   proposalDir: string;
+  patchProposalDir: string;
 }
 
 export interface RepositoryTarget {
@@ -219,6 +221,20 @@ export interface ProposalArtifact {
   createdAt: string;
 }
 
+export interface PatchProposalArtifact {
+  patchId: string;
+  agentId: string;
+  stage: WorkflowStage;
+  title: string;
+  filePath: string;
+  targetFile: string;
+  sourceTaskPath: string;
+  riskLevel: RiskLevel;
+  effort: "Low" | "Medium" | "High";
+  requiresHumanApproval: boolean;
+  createdAt: string;
+}
+
 export interface AgentExecutionRecord {
   agentId: string;
   taskId: string;
@@ -235,6 +251,7 @@ export interface GovernanceSummary {
   evaluations: AgentEvaluationScore[];
   learnings: LearningRecord[];
   proposals: ProposalArtifact[];
+  patchProposals?: PatchProposalArtifact[];
   executionRecords: AgentExecutionRecord[];
   agentActivityReportPath: string;
   improvementReportPath: string;
@@ -246,6 +263,9 @@ export interface AgentEvaluation {
   findings: string[];
   recommendations: string[];
   riskLevel: RiskLevel;
+  deterministicFindings?: string[];
+  aiInsights?: string[];
+  combinedRecommendations?: string[];
   content?: string;
 }
 
@@ -257,6 +277,7 @@ export interface ReportManifest {
   taskFiles: string[];
   proposalFiles: string[];
   knowledgeFiles?: string[];
+  patchProposalFiles?: string[];
 }
 
 export interface OrchestrationResult {

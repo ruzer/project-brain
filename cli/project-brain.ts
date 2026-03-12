@@ -3,13 +3,24 @@ import path from "node:path";
 
 import { Command } from "commander";
 
+import { AIRouter } from "../core/ai_router/router";
 import { ProjectBrainOrchestrator } from "../core/orchestrator/main";
 import { setLoggerOptions, StructuredLogger } from "../shared/logger";
 import type { EcosystemAnalysisResult, GovernanceTrigger, LearningOutcome, OrchestrationResult } from "../shared/types";
 
 const program = new Command();
 const orchestrator = new ProjectBrainOrchestrator();
+const aiRouter = new AIRouter();
 const logger = new StructuredLogger("cli");
+
+function parseTimeoutMs(value: string): number {
+  const timeoutMs = Number(value);
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new Error(`Invalid Ollama timeout: ${value}. Expected a positive integer in milliseconds.`);
+  }
+
+  return Math.trunc(timeoutMs);
+}
 
 function resolveTarget(target: string): string {
   return path.resolve(process.cwd(), target);
@@ -50,6 +61,31 @@ program
   .version("0.1.0");
 
 program
+  .command("models")
+  .description("Show available local models and configured cloud model routing.")
+  .action(async () => {
+    const inventory = await aiRouter.listModels();
+    console.log("Local models available:");
+    if (inventory.localModelsAvailable.length === 0) {
+      console.log("- None detected via Ollama");
+    } else {
+      for (const model of inventory.localModelsAvailable) {
+        console.log(`- ${model}`);
+      }
+    }
+    console.log(`Configured local model: ${inventory.config.localModel}`);
+    console.log(`Configured fallback model: ${inventory.config.fallbackModel}`);
+    console.log("Cloud model configured:");
+    console.log(`- provider: ${inventory.cloudConfigured.provider}`);
+    console.log(`- model: ${inventory.cloudConfigured.model}`);
+    console.log("Routing rules:");
+    for (const [task, route] of Object.entries(inventory.routing)) {
+      console.log(`- ${task}: ${route}`);
+    }
+    console.log(`Offline ready: ${inventory.offlineReady ? "yes" : "no"}`);
+  });
+
+program
   .command("init")
   .argument("[target]", "Repository to initialize", ".")
   .option("-o, --output <dir>", "Output directory")
@@ -65,9 +101,13 @@ program
   .argument("<target>", "Repository to analyze")
   .option("-o, --output <dir>", "Output directory")
   .option("-t, --trigger <trigger>", "Governance trigger")
+  .option("--ollama-timeout <ms>", "Override Ollama inference timeout in milliseconds")
   .option("--verbose", "Print structured runtime logs")
-  .action(async (target: string, options: { output?: string; trigger?: string; verbose?: boolean }) => {
+  .action(async (target: string, options: { output?: string; trigger?: string; ollamaTimeout?: string; verbose?: boolean }) => {
     setLoggerOptions({ verbose: Boolean(options.verbose) });
+    if (options.ollamaTimeout) {
+      process.env.OLLAMA_TIMEOUT_MS = String(parseTimeoutMs(options.ollamaTimeout));
+    }
     const targetPath = resolveTarget(target);
     const outputPath = resolveOutput(targetPath, options.output);
     logger.info("CLI analyze invoked", {
@@ -76,7 +116,8 @@ program
       command: "analyze",
       targetPath,
       outputPath,
-      trigger: resolveTrigger(options.trigger)
+      trigger: resolveTrigger(options.trigger),
+      ollamaTimeoutMs: process.env.OLLAMA_TIMEOUT_MS ? Number(process.env.OLLAMA_TIMEOUT_MS) : undefined
     });
     const result = await orchestrator.analyzeScope(targetPath, outputPath, resolveTrigger(options.trigger));
 

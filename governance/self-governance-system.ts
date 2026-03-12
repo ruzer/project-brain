@@ -74,6 +74,12 @@ function defaultAffectedFiles(agentId: string, context: ProjectContext): string[
   if (agentId === "optimization-agent") {
     return [...manifests.slice(0, 2), ...infraFiles.slice(0, 2)];
   }
+  if (agentId === "ux-agent") {
+    return ["README.md", "docs/", ...apiFiles.slice(0, 2)];
+  }
+  if (agentId === "ux-improvement-agent") {
+    return ["src/", "reports/ux_report.md", "reports/usability_findings.md", "reports/workflow_analysis.md"];
+  }
   if (agentId === "product-owner-agent") {
     return ["README.md", "docs/", "AI_CONTEXT/"];
   }
@@ -125,6 +131,12 @@ function expectedBenefitFor(agentId: string, riskLevel: AgentReport["riskLevel"]
   }
   if (agentId === "optimization-agent") {
     return `Reduce runtime and delivery friction while preserving system safety.${suffix}`;
+  }
+  if (agentId === "ux-agent") {
+    return `Improve usability, workflow clarity, and operator comprehension without changing governed backend logic.${suffix}`;
+  }
+  if (agentId === "ux-improvement-agent") {
+    return `Translate UX findings into actionable frontend implementation tasks without changing governed backend logic.${suffix}`;
   }
   if (agentId === "product-owner-agent") {
     return `Make engineering effort align better with user and operator value.${suffix}`;

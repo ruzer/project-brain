@@ -1,7 +1,9 @@
 import { BaseAgent } from "../base-agent";
 import { analyzeDevelopmentArchitecture } from "../../tools/dev_analysis_tools";
+import { generatePatchProposals } from "../../tools/patch_proposal_tools";
+import { readTextSafe, writeFileEnsured } from "../../shared/fs-utils";
 
-import type { AgentEvaluation, ProjectContext } from "../../shared/types";
+import type { AgentEvaluation, AgentReport, PatchProposalArtifact, ProjectContext } from "../../shared/types";
 
 function renderList(items: string[]): string {
   return items.length > 0 ? items.map((item) => `- ${item}`).join("\n") : "- None";
@@ -56,6 +58,59 @@ function renderRiskList(
 export class DevAgent extends BaseAgent {
   constructor() {
     super("dev-agent", "dev_architecture_analysis.md");
+  }
+
+  async run(context: ProjectContext): Promise<AgentReport> {
+    const report = await super.run(context);
+    const patchProposals = await generatePatchProposals(context, this.agentId);
+
+    await this.appendPatchProposalStage(report, patchProposals);
+
+    if (patchProposals.length > 0) {
+      this.logger.info("Workflow stage completed", {
+        action: "workflow_stage_complete",
+        stage: "PROPOSE_PATCHES",
+        repoName: context.repoName,
+        patchProposals: patchProposals.length,
+        patchProposalDir: context.patchProposalDir
+      });
+    } else {
+      this.logger.info("Workflow stage skipped", {
+        action: "workflow_stage_skipped",
+        stage: "PROPOSE_PATCHES",
+        repoName: context.repoName,
+        reason: "No UX_IMPLEMENTATION_TASKS.md source file was available for patch proposal generation."
+      });
+    }
+
+    return report;
+  }
+
+  private async appendPatchProposalStage(report: AgentReport, patchProposals: PatchProposalArtifact[]): Promise<void> {
+    const currentContent = await readTextSafe(report.outputPath);
+    const stageContent =
+      patchProposals.length > 0
+        ? `## PROPOSE_PATCHES
+
+- Source: UX_IMPLEMENTATION_TASKS.md
+- Human approval required: yes
+- Patch proposals generated: ${patchProposals.length}
+
+${renderList(
+            patchProposals.map(
+              (proposal) => `${proposal.patchId} -> ${proposal.targetFile} | path=${proposal.filePath}`
+            )
+          )}
+`
+        : `## PROPOSE_PATCHES
+
+- Source: UX_IMPLEMENTATION_TASKS.md
+- Human approval required: yes
+- Patch proposals generated: 0
+- Stage result: skipped because no implementation task report was available.
+`;
+
+    await writeFileEnsured(report.outputPath, `${currentContent.trim()}\n\n${stageContent}`);
   }
 
   protected async evaluate(context: ProjectContext): Promise<AgentEvaluation> {

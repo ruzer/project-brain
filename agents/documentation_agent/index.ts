@@ -63,21 +63,37 @@ export class DocumentationAgent extends BaseAgent {
   }
 
   protected async evaluate(context: ProjectContext): Promise<AgentEvaluation> {
-    const findings: string[] = [];
+    const deterministicFindings: string[] = [];
     const recommendations: string[] = [];
 
     if (!context.discovery.files.some((file) => file.startsWith("docs/"))) {
-      findings.push("No documentation directory was detected in the target repository.");
+      deterministicFindings.push("No documentation directory was detected in the target repository.");
       recommendations.push("Maintain generated docs alongside hand-written operating knowledge.");
     }
 
-    return {
-      title: "Documentation Report",
-      summary: "DocumentationAgent generated architecture, API, and runbook documents.",
-      findings,
-      recommendations,
-      riskLevel: findings.length > 0 ? "low" : "low"
-    };
+    const aiResponse = await this.requestStructuredAI(context, {
+      task: "documentation-review",
+      systemPromptFile: "documentation.system.md",
+      analysisPrompt: [
+        `Review the repository documentation posture and operational readability.`,
+        `Docs detected: ${context.discovery.files.some((file) => file.startsWith("docs/")) ? "yes" : "no"}.`,
+        `API files: ${context.discovery.apiFiles.join(", ") || "None"}.`,
+        `CI providers: ${context.discovery.ci.providers.join(", ") || "Not detected"}.`,
+        `Observability: logging=${context.discovery.logging.frameworks.join(", ") || "none"}, metrics=${context.discovery.metrics.tools.join(", ") || "none"}.`,
+        `Deterministic findings: ${deterministicFindings.join(" | ") || "None"}.`
+      ].join("\n")
+    });
+
+    return this.buildAIEnhancedEvaluation(
+      {
+        title: "Documentation Report",
+        summary: "DocumentationAgent generated architecture, API, and runbook documents.",
+        deterministicFindings,
+        recommendations,
+        riskLevel: "low"
+      },
+      aiResponse
+    );
   }
 
   async run(context: ProjectContext): Promise<AgentReport> {

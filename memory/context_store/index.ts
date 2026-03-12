@@ -259,6 +259,7 @@ export async function initializeProjectMemory(
   learningDir: string;
   taskBoardDir: string;
   proposalDir: string;
+  patchProposalDir: string;
 }> {
   const memoryDir = path.join(outputPath, "AI_CONTEXT");
   const runtimeMemoryDir = path.join(outputPath, "memory");
@@ -267,6 +268,7 @@ export async function initializeProjectMemory(
   const docsDir = path.join(outputPath, "docs");
   const taskBoardDir = path.join(outputPath, "tasks");
   const proposalDir = path.join(docsDir, "proposals");
+  const patchProposalDir = path.join(outputPath, "patch_proposals");
 
   await ensureDir(memoryDir);
   await ensureDir(runtimeMemoryDir);
@@ -274,8 +276,10 @@ export async function initializeProjectMemory(
   await ensureDir(reportsDir);
   await ensureDir(docsDir);
   await fs.rm(proposalDir, { recursive: true, force: true });
+  await fs.rm(patchProposalDir, { recursive: true, force: true });
   await ensureDir(taskBoardDir);
   await ensureDir(proposalDir);
+  await ensureDir(patchProposalDir);
 
   logger.info("Initialized filesystem memory directories", {
     component: "memory",
@@ -283,7 +287,8 @@ export async function initializeProjectMemory(
     repoName: discovery.repoName,
     outputPath,
     reportsDir,
-    proposalDir
+    proposalDir,
+    patchProposalDir
   });
 
   await createIfMissing(path.join(memoryDir, "AGENTS.md"), DEFAULT_AGENT_ROSTER);
@@ -303,7 +308,8 @@ export async function initializeProjectMemory(
     runtimeMemoryDir,
     learningDir,
     taskBoardDir,
-    proposalDir
+    proposalDir,
+    patchProposalDir
   };
 }
 

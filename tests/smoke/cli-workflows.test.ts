@@ -16,7 +16,11 @@ function runCli(args: string[], cwd: string): { stdout: string; stderr: string }
   const cliPath = path.resolve(cwd, "cli", "project-brain.ts");
   const result = spawnSync(process.execPath, [tsNodeBin, "--transpile-only", cliPath, ...args], {
     cwd,
-    encoding: "utf8"
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      OLLAMA_TIMEOUT_MS: "1"
+    }
   });
 
   expect(result.status).toBe(0);

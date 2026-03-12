@@ -9,6 +9,8 @@ import { OptimizationAgent } from "./optimization_agent";
 import { ProductOwnerAgent } from "./product_owner_agent";
 import { QAAgent } from "./qa_agent";
 import { SecurityAgent } from "./security_agent";
+import { UXAgent } from "./ux_agent";
+import { UXImprovementAgent } from "./ux_improvement_agent";
 
 import type { AgentDescriptor } from "../shared/types";
 
@@ -47,6 +49,22 @@ export function buildAgentCatalog(): AgentCatalogEntry[] {
       allowedActions: ["analyze", "propose", "report"],
       triggers: ["manual", "repository-change", "security-audit", "incident-detection", "weekly-review"],
       requiresHumanApprovalFor: ["quality gate policy changes"]
+    }),
+    define(new UXAgent(), {
+      displayName: "UXAgent",
+      version: "1.0.0",
+      capabilities: ["ux-audit", "workflow-friction-analysis", "navigation-clarity-review"],
+      allowedActions: ["analyze", "propose", "report"],
+      triggers: ["manual", "repository-change", "weekly-review"],
+      requiresHumanApprovalFor: ["product workflow changes"]
+    }),
+    define(new UXImprovementAgent(), {
+      displayName: "UXImprovementAgent",
+      version: "1.0.0",
+      capabilities: ["ux-implementation-planning", "navigation-simplification", "form-simplification"],
+      allowedActions: ["analyze", "propose", "report"],
+      triggers: ["manual", "repository-change", "weekly-review"],
+      requiresHumanApprovalFor: ["product workflow changes", "frontend information architecture changes"]
     }),
     define(new SecurityAgent(), {
       displayName: "SecurityAgent",

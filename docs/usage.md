@@ -20,11 +20,25 @@ npm test
 node dist/cli/project-brain.js analyze /path/to/repo
 ```
 
+Ollama inference defaults to `180000` ms (3 minutes). Override it for heavier AI analysis runs:
+
+```bash
+node dist/cli/project-brain.js analyze /path/to/repo --ollama-timeout 240000
+```
+
 With governance trigger selection:
 
 ```bash
 node dist/cli/project-brain.js analyze /path/to/repo --trigger weekly-review
 ```
+
+You can also set the timeout outside the CLI:
+
+```bash
+OLLAMA_TIMEOUT_MS=240000 node dist/cli/project-brain.js analyze /path/to/repo
+```
+
+If neither the CLI flag nor the environment variable is set, `project-brain` reads `ollama_timeout_ms` from [/Users/ruzer/ProyectosLocales/Agentes/config/models.json](/Users/ruzer/ProyectosLocales/Agentes/config/models.json) and falls back to `180000`.
 
 ## Initialize memory only
 

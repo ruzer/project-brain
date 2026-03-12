@@ -14,7 +14,7 @@ export class ContextBuilder {
       outputPath
     });
 
-    const { memoryDir, reportsDir, docsDir, runtimeMemoryDir, learningDir, taskBoardDir, proposalDir } =
+    const { memoryDir, reportsDir, docsDir, runtimeMemoryDir, learningDir, taskBoardDir, proposalDir, patchProposalDir } =
       await initializeProjectMemory(outputPath, discovery);
     const openApiSummaries = await summarizeOpenApiFiles(
       discovery.targetPath,
@@ -43,7 +43,8 @@ export class ContextBuilder {
       runtimeMemoryDir,
       learningDir,
       taskBoardDir,
-      proposalDir
+      proposalDir,
+      patchProposalDir
     };
   }
 }
