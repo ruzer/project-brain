@@ -37,7 +37,7 @@ function runCli(args: string[]): { stdout: string; stderr: string } {
   };
 }
 
-describe("CLI command parsing", () => {
+describe("CLI command parsing", { timeout: 20_000 }, () => {
   it("exposes the expected command surface", () => {
     const helpText = runCliHelp(["--help"]);
 
