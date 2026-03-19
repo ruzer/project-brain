@@ -32,8 +32,12 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@langchain/ollama": "^1.2.6",
     "commander": "^14.0.1",
-    "typescript": "^5.9.3"
+    "deepagents": "^1.8.4",
+    "langchain": "^1.2.35",
+    "typescript": "^5.9.3",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^24.7.2",

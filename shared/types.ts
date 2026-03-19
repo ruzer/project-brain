@@ -315,7 +315,10 @@ export interface SwarmWorkerResult {
   error?: string;
 }
 
+export type SwarmEngine = "bounded" | "deepagents";
+
 export interface SwarmRunResult {
+  engine: SwarmEngine;
   context: ProjectContext;
   intent: string;
   reportPath: string;

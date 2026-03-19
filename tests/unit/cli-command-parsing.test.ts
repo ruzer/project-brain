@@ -126,6 +126,7 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
 
     expect(swarmHelp).toContain("Delegated analysis request");
     expect(swarmHelp).toContain("--output");
+    expect(swarmHelp).toContain("--engine");
     expect(swarmHelp).toContain("--parallel");
     expect(swarmHelp).toContain("--chunk-size");
     expect(swarmHelp).toContain("--task-timeout-ms");

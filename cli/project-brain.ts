@@ -13,7 +13,8 @@ import type {
   EcosystemCodebaseMapResult,
   GovernanceTrigger,
   LearningOutcome,
-  OrchestrationResult
+  OrchestrationResult,
+  SwarmEngine
 } from "../shared/types";
 
 const program = new Command();
@@ -37,6 +38,15 @@ function parsePositiveInteger(value: string, label: string): number {
   }
 
   return Math.trunc(numeric);
+}
+
+function parseSwarmEngine(value: string): SwarmEngine {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "bounded" || normalized === "deepagents") {
+    return normalized;
+  }
+
+  throw new Error(`Invalid swarm engine: ${value}. Expected bounded or deepagents.`);
 }
 
 function printSuggestions(
@@ -487,6 +497,7 @@ program
   .argument("<intent>", "Delegated analysis request such as \"ayudame a mejorar este repo\"")
   .argument("[target]", "Repository target", ".")
   .option("-o, --output <dir>", "Output directory")
+  .option("--engine <engine>", "Swarm engine: bounded or deepagents", "bounded")
   .option("--parallel <n>", "Maximum parallel workers for the swarm")
   .option("--chunk-size <n>", "How many top-level areas each worker should inspect at once")
   .option("--task-timeout-ms <ms>", "Per-worker timeout budget in milliseconds")
@@ -500,6 +511,7 @@ program
     target: string,
     options: {
       output?: string;
+      engine?: string;
       parallel?: string;
       chunkSize?: string;
       taskTimeoutMs?: string;
@@ -513,6 +525,7 @@ program
     const targetPath = resolveTarget(target);
     const outputPath = resolveOutput(targetPath, options.output);
     const result = await orchestrator.swarm(targetPath, outputPath, intent, {
+      engine: options.engine ? parseSwarmEngine(options.engine) : undefined,
       parallelism: options.parallel ? parsePositiveInteger(options.parallel, "parallel worker count") : undefined,
       chunkSize: options.chunkSize ? parsePositiveInteger(options.chunkSize, "chunk size") : undefined,
       taskTimeoutMs: options.taskTimeoutMs ? parsePositiveInteger(options.taskTimeoutMs, "task timeout") : undefined,
@@ -522,6 +535,7 @@ program
       maxQueuedTasks: options.maxQueuedTasks ? parsePositiveInteger(options.maxQueuedTasks, "max queued tasks") : undefined,
       maxRetries: options.maxRetries ? parsePositiveInteger(options.maxRetries, "max retries") : undefined
     });
+    console.log(`Engine: ${result.engine}`);
     console.log(`Swarm report: ${result.reportPath}`);
     console.log(`Swarm memory: ${result.memoryPath}`);
     console.log(`Planner: ${result.planner.model} (${result.planner.provider}, ${result.planner.residency})`);

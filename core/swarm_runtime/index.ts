@@ -1332,6 +1332,7 @@ export async function runSwarm(
   });
 
   return {
+    engine: "bounded",
     context,
     intent,
     reportPath,

@@ -226,6 +226,7 @@ project-brain swarm "revisa core/swarm_runtime y prioriza mejoras reales" /path/
 project-brain swarm "ayudame a mejorar este repo" /path/to/repo --parallel 3 --chunk-size 1
 project-brain swarm "ayudame a mejorar este repo" /path/to/repo --parallel 3 --chunk-size 1 --task-timeout-ms 12000 --max-retries 1
 project-brain swarm "ayudame a mejorar este repo" /path/to/repo --parallel 2 --chunk-size 1 --planner-timeout-ms 8000 --synthesis-timeout-ms 8000 --run-timeout-ms 30000 --max-queued-tasks 8
+project-brain swarm "ayudame a mejorar este repo" /path/to/repo --engine deepagents --output /path/to/output
 project-brain self-improve /path/to/repo --output /path/to/output
 ```
 
@@ -233,6 +234,8 @@ Swarm runs now salvage labeled Markdown/text responses from local models when JS
 
 `swarm` uses the planner to split the request into small tasks, then further shards those tasks into small repo-area chunks for local workers. It writes the merged result to `reports/swarm_run.md`.
 By default it adapts parallel workers and queue budget to the local CPU/load/memory profile, uses a round-robin queue so small budgets touch multiple task types first, and can force planner/synthesis onto local models when the run budget is short. In that short-budget mode it also clamps auto-selected concurrency so local workers do not oversubscribe the machine. When a large scoped area times out, the swarm now splits that area into immediate child scopes before retrying instead of re-running the same broad directory. You can override worker count with `--parallel <n>`, force smaller repo slices with `--chunk-size <n>`, set a per-worker budget with `--task-timeout-ms`, cap planner/synthesis/global runtime with `--planner-timeout-ms`, `--synthesis-timeout-ms`, and `--run-timeout-ms`, limit queue growth with `--max-queued-tasks`, and allow bounded retries with `--max-retries`.
+
+`swarm --engine deepagents` keeps the repo read-only, gives the agent an isolated scratch filesystem under `memory/swarm/deepagents_workspace`, and exposes only controlled repository inspection tools. It is intended as an experimental evolution path for more autonomous planning and subagent delegation without replacing the governed `project-brain` pipeline.
 
 `self-improve` is the simplest way to point that swarm back at a repository, including `project-brain` itself, with bounded defaults for local runs while still letting the runtime shrink queue pressure automatically on a busy machine. It also switches the swarm to a `source-first` scope bias so the first chunks prefer product code over `tests/` and dotfiles.
 

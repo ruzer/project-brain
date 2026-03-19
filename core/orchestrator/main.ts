@@ -13,6 +13,7 @@ import { buildStatus } from "../status";
 import { ContextBuilder } from "../context_builder";
 import { WeeklyScheduler } from "../scheduler";
 import { DiscoveryEngine } from "../discovery_engine";
+import { runDeepAgentsSwarm } from "../deepagents_swarm";
 import { runSwarm } from "../swarm_runtime";
 import { AgentSelfGovernanceSystem } from "../../governance/self-governance-system";
 import { buildKnowledgeGraphArtifacts } from "../../memory/knowledge_graph";
@@ -703,6 +704,7 @@ ${renderList(route.followUps)}
     outputPath = targetPath,
     intent: string,
     options?: {
+      engine?: "bounded" | "deepagents";
       parallelism?: number;
       chunkSize?: number;
       taskTimeoutMs?: number;
@@ -715,6 +717,10 @@ ${renderList(route.followUps)}
     }
   ): Promise<SwarmRunResult> {
     const context = await this.initTarget(targetPath, outputPath);
+    if (options?.engine === "deepagents") {
+      return runDeepAgentsSwarm(context, intent, this.aiRouter, options);
+    }
+
     return runSwarm(context, intent, this.aiRouter, options);
   }
 
