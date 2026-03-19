@@ -2,6 +2,8 @@ name: project-brain-ci
 
 on:
   push:
+    branches:
+      - main
   pull_request:
 
 concurrency:
