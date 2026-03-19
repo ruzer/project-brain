@@ -150,7 +150,12 @@ function selectPolicyPack(
     };
   }
 
-  if (riskLevel === "high" || task.trigger === "incident-detection" || task.trigger === "security-audit") {
+  if (
+    riskLevel === "high" ||
+    task.trigger === "incident-detection" ||
+    task.trigger === "security-audit" ||
+    task.trigger === "security-advisory"
+  ) {
     return {
       policyPack: "review",
       rationale: "High-risk or incident/security-triggered tasks stay in review mode."

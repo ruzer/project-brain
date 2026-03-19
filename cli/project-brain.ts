@@ -73,7 +73,7 @@ function resolveTrigger(trigger?: string): GovernanceTrigger {
     "repository-change": "repository-change",
     "weekly-review": "weekly-review",
     "security-audit": "security-audit",
-    "security-advisory": "security-audit",
+    "security-advisory": "security-advisory",
     "architecture-review": "architecture-review",
     "incident-detection": "incident-detection",
     "dependency-update": "dependency-update"

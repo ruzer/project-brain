@@ -60,6 +60,10 @@ function followUpsFor(workflow: AskRoute["workflow"]): string[] {
 }
 
 function inferTrigger(normalizedIntent: string, fallback: GovernanceTrigger): GovernanceTrigger {
+  if (/advisory|cve|vuln|vulnerabil/i.test(normalizedIntent)) {
+    return "security-advisory";
+  }
+
   if (/security|seguridad|secret|dependency|dependenc/i.test(normalizedIntent)) {
     return "security-audit";
   }

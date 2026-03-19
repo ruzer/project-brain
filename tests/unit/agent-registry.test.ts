@@ -12,6 +12,7 @@ describe("AgentRegistry", () => {
     const weeklyAgents = registry.forTrigger("weekly-review");
     const architectureReviewAgents = registry.forTrigger("architecture-review");
     const securityAuditAgents = registry.forTrigger("security-audit");
+    const securityAdvisoryAgents = registry.forTrigger("security-advisory");
 
     expect(allAgents.length).toBeGreaterThanOrEqual(10);
     expect(allAgents.some((agent) => agent.descriptor.agentId === "qa-agent")).toBe(true);
@@ -24,5 +25,8 @@ describe("AgentRegistry", () => {
     expect(architectureReviewAgents.some((agent) => agent.descriptor.agentId === "architecture-agent")).toBe(true);
     expect(architectureReviewAgents.some((agent) => agent.descriptor.agentId === "dev-agent")).toBe(true);
     expect(securityAuditAgents.some((agent) => agent.descriptor.agentId === "security-agent")).toBe(true);
+    expect(securityAdvisoryAgents.some((agent) => agent.descriptor.agentId === "security-agent")).toBe(true);
+    expect(securityAdvisoryAgents.some((agent) => agent.descriptor.agentId === "dependency-agent")).toBe(true);
+    expect(securityAdvisoryAgents.some((agent) => agent.descriptor.agentId === "qa-agent")).toBe(false);
   });
 });

@@ -79,7 +79,7 @@ export function buildAgentCatalog(): AgentCatalogEntry[] {
       version: "1.0.0",
       capabilities: ["dependency-governance", "manifest-analysis", "update-risk-review"],
       allowedActions: ["analyze", "propose", "report"],
-      triggers: ["manual", "security-audit", "dependency-update", "weekly-review"],
+      triggers: ["manual", "security-audit", "security-advisory", "dependency-update", "weekly-review"],
       requiresHumanApprovalFor: ["dependency policy changes"]
     }),
     define(new ArchitectureAgent(), {
