@@ -38,14 +38,19 @@ describe("Orchestrator integration", () => {
     await access(path.join(outputDir, "reports", "improvement_proposals.md"));
     await access(path.join(outputDir, "reports", "improvement_report.md"));
     await access(path.join(outputDir, "reports", "runtime_observability.md"));
+    await access(path.join(outputDir, "reports", "agent_firewall.md"));
+    await access(path.join(outputDir, "memory", "firewall", "agent_firewall.json"));
     await access(path.join(outputDir, "reports", "telemetry"));
     await access(result.governanceSummary!.proposals[0]!.filePath);
     await access(path.join(outputDir, "tasks", "messages.json"));
+    await access(path.join(outputDir, "tasks", "packets"));
 
     const learnings = JSON.parse(
       await readFile(path.join(outputDir, "memory", "learnings", "index.json"), "utf8")
     ) as Array<{ lessonId: string }>;
     const telemetryFiles = await readFile(path.join(outputDir, "reports", "runtime_observability.md"), "utf8");
+    const activityReport = await readFile(path.join(outputDir, "reports", "agent_activity_report.md"), "utf8");
+    const improvementReport = await readFile(path.join(outputDir, "reports", "improvement_proposals.md"), "utf8");
 
     expect(learnings.length).toBeGreaterThan(0);
     expect(telemetryFiles).toContain("Average cycle duration");
@@ -54,6 +59,37 @@ describe("Orchestrator integration", () => {
         ["APPROVED", "REQUIRES_HUMAN_REVIEW", "REJECTED"].includes(proposal.status)
       )
     ).toBe(true);
+    expect(result.governanceSummary?.proposals.every((proposal) => Number.isFinite(proposal.consensusScore))).toBe(true);
+    expect(
+      result.governanceSummary?.proposals.every((proposal) =>
+        ["strong", "moderate", "weak"].includes(proposal.consensusState)
+      )
+    ).toBe(true);
+    expect(result.governanceSummary?.firewall).toBeDefined();
+    expect((result.governanceSummary?.firewall?.packets.length ?? 0)).toBeGreaterThan(0);
+    expect((result.governanceSummary?.firewall?.stats.reviewRequired ?? 0)).toBeGreaterThan(0);
+    expect(result.governanceSummary?.proposals.every((proposal) => Array.isArray(proposal.supportingAgents))).toBe(true);
+    expect(result.governanceSummary?.proposals.every((proposal) => Array.isArray(proposal.consensusThemes))).toBe(true);
+    expect(activityReport).toContain("Strong-consensus proposals:");
+    expect(improvementReport).toContain("consensus=");
+  });
+
+  it("inspects firewall policy without running the full agent cycle", async () => {
+    const outputDir = await createTempOutputDir("project-brain-firewall");
+    cleanupTargets.push(outputDir);
+    const orchestrator = new ProjectBrainOrchestrator();
+
+    const result = await orchestrator.inspectFirewall(fixtureRepoPath, outputDir, "repository-change");
+
+    expect(result.firewall.packets.length).toBeGreaterThan(0);
+    expect(result.firewall.stats.reviewRequired).toBeGreaterThan(0);
+
+    await access(result.firewall.reportPath);
+    await access(result.firewall.policyPath);
+
+    const firewallReport = await readFile(result.firewall.reportPath, "utf8");
+    expect(firewallReport).toContain("Agent Firewall Report");
+    expect(firewallReport).toContain("edit-limited");
   });
 
   it("records governance feedback and archives it in runtime memory", async () => {

@@ -26,7 +26,7 @@ describe("UX implementation task generation", () => {
   });
 
   it("converts UX findings into actionable frontend implementation tasks", async () => {
-    const repoDir = await createTempOutputDir("erp-gob-frontend-fixture");
+    const repoDir = await createTempOutputDir("workflow-frontend-fixture");
     const outputDir = await createTempOutputDir("project-brain-ux-tasks");
     cleanupTargets.push(repoDir, outputDir);
 
@@ -34,7 +34,7 @@ describe("UX implementation task generation", () => {
       path.join(repoDir, "package.json"),
       JSON.stringify(
         {
-          name: "erp-gob-frontend",
+          name: "workflow-frontend",
           dependencies: {
             react: "^19.0.0"
           }
@@ -59,7 +59,7 @@ describe("UX implementation task generation", () => {
 
     await writeFileEnsured(
       path.join(context.reportsDir, "usability_findings.md"),
-      `# ERP Frontend Usability Findings
+      `# Frontend Usability Findings
 
 ## Main usability problems
 - The README onboarding guide is missing and new developers may need more setup instructions.

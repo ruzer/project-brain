@@ -26,7 +26,7 @@ describe("DevAgent patch proposal workflow", () => {
       path.join(repoDir, "package.json"),
       JSON.stringify(
         {
-          name: "erp-gob-frontend",
+          name: "workflow-frontend",
           private: true,
           dependencies: {
             react: "^19.0.0"

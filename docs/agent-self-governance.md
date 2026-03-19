@@ -6,14 +6,14 @@ This document describes the practical self-governance layer implemented for `pro
 
 It is built around these concrete modules:
 
-- [governance/self-governance-system.ts](/Users/ruzer/ProyectosLocales/Agentes/governance/self-governance-system.ts)
-- [governance/agent-registry.ts](/Users/ruzer/ProyectosLocales/Agentes/governance/agent-registry.ts)
-- [governance/agent-council.ts](/Users/ruzer/ProyectosLocales/Agentes/governance/agent-council.ts)
-- [governance/agent-supervisor.ts](/Users/ruzer/ProyectosLocales/Agentes/governance/agent-supervisor.ts)
-- [governance/agent-evaluator.ts](/Users/ruzer/ProyectosLocales/Agentes/governance/agent-evaluator.ts)
-- [governance/task-board.ts](/Users/ruzer/ProyectosLocales/Agentes/governance/task-board.ts)
-- [governance/message-center.ts](/Users/ruzer/ProyectosLocales/Agentes/governance/message-center.ts)
-- [memory/learnings/index.ts](/Users/ruzer/ProyectosLocales/Agentes/memory/learnings/index.ts)
+- `governance/self-governance-system.ts`
+- `governance/agent-registry.ts`
+- `governance/agent-council.ts`
+- `governance/agent-supervisor.ts`
+- `governance/agent-evaluator.ts`
+- `governance/task-board.ts`
+- `governance/message-center.ts`
+- `memory/learnings/index.ts`
 
 The system never modifies production code automatically. Agents only analyze, propose, and report.
 
@@ -112,7 +112,7 @@ project-brain/
 
 ## 4. Governance Rules
 
-The active guardrails are enforced in [governance/agent-supervisor.ts](/Users/ruzer/ProyectosLocales/Agentes/governance/agent-supervisor.ts):
+The active guardrails are enforced in `governance/agent-supervisor.ts`:
 
 - agents cannot execute destructive operations
 - agents cannot commit code
@@ -149,7 +149,7 @@ Persistence rules:
 
 ## 6. Example Agent Interactions
 
-The message protocol is implemented through the `AGENT_MESSAGE` envelope in [shared/types.ts](/Users/ruzer/ProyectosLocales/Agentes/shared/types.ts).
+The message protocol is implemented through the `AGENT_MESSAGE` envelope in `shared/types.ts`.
 
 Example interaction:
 
@@ -229,7 +229,7 @@ The implemented trigger model supports:
 - `dependency-update`
 - `security-advisory`
 
-Default cycles in [governance/autonomous-scheduler.ts](/Users/ruzer/ProyectosLocales/Agentes/governance/autonomous-scheduler.ts):
+Default cycles in `governance/autonomous-scheduler.ts`:
 
 - daily: `security-agent`, `dependency-agent`
 - weekly: `architecture-agent`, `optimization-agent`, `documentation-agent`

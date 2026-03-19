@@ -1,3 +1,4 @@
+import { listContextAnnotations, writeAnnotationsArtifact } from "../../memory/annotations";
 import { summarizeOpenApiFiles } from "../../tools/openapi_tools";
 import { initializeProjectMemory, writeDiscoveryArtifacts } from "../../memory/context_store";
 import { StructuredLogger } from "../../shared/logger";
@@ -22,6 +23,7 @@ export class ContextBuilder {
     );
 
     await writeDiscoveryArtifacts(memoryDir, discovery, openApiSummaries);
+    await writeAnnotationsArtifact(outputPath, await listContextAnnotations(outputPath));
 
     this.logger.info("Project memory initialized", {
       component: "memory",

@@ -598,7 +598,7 @@ The production improvement loop should operate as follows:
 ```json
 {
   "eventId": "evt_001",
-  "projectId": "erp-gob",
+  "projectId": "workflow-suite",
   "jobId": "job_182",
   "findingId": "find_sec_88",
   "recommendationId": "rec_sec_17",
@@ -677,7 +677,7 @@ Learning extracted:
 ```json
 {
   "eventId": "evt_004",
-  "projectId": "erp-gob",
+  "projectId": "workflow-suite",
   "source": "repo-evolution",
   "type": "architecture.changed",
   "severity": "low",

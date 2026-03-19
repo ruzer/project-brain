@@ -1,5 +1,28 @@
 export type RiskLevel = "low" | "medium" | "high";
 export type AgentAction = "analyze" | "propose" | "report";
+export type FirewallPolicyPack = "safe-readonly" | "review" | "edit-limited" | "deploy";
+export type FirewallDecision = "ALLOW" | "ALLOW_WITH_REVIEW" | "BLOCKED";
+export type ContextTrustLevel = "official" | "maintainer" | "community";
+export type AskWorkflow =
+  | "resume-project"
+  | "discover-project"
+  | "critical-gaps"
+  | "review-latest-changes"
+  | "inspect-firewall"
+  | "build-code-graph";
+export type FirewallTool =
+  | "read-repository"
+  | "read-generated-context"
+  | "write-generated-artifacts"
+  | "run-tests"
+  | "run-build"
+  | "write-target-files"
+  | "delete-target-files"
+  | "read-git"
+  | "write-git"
+  | "network-egress"
+  | "deploy";
+export type FirewallToolMode = "allow" | "approval-required" | "deny";
 export type GovernanceTrigger =
   | "manual"
   | "repository-change"
@@ -13,6 +36,18 @@ export type AgentMessageType = "ANALYSIS_RESULT" | "PROPOSAL" | "QUESTION" | "FE
 export type TaskState = "NEW" | "ANALYZING" | "PROPOSED" | "APPROVED" | "REJECTED" | "ARCHIVED";
 export type ProposalStatus = "APPROVED" | "REQUIRES_HUMAN_REVIEW" | "REJECTED";
 export type WorkflowStage = "ANALYZE" | "PROPOSE" | "PROPOSE_PATCHES" | "REPORT";
+export type ProposalConsensusState = "strong" | "moderate" | "weak";
+export type CodeGraphNodeKind =
+  | "file"
+  | "function"
+  | "class"
+  | "method"
+  | "variable"
+  | "interface"
+  | "type"
+  | "enum"
+  | "test";
+export type CodeGraphEdgeKind = "imports" | "contains" | "calls";
 export type LearningOutcome =
   | "SUCCESSFUL_PROPOSAL"
   | "REJECTED_PROPOSAL"
@@ -170,6 +205,325 @@ export interface AgentTask {
   reportPath?: string;
 }
 
+export interface FirewallToolRule {
+  tool: FirewallTool;
+  mode: FirewallToolMode;
+  rationale: string;
+}
+
+export interface AgentTaskPacket {
+  taskId: string;
+  agentId: string;
+  trigger: GovernanceTrigger;
+  goal: string;
+  scopePaths: string[];
+  contextPaths: string[];
+  constraints: string[];
+  expectedOutput: string[];
+  policyPack: FirewallPolicyPack;
+  riskLevel: RiskLevel;
+  decision: FirewallDecision;
+  decisionRationale: string;
+  requiresHumanApproval: boolean;
+  requiredApprovals: string[];
+  toolRules: FirewallToolRule[];
+  packetPath: string;
+}
+
+export interface FirewallSummary {
+  generatedAt: string;
+  trigger: GovernanceTrigger;
+  reportPath: string;
+  policyPath: string;
+  packetDir: string;
+  packets: AgentTaskPacket[];
+  stats: {
+    allowed: number;
+    reviewRequired: number;
+    blocked: number;
+    lowRisk: number;
+    mediumRisk: number;
+    highRisk: number;
+    byPolicyPack: Record<FirewallPolicyPack, number>;
+  };
+}
+
+export interface AskRoute {
+  workflow: AskWorkflow;
+  reason: string;
+  trigger: GovernanceTrigger;
+  followUps: string[];
+}
+
+export interface AskArtifact {
+  label: string;
+  path: string;
+}
+
+export interface AskResult {
+  intent: string;
+  workflow: AskWorkflow;
+  targetPath: string;
+  outputPath: string;
+  scopeMode: "repository" | "workspace";
+  briefPath: string;
+  headline: string;
+  summary: string[];
+  artifacts: AskArtifact[];
+  followUps: string[];
+  routingReason: string;
+  guidedExecution?: {
+    label: string;
+    command: string;
+    headline: string;
+    summary: string[];
+    artifacts: AskArtifact[];
+  };
+  aiAssistance?: {
+    provider: string;
+    model: string;
+    profile: string;
+    residency: string;
+    summary: string[];
+    suggestedWorkflow?: AskWorkflow;
+  };
+}
+
+export interface SwarmPlanTask {
+  taskId: string;
+  title: string;
+  goal: string;
+  profile: "worker" | "reviewer" | "reasoning" | "planner" | "synthesizer";
+  deliverable: string;
+}
+
+export interface SwarmWorkerResult {
+  taskId: string;
+  parentTaskId: string;
+  chunkId: string;
+  attempt: number;
+  status: "completed" | "timed_out" | "failed";
+  title: string;
+  profile: "worker" | "reviewer" | "reasoning" | "planner" | "synthesizer";
+  scopePaths: string[];
+  provider: string;
+  model: string;
+  residency: string;
+  summary: string;
+  findings: string[];
+  recommendations: string[];
+  error?: string;
+}
+
+export interface SwarmRunResult {
+  context: ProjectContext;
+  intent: string;
+  reportPath: string;
+  memoryPath: string;
+  resilience: {
+    runTimeoutMs: number;
+    requestedRunTimeoutMs?: number;
+    plannerTimeoutMs: number;
+    requestedPlannerTimeoutMs?: number;
+    synthesisTimeoutMs: number;
+    requestedSynthesisTimeoutMs?: number;
+    taskTimeoutMs: number;
+    requestedTaskTimeoutMs?: number;
+    maxRetries: number;
+    queueBudget: number;
+    requestedQueueBudget?: number;
+    plannerTimedOut: boolean;
+    synthesisTimedOut: boolean;
+    runTimedOut: boolean;
+    timedOutTasks: number;
+    retriedTasks: number;
+    splitTasks: number;
+    failedTasks: number;
+    droppedTasks: number;
+    localBudgetMode: boolean;
+    adaptiveQueueBudget: boolean;
+  };
+  chunking: {
+    selectedChunkSize: number;
+    requestedChunkSize?: number;
+    scopeUnits: number;
+    scopeChunks: number;
+    queuedTasks: number;
+    queueStrategy: "round-robin";
+    scopeBias: "balanced" | "source-first";
+    scopeHints: string[];
+  };
+  parallelism: {
+    selected: number;
+    requested?: number;
+    cpuCount: number;
+    loadAverage1m: number;
+    freeMemoryMb: number;
+    totalMemoryMb: number;
+    pressure: "low" | "medium" | "high";
+  };
+  planner: {
+    provider: string;
+    model: string;
+    residency: string;
+    overview: string;
+  };
+  tasks: SwarmPlanTask[];
+  workerResults: SwarmWorkerResult[];
+  synthesis: {
+    provider: string;
+    model: string;
+    residency: string;
+    headline: string;
+    summary: string;
+    priorities: string[];
+    nextSteps: string[];
+  };
+}
+
+export type DoctorCheckStatus = "pass" | "warn" | "fail";
+export type SuggestedActionPriority = "high" | "medium" | "low";
+
+export interface DoctorCheck {
+  id: string;
+  label: string;
+  status: DoctorCheckStatus;
+  summary: string;
+  details: string[];
+}
+
+export interface SuggestedAction {
+  label: string;
+  command: string;
+  rationale: string;
+  priority: SuggestedActionPriority;
+}
+
+export interface DoctorResult {
+  context: ProjectContext;
+  reportPath: string;
+  memoryPath: string;
+  summary: {
+    passed: number;
+    warnings: number;
+    failed: number;
+    headline: string;
+  };
+  checks: DoctorCheck[];
+  suggestions: SuggestedAction[];
+}
+
+export interface StatusArtifactSummary {
+  label: string;
+  path: string;
+  exists: boolean;
+  updatedAt?: string;
+}
+
+export interface StatusResult {
+  context: ProjectContext;
+  reportPath: string;
+  memoryPath: string;
+  git: {
+    isGitRepo: boolean;
+    branch?: string;
+  };
+  summary: {
+    headline: string;
+    artifactCount: number;
+    doctorStatus: DoctorCheckStatus | "unknown";
+    swarmStatus: "available" | "missing";
+    planStatus: "available" | "missing";
+  };
+  artifacts: StatusArtifactSummary[];
+  suggestions: SuggestedAction[];
+}
+
+export type ResumeStage =
+  | "bootstrap"
+  | "doctor"
+  | "ask"
+  | "map-codebase"
+  | "firewall"
+  | "review-delta"
+  | "swarm"
+  | "plan-improvements";
+
+export interface ResumeResult {
+  context: ProjectContext;
+  reportPath: string;
+  memoryPath: string;
+  git: {
+    isGitRepo: boolean;
+    branch?: string;
+  };
+  summary: {
+    headline: string;
+    stage: ResumeStage;
+    artifactCount: number;
+    latestArtifactLabel?: string;
+    latestArtifactUpdatedAt?: string;
+  };
+  latestArtifact?: StatusArtifactSummary;
+  artifacts: StatusArtifactSummary[];
+  notes: string[];
+  suggestions: SuggestedAction[];
+}
+
+export interface ImprovementPlanResult {
+  context: ProjectContext;
+  planDir: string;
+  summaryPath: string;
+  statePath: string;
+  risksPath: string;
+  roadmapPath: string;
+  tracksPath: string;
+}
+
+export interface ContextRegistryEntry {
+  id: string;
+  title: string;
+  category: string;
+  trustLevel: ContextTrustLevel;
+  source: string;
+  sourceUrl: string;
+  summary: string;
+  tags: string[];
+  guidance: string[];
+  relatedIds: string[];
+}
+
+export interface ContextSearchHit {
+  entry: ContextRegistryEntry;
+  score: number;
+  matchedTags: string[];
+}
+
+export interface ContextSearchResult {
+  context: ProjectContext;
+  query: string;
+  reportPath: string;
+  cachePath: string;
+  hits: ContextSearchHit[];
+}
+
+export interface ContextGetResult {
+  context: ProjectContext;
+  entry: ContextRegistryEntry;
+  artifactPath: string;
+  cachePath: string;
+}
+
+export interface ContextSourcesResult {
+  context: ProjectContext;
+  reportPath: string;
+  sources: Array<{
+    source: string;
+    trustLevel: ContextTrustLevel;
+    entries: number;
+  }>;
+}
+
 export interface AgentMessage {
   messageId: string;
   sender: string;
@@ -211,6 +565,10 @@ export interface ProposalArtifact {
   title: string;
   summary: string;
   status: ProposalStatus;
+  consensusScore: number;
+  consensusState: ProposalConsensusState;
+  supportingAgents: string[];
+  consensusThemes: string[];
   filePath: string;
   riskLevel: RiskLevel;
   affectedFiles: string[];
@@ -255,6 +613,7 @@ export interface GovernanceSummary {
   executionRecords: AgentExecutionRecord[];
   agentActivityReportPath: string;
   improvementReportPath: string;
+  firewall?: FirewallSummary;
 }
 
 export interface AgentEvaluation {
@@ -275,9 +634,122 @@ export interface ReportManifest {
   docFiles: string[];
   learningFiles: string[];
   taskFiles: string[];
+  swarmFiles?: string[];
+  firewallFiles?: string[];
+  contextRegistryFiles?: string[];
   proposalFiles: string[];
   knowledgeFiles?: string[];
   patchProposalFiles?: string[];
+}
+
+export interface CodebaseMapArtifact {
+  repoName: string;
+  outputPath: string;
+  codebaseMapDir: string;
+  files: string[];
+  summaryPath: string;
+}
+
+export interface ContextAnnotation {
+  scope: string;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CodeGraphSymbol {
+  id: string;
+  name: string;
+  qualifiedName: string;
+  kind: CodeGraphNodeKind;
+  filePath: string;
+  exported: boolean;
+  lineStart: number;
+  lineEnd: number;
+  parentSymbolId?: string;
+}
+
+export interface CodeGraphEdge {
+  kind: CodeGraphEdgeKind;
+  from: string;
+  to: string;
+  filePath: string;
+  line: number;
+}
+
+export interface CodeGraphFileRecord {
+  filePath: string;
+  hash: string;
+  language: string;
+  isTest: boolean;
+  imports: string[];
+  symbols: CodeGraphSymbol[];
+  edges: CodeGraphEdge[];
+}
+
+export interface CodeGraphDocument {
+  version: 2;
+  generatedAt: string;
+  targetPath: string;
+  nodes: string[];
+  edges: CodeGraphEdge[];
+  files: CodeGraphFileRecord[];
+  symbols: CodeGraphSymbol[];
+  build: {
+    mode: "full" | "incremental";
+    updatedFiles: string[];
+    removedFiles: string[];
+    unchangedFiles: number;
+  };
+  stats: {
+    files: number;
+    symbols: number;
+    nodes: number;
+    edges: number;
+    edgeKinds: Partial<Record<CodeGraphEdgeKind, number>>;
+  };
+}
+
+export interface CodeGraphBuildResult {
+  graphPath: string;
+  graph: CodeGraphDocument;
+}
+
+export interface ImpactAnalysisResult {
+  targetPath: string;
+  outputPath: string;
+  changedFiles: string[];
+  directDependents: string[];
+  transitiveDependents: string[];
+  impactedTests: string[];
+  reviewFiles: string[];
+  unresolvedImports: string[];
+  graphPath: string;
+  reportPath: string;
+  graphStats: {
+    nodes: number;
+    edges: number;
+    files: number;
+    symbols: number;
+    buildMode: "full" | "incremental";
+    updatedFiles: number;
+  };
+}
+
+export interface CodebaseMapResult extends CodebaseMapArtifact {
+  context: ProjectContext;
+}
+
+export interface EcosystemCodebaseMapRepositoryResult extends CodebaseMapArtifact {
+  relativePath: string;
+  targetPath: string;
+}
+
+export interface EcosystemCodebaseMapResult {
+  rootPath: string;
+  outputPath: string;
+  repositories: EcosystemCodebaseMapRepositoryResult[];
+  summaryPath: string;
 }
 
 export interface OrchestrationResult {
@@ -286,6 +758,11 @@ export interface OrchestrationResult {
   weeklyReportPath: string;
   riskReportPath: string;
   governanceSummary?: GovernanceSummary;
+}
+
+export interface FirewallInspectionResult {
+  context: ProjectContext;
+  firewall: FirewallSummary;
 }
 
 export interface EcosystemRepositoryResult {

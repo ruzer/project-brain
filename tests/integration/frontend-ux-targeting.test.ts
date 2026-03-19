@@ -12,7 +12,7 @@ import { cleanupDir, createTempOutputDir } from "../helpers";
 
 const originalTimeout = process.env.OLLAMA_TIMEOUT_MS;
 
-describe("ERP frontend UX targeting", () => {
+describe("frontend UX targeting", () => {
   const cleanupTargets: string[] = [];
 
   afterEach(async () => {
@@ -25,16 +25,16 @@ describe("ERP frontend UX targeting", () => {
     await Promise.all(cleanupTargets.splice(0).map((target) => cleanupDir(target)));
   });
 
-  it("maps UX tasks and review-only patches to real ERP frontend surfaces", async () => {
-    const repoDir = await createTempOutputDir("erp-gob-frontend-architecture");
-    const outputDir = await createTempOutputDir("project-brain-erp-frontend-ux");
+  it("maps UX tasks and review-only patches to real frontend surfaces", async () => {
+    const repoDir = await createTempOutputDir("workflow-frontend-architecture");
+    const outputDir = await createTempOutputDir("project-brain-frontend-ux");
     cleanupTargets.push(repoDir, outputDir);
 
     await writeFileEnsured(
       path.join(repoDir, "package.json"),
       JSON.stringify(
         {
-          name: "erp-gob-frontend",
+          name: "workflow-frontend",
           dependencies: {
             next: "^15.0.0",
             react: "^19.0.0"

@@ -409,7 +409,14 @@ function scoreRecommendation(issue: string, recommendation: string, component: S
 }
 
 function selectSourceRoot(targetPath: string): string | undefined {
-  const candidates = [path.join(targetPath, "src"), path.join(targetPath, "erp-gob-frontend", "src")];
+  const candidates = [
+    path.join(targetPath, "src"),
+    path.join(targetPath, "app", "src"),
+    path.join(targetPath, "frontend", "src"),
+    path.join(targetPath, "web", "src"),
+    path.join(targetPath, "apps", "web", "src"),
+    path.join(targetPath, "packages", "web", "src")
+  ];
 
   return candidates.find((candidate) => existsSync(candidate));
 }

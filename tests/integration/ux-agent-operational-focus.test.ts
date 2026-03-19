@@ -11,7 +11,7 @@ import { cleanupDir, createTempOutputDir } from "../helpers";
 
 const originalTimeout = process.env.OLLAMA_TIMEOUT_MS;
 
-describe("UXAgent operational ERP focus", () => {
+describe("UXAgent operational workflow focus", () => {
   const cleanupTargets: string[] = [];
 
   afterEach(async () => {
@@ -25,7 +25,7 @@ describe("UXAgent operational ERP focus", () => {
   });
 
   it("focuses on UI workflow usability and ignores onboarding or documentation findings", async () => {
-    const repoDir = await createTempOutputDir("erp-gob-ux-agent-fixture");
+    const repoDir = await createTempOutputDir("workflow-ux-agent-fixture");
     const outputDir = await createTempOutputDir("project-brain-ux-agent-output");
     cleanupTargets.push(repoDir, outputDir);
 
@@ -33,7 +33,7 @@ describe("UXAgent operational ERP focus", () => {
       path.join(repoDir, "package.json"),
       JSON.stringify(
         {
-          name: "erp-gob-frontend",
+          name: "workflow-frontend",
           dependencies: {
             next: "^15.0.0",
             react: "^19.0.0"

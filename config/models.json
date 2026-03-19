@@ -2,17 +2,37 @@
   "local_model": "qwen2.5-coder:7b",
   "fallback_model": "deepseek-coder:6.7b",
   "reasoning_model": "llama3.1:8b",
+  "reviewer_model": "deepseek-coder:6.7b",
+  "planner_model": "kimi-k2.5:cloud",
+  "synthesizer_model": "llama3.1:8b",
   "cloud_provider": "openai",
   "cloud_model": "gpt-4.1",
   "ollama_timeout_ms": 180000,
   "offline_mode": true,
+  "allow_remote_ollama": true,
   "routing": {
     "ux-audit": "local",
     "ux-improvement": "local",
     "qa-analysis": "local",
     "performance-analysis": "local",
     "documentation-review": "local",
+    "intent-routing": "cloud",
+    "report-synthesis": "local",
     "architecture-review": "cloud",
     "large-refactor-analysis": "cloud"
+  },
+  "task_profiles": {
+    "repository-scanning": "worker",
+    "code-smell-detection": "reviewer",
+    "ux-audit": "reviewer",
+    "ux-improvement": "reviewer",
+    "qa-analysis": "reviewer",
+    "performance-analysis": "reviewer",
+    "documentation-review": "synthesizer",
+    "intent-routing": "planner",
+    "report-synthesis": "synthesizer",
+    "architecture-review": "planner",
+    "large-refactor-analysis": "planner",
+    "generic-analysis": "worker"
   }
 }

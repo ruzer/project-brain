@@ -297,6 +297,7 @@ export async function initializeProjectMemory(
   await createIfMissing(path.join(memoryDir, "DECISIONS.md"), "# DECISIONS\n\n- Adopt non-destructive analysis as the operating mode.\n");
   await createIfMissing(path.join(memoryDir, "TASKS.md"), "# TASKS\n");
   await createIfMissing(path.join(memoryDir, "LEARNINGS.md"), "# LEARNINGS\n");
+  await createIfMissing(path.join(memoryDir, "ANNOTATIONS.md"), "# ANNOTATIONS\n\n- None recorded.\n");
   await createIfMissing(path.join(memoryDir, "CONTEXT.md"), "# CONTEXT\n");
   await createIfMissing(path.join(memoryDir, "ARCHITECTURE.md"), buildArchitectureSnapshot(discovery));
   await createIfMissing(path.join(memoryDir, "STYLE_GUIDE.md"), buildStyleGuide(discovery));

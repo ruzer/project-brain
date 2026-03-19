@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import path from "node:path";
 
 import type { GitInfo } from "../../shared/types";
 
@@ -26,4 +27,17 @@ export function inspectGit(targetPath: string, hasSubmodules: boolean): GitInfo 
     latestCommit: readGit(targetPath, ["log", "-1", "--pretty=%h %s"]),
     hasSubmodules
   };
+}
+
+export function listChangedFiles(targetPath: string, baseRef = "HEAD~1", headRef = "HEAD"): string[] {
+  const output = readGit(targetPath, ["diff", "--name-only", baseRef, headRef]);
+  if (!output) {
+    return [];
+  }
+
+  return output
+    .split(/\r?\n/)
+    .map((filePath) => filePath.trim())
+    .filter(Boolean)
+    .map((filePath) => filePath.split(path.sep).join("/"));
 }

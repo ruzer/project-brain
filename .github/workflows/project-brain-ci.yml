@@ -4,12 +4,17 @@ on:
   push:
   pull_request:
 
+concurrency:
+  group: project-brain-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
   quality-gates:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -24,6 +29,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Lint
+        run: npm run lint
+
       - name: Build
         run: npm run build
 
@@ -36,13 +44,22 @@ jobs:
       - name: Run smoke tests
         run: npm run test:smoke
 
+      - name: Repository safety scan
+        run: npm run security:repo
+
       - name: Generate reports
         if: always()
         run: |
           mkdir -p ci-artifacts
-          cp reports/ci_status_report.md ci-artifacts/
-          cp reports/test_baseline_report.md ci-artifacts/
-          cp reports/test_coverage_initial.md ci-artifacts/
+          for file in \
+            reports/ci_status_report.md \
+            reports/test_baseline_report.md \
+            reports/test_coverage_initial.md
+          do
+            if [ -f "$file" ]; then
+              cp "$file" ci-artifacts/
+            fi
+          done
 
       - name: Upload reports
         if: always()
@@ -50,3 +67,4 @@ jobs:
         with:
           name: project-brain-ci-reports
           path: ci-artifacts/
+          if-no-files-found: ignore

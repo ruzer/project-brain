@@ -17,6 +17,11 @@ const IGNORED_DIRECTORIES = new Set([
   "vendor"
 ]);
 
+const IGNORED_PATH_PATTERNS = [
+  /(^|\/)__fixtures__(\/|$)/i,
+  /(^|\/)(tests?|spec)\/fixtures(\/|$)/i
+];
+
 export async function fileExists(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);
@@ -89,8 +94,9 @@ export async function walkDirectory(rootPath: string, maxFiles = 8000, excludedP
           excludedPath !== "" &&
           (normalizedPath === excludedPath || normalizedPath.startsWith(`${excludedPath}/`))
       );
+      const matchesIgnoredPattern = IGNORED_PATH_PATTERNS.some((pattern) => pattern.test(normalizedPath));
 
-      if (isExcluded) {
+      if (isExcluded || matchesIgnoredPattern) {
         continue;
       }
 

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/ruzer/project-brain/security/policy
+    about: Report vulnerabilities privately instead of opening a public issue.
+  - name: Support and usage
+    url: https://github.com/ruzer/project-brain/blob/main/SUPPORT.md
+    about: Read support guidance before opening a new issue.

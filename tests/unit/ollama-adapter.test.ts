@@ -38,6 +38,18 @@ describe("OllamaAdapter", () => {
 
     expect(timeoutSpy).toHaveBeenNthCalledWith(1, 240_000);
     expect(timeoutSpy).toHaveBeenNthCalledWith(2, 240_000);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "http://127.0.0.1:11434/api/generate",
+      expect.objectContaining({
+        body: JSON.stringify({
+          model: "qwen2.5-coder:7b",
+          prompt: "Return JSON only.",
+          stream: false,
+          think: false
+        })
+      })
+    );
   });
 
   it("prefers the environment timeout override over the configured timeout", async () => {
@@ -54,5 +66,47 @@ describe("OllamaAdapter", () => {
     await adapter.ask("Return JSON only.", "qwen2.5-coder:7b");
 
     expect(timeoutSpy).toHaveBeenCalledWith(123_456);
+  });
+
+  it("retries without the think flag when Ollama rejects it", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "ok" })
+      });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const adapter = new OllamaAdapter("http://127.0.0.1:11434", DEFAULT_OLLAMA_TIMEOUT_MS);
+    await expect(adapter.ask("Return JSON only.", "qwen2.5-coder:7b")).resolves.toBe("ok");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "http://127.0.0.1:11434/api/generate",
+      expect.objectContaining({
+        body: JSON.stringify({
+          model: "qwen2.5-coder:7b",
+          prompt: "Return JSON only.",
+          stream: false,
+          think: false
+        })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "http://127.0.0.1:11434/api/generate",
+      expect.objectContaining({
+        body: JSON.stringify({
+          model: "qwen2.5-coder:7b",
+          prompt: "Return JSON only.",
+          stream: false
+        })
+      })
+    );
   });
 });

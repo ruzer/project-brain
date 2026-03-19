@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+title: project-brain
+message: "If you use project-brain in research, engineering notes, or public analysis, please cite it."
+type: software
+license: MIT
+authors:
+  - family-names: Ruiz
+    given-names: Ruzer
+repository-code: "https://github.com/ruzer/project-brain"
+url: "https://github.com/ruzer/project-brain"
+abstract: "A control-tower repository analysis engine for discovery, context, review, and improvement planning."
+version: 0.1.0

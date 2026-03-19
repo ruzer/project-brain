@@ -2,9 +2,11 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import { buildAgentCatalog } from "../agents/catalog";
+import { AgentFirewall } from "./agent-firewall";
 import { AgentCouncil } from "./agent-council";
 import { AgentEvaluator } from "./agent-evaluator";
 import { AgentMessageCenter } from "./message-center";
+import { assessProposalConsensus } from "./proposal-consensus";
 import { AgentRegistry } from "./agent-registry";
 import { AgentSupervisor, GOVERNANCE_RULES } from "./agent-supervisor";
 import { AgentTaskBoard } from "./task-board";
@@ -154,9 +156,43 @@ function implementationSketchFor(recommendation: string, affectedFiles: string[]
   ].join(" ");
 }
 
+function applyConsensusGate(
+  decision: { status: ProposalArtifact["status"]; rationale: string },
+  consensus: ReturnType<typeof assessProposalConsensus>,
+  riskLevel: AgentReport["riskLevel"]
+): { status: ProposalArtifact["status"]; rationale: string } {
+  const rationaleParts = [decision.rationale];
+
+  if (consensus.consensusState === "weak" && decision.status === "APPROVED") {
+    rationaleParts.push("Consensus gate downgraded the proposal because peer agents did not corroborate the same concern.");
+    return {
+      status: "REQUIRES_HUMAN_REVIEW",
+      rationale: rationaleParts.join(" ")
+    };
+  }
+
+  if (consensus.consensusState === "weak" && riskLevel === "high" && decision.status !== "REJECTED") {
+    rationaleParts.push("High-risk proposals without peer corroboration require human review.");
+    return {
+      status: "REQUIRES_HUMAN_REVIEW",
+      rationale: rationaleParts.join(" ")
+    };
+  }
+
+  rationaleParts.push(
+    `Consensus=${consensus.consensusState} (${consensus.supportingAgents.length} supporting agents, score=${consensus.consensusScore.toFixed(2)}).`
+  );
+
+  return {
+    status: decision.status,
+    rationale: rationaleParts.join(" ")
+  };
+}
+
 export class AgentSelfGovernanceSystem {
   private readonly logger = new StructuredLogger("agent-self-governance");
   private readonly registry = new AgentRegistry();
+  private readonly firewall = new AgentFirewall();
   private readonly council = new AgentCouncil();
   private readonly supervisor = new AgentSupervisor();
   private readonly evaluator = new AgentEvaluator();
@@ -170,14 +206,18 @@ export class AgentSelfGovernanceSystem {
     agentReports: AgentReport[];
     summary: GovernanceSummary;
   }> {
-    const scheduler = new AutonomousScheduler(this.registry);
     const taskBoard = new AgentTaskBoard(context.taskBoardDir);
     const messages = new AgentMessageCenter();
     const previousLearnings = await this.learningStore.loadAll(context.learningDir);
-    const selectedAgents = scheduler.selectAgents(trigger);
-    let tasks = this.council.planTasks(selectedAgents, trigger, previousLearnings);
+    const { selectedAgents, tasks: plannedTasks } = this.planTasks(trigger, previousLearnings);
+    let tasks = plannedTasks;
     const agentReports: AgentReport[] = [];
     const evaluationScores: AgentEvaluationScore[] = [];
+    const firewallSummary = await this.firewall.assessPlan(
+      context,
+      trigger,
+      this.resolvePlannedTasks(tasks, selectedAgents)
+    );
 
     await taskBoard.initialize();
     messages.seedTaskAssignments(tasks, trigger);
@@ -187,6 +227,30 @@ export class AgentSelfGovernanceSystem {
       const registered = this.registry.get(task.agentId);
       if (!registered) {
         continue;
+      }
+
+      const packet = firewallSummary.packets.find((candidate) => candidate.taskId === task.taskId);
+      if (packet?.decision === "BLOCKED") {
+        const blockedTask = {
+          ...task,
+          state: "REJECTED" as const,
+          completedAt: new Date().toISOString()
+        };
+        tasks = taskBoard.update(tasks, blockedTask);
+        messages.escalateToHuman(
+          task,
+          `Firewall blocked task execution: ${packet.decisionRationale}`,
+          task.priority === "critical" ? "critical" : "high"
+        );
+        continue;
+      }
+
+      if (packet?.decision === "ALLOW_WITH_REVIEW") {
+        messages.escalateToHuman(
+          task,
+          `Firewall review gate: ${packet.decisionRationale}`,
+          task.priority === "critical" ? "critical" : "high"
+        );
       }
 
       tasks = taskBoard.claim(tasks, task.taskId);
@@ -290,9 +354,19 @@ export class AgentSelfGovernanceSystem {
         proposals,
         executionRecords: this.supervisor.records(),
         agentActivityReportPath,
-        improvementReportPath
+        improvementReportPath,
+        firewall: firewallSummary
       }
     };
+  }
+
+  async inspectFirewall(
+    context: ProjectContext,
+    trigger: GovernanceTrigger = "manual"
+  ) {
+    const previousLearnings = await this.learningStore.loadAll(context.learningDir);
+    const { selectedAgents, tasks } = this.planTasks(trigger, previousLearnings);
+    return this.firewall.assessPlan(context, trigger, this.resolvePlannedTasks(tasks, selectedAgents));
   }
 
   async recordFeedback(
@@ -439,14 +513,27 @@ export class AgentSelfGovernanceSystem {
         const implementationSketch = implementationSketchFor(recommendation, affectedFiles);
         const proposalId = createProposalId(score.agentId, proposalIndex);
         const filePath = path.join(context.proposalDir, proposalFileName(score.agentId, proposalIndex, title));
+        const consensus = assessProposalConsensus(
+          `${title}\n${report.summary}\n${recommendation}`,
+          score.agentId,
+          agentReports
+        );
+        const gatedDecision = applyConsensusGate(decision, consensus, report.riskLevel);
         const content = `# ${title}
 
 ## Governance decision
 
-- Status: ${decision.status}
-- Rationale: ${decision.rationale}
+- Status: ${gatedDecision.status}
+- Rationale: ${gatedDecision.rationale}
 - Source agent: ${registered.descriptor.displayName}
 - Task score: ${score.overallScore}
+
+## Consensus
+
+- State: ${consensus.consensusState}
+- Score: ${consensus.consensusScore}
+- Supporting agents: ${consensus.supportingAgents.join(", ") || "None"}
+- Shared themes: ${consensus.consensusThemes.join(", ") || "None"}
 
 ## Description
 
@@ -480,7 +567,7 @@ ${implementationSketch}
           agent: score.agentId,
           action: "proposal_generated",
           proposalId,
-          decision: decision.status,
+          decision: gatedDecision.status,
           filePath
         });
 
@@ -489,13 +576,17 @@ ${implementationSketch}
           agentId: score.agentId,
           title,
           summary: report.summary,
-          status: decision.status,
+          status: gatedDecision.status,
+          consensusScore: consensus.consensusScore,
+          consensusState: consensus.consensusState,
+          supportingAgents: consensus.supportingAgents,
+          consensusThemes: consensus.consensusThemes,
           filePath,
           riskLevel: report.riskLevel,
           affectedFiles,
           expectedBenefit,
           implementationSketch,
-          decisionRationale: decision.rationale,
+          decisionRationale: gatedDecision.rationale,
           sourceReportPath: report.outputPath,
           createdAt: new Date().toISOString()
         });
@@ -575,6 +666,7 @@ ${implementationSketch}
     const approvedCount = proposals.filter((proposal) => proposal.status === "APPROVED").length;
     const reviewCount = proposals.filter((proposal) => proposal.status === "REQUIRES_HUMAN_REVIEW").length;
     const rejectedCount = proposals.filter((proposal) => proposal.status === "REJECTED").length;
+    const strongConsensusCount = proposals.filter((proposal) => proposal.consensusState === "strong").length;
     const content = `# Agent Activity Report
 
 ## Runtime overview
@@ -584,6 +676,7 @@ ${implementationSketch}
 - Agent execution count: ${tasks.length}
 - Analysis coverage: ${tasks.filter((task) => task.state !== "NEW").length}/${tasks.length}
 - Accepted vs rejected proposals: approved=${approvedCount}, requires_human_review=${reviewCount}, rejected=${rejectedCount}, historical learnings=${previousLearnings.length}
+- Strong-consensus proposals: ${strongConsensusCount}/${proposals.length}
 - Detected regressions: ${rankedScores.filter((score) => score.overallScore < 0.55).length}
 
 ## Active governance rules
@@ -635,7 +728,7 @@ ${renderList(
 ${renderList(
         proposals.map(
           (proposal) =>
-            `${proposal.title} | status=${proposal.status} | risk=${proposal.riskLevel} | files=${proposal.affectedFiles.join(", ") || "None"} | path=${proposal.filePath}`
+            `${proposal.title} | status=${proposal.status} | consensus=${proposal.consensusState} (${proposal.consensusScore.toFixed(2)}) | risk=${proposal.riskLevel} | files=${proposal.affectedFiles.join(", ") || "None"} | path=${proposal.filePath}`
         )
       )}
 
@@ -654,5 +747,33 @@ ${renderList(repeatedPatterns)}
     await writeFileEnsured(reportPath, content);
     await writeFileEnsured(path.join(context.reportsDir, "improvement_report.md"), content);
     return reportPath;
+  }
+
+  private planTasks(trigger: GovernanceTrigger, previousLearnings: LearningRecord[]) {
+    const scheduler = new AutonomousScheduler(this.registry);
+    const selectedAgents = scheduler.selectAgents(trigger);
+    const tasks = this.council.planTasks(selectedAgents, trigger, previousLearnings);
+
+    return {
+      selectedAgents,
+      tasks
+    };
+  }
+
+  private resolvePlannedTasks(
+    tasks: GovernanceSummary["tasks"],
+    selectedAgents: ReturnType<AutonomousScheduler["selectAgents"]>
+  ) {
+    return tasks.flatMap((task) => {
+      const selected = selectedAgents.find((entry) => entry.descriptor.agentId === task.agentId);
+      return selected
+        ? [
+            {
+              task,
+              descriptor: selected.descriptor
+            }
+          ]
+        : [];
+    });
   }
 }

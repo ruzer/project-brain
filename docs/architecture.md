@@ -37,7 +37,7 @@ A physical move into `src/` was intentionally not performed in this baseline bec
 
 ## External repository workflow
 
-For ERP-GOB and similar systems, the normal flow is:
+For external repositories and similar systems, the normal flow is:
 
 1. run repository analysis
 2. generate `AI_CONTEXT`, reports, and implementation tasks

@@ -1,25 +1,54 @@
 import path from "node:path";
 
+import { buildOrUpdateCodeGraphV2 } from "../../analysis/code_graph_v2";
+import { analyzeImpactRadius } from "../../analysis/impact_radius";
 import { MetricsCollector } from "../../analysis/metrics/metrics_collector";
 import { discoverRepositoryTargets, uniqueRepositoryNames } from "../../analysis/workspace_discovery";
+import { AIRouter, type AIRouterRequest, type ModelInventory, type ModelSelection } from "../ai_router/router";
+import { routeIntent } from "../intent_router";
+import { writeCodebaseMapArtifacts } from "../codebase_map";
+import { runDoctor } from "../doctor";
+import { buildResume } from "../resume";
+import { buildStatus } from "../status";
 import { ContextBuilder } from "../context_builder";
 import { WeeklyScheduler } from "../scheduler";
 import { DiscoveryEngine } from "../discovery_engine";
+import { runSwarm } from "../swarm_runtime";
 import { AgentSelfGovernanceSystem } from "../../governance/self-governance-system";
 import { buildKnowledgeGraphArtifacts } from "../../memory/knowledge_graph";
 import { recordLearningArtifacts } from "../../memory/learning_store";
+import { clearContextAnnotation, listContextAnnotations, readContextAnnotation, writeContextAnnotation } from "../../memory/annotations";
+import { getContextRegistryEntry, listContextSources, searchContextRegistry } from "../../memory/context_registry";
 import { updatePersistentMemory } from "../../memory/context_store";
+import { writeImprovementPlanArtifacts } from "../../planning/improvement_plan";
 import { createCycleId, StructuredLogger, withLogContext } from "../../shared/logger";
 import { ensureDir, readJsonSafe, toPosixPath, walkDirectory, writeFileEnsured } from "../../shared/fs-utils";
 import type {
   AgentReport,
+  AskArtifact,
+  AskResult,
+  AskWorkflow,
+  CodeGraphBuildResult,
+  CodebaseMapResult,
+  ContextGetResult,
+  ContextAnnotation,
+  ContextSearchResult,
+  ContextSourcesResult,
+  ImpactAnalysisResult,
+  EcosystemCodebaseMapResult,
   EcosystemAnalysisResult,
   EcosystemRepositoryResult,
+  FirewallInspectionResult,
   GovernanceTrigger,
+  ImprovementPlanResult,
   OrchestrationResult,
   ProjectContext,
   ReportManifest,
-  RepositoryTarget
+  RepositoryTarget,
+  DoctorResult,
+  ResumeResult,
+  StatusResult,
+  SwarmRunResult
 } from "../../shared/types";
 
 function highestRisk(agentReports: AgentReport[]): "low" | "medium" | "high" {
@@ -36,6 +65,118 @@ function renderList(items: string[]): string {
   return items.length > 0 ? items.map((item) => `- ${item}`).join("\n") : "- None";
 }
 
+function renderArtifactList(artifacts: AskArtifact[]): string {
+  return artifacts.length > 0
+    ? artifacts.map((artifact) => `- ${artifact.label}: ${artifact.path}`).join("\n")
+    : "- None";
+}
+
+interface AskAssistant {
+  ask(input: AIRouterRequest): Promise<string>;
+  selectModel(input: AIRouterRequest): Promise<ModelSelection>;
+  listModels?: () => Promise<ModelInventory>;
+}
+
+interface AskAIEnhancement {
+  headline?: string;
+  summary: string[];
+  followUps: string[];
+  suggestedWorkflow?: AskWorkflow;
+  modelSelection: ModelSelection;
+}
+
+interface AskGuidedExecution {
+  label: string;
+  command: string;
+  headline: string;
+  summary: string[];
+  artifacts: AskArtifact[];
+  followUps: string[];
+}
+
+interface ProjectBrainOrchestratorOptions {
+  aiRouter?: AskAssistant;
+}
+
+function extractJsonObject(input: string): Record<string, unknown> | undefined {
+  const trimmed = input.trim();
+  const candidate = trimmed.startsWith("```")
+    ? trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")
+    : trimmed;
+
+  try {
+    const parsed = JSON.parse(candidate) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : undefined;
+  } catch {
+    const start = candidate.indexOf("{");
+    const end = candidate.lastIndexOf("}");
+    if (start < 0 || end <= start) {
+      return undefined;
+    }
+
+    try {
+      const parsed = JSON.parse(candidate.slice(start, end + 1)) as unknown;
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+}
+
+function normalizeStringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
+}
+
+function mergeUniqueStrings(...groups: string[][]): string[] {
+  return [...new Set(groups.flat().filter((item) => item.trim().length > 0))];
+}
+
+function normalizeSuggestedWorkflow(value: unknown): AskWorkflow | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const allowed: AskWorkflow[] = [
+    "resume-project",
+    "discover-project",
+    "critical-gaps",
+    "review-latest-changes",
+    "inspect-firewall",
+    "build-code-graph"
+  ];
+
+  return allowed.includes(value as AskWorkflow) ? (value as AskWorkflow) : undefined;
+}
+
+function shouldUseAIAskAssist(intent: string, workflow: AskWorkflow): boolean {
+  const strategic = /estrateg|strategy|roadmap|stack|tecnolog|deploy|alcance|scope|arquitect|architecture|producto|product|idea|greenfield/i.test(
+    intent
+  );
+  const exploratory = /quiero|ayudame|help me|necesito|define|definir|como seguimos|what should/i.test(intent);
+
+  if (workflow === "discover-project") {
+    return strategic || exploratory;
+  }
+
+  if (workflow === "resume-project") {
+    return exploratory;
+  }
+
+  return strategic;
+}
+
+function hasAskArtifact(artifacts: AskArtifact[], label: string): boolean {
+  return artifacts.some((artifact) => artifact.label === label);
+}
+
+function shouldAutoContinueAsk(intent: string, workflow: AskWorkflow): boolean {
+  if (workflow !== "resume-project") {
+    return false;
+  }
+
+  return /\b(resume|continue|retoma|continua|continuar|seguir|seguimos|donde nos quedamos|where.*left off)\b/i.test(intent);
+}
+
 export class ProjectBrainOrchestrator {
   private readonly logger = new StructuredLogger("orchestrator");
   private readonly discoveryEngine = new DiscoveryEngine();
@@ -43,6 +184,11 @@ export class ProjectBrainOrchestrator {
   private readonly selfGovernance = new AgentSelfGovernanceSystem();
   private readonly scheduler = new WeeklyScheduler();
   private readonly metricsCollector = new MetricsCollector();
+  private readonly aiRouter: AskAssistant;
+
+  constructor(options: ProjectBrainOrchestratorOptions = {}) {
+    this.aiRouter = options.aiRouter ?? new AIRouter();
+  }
 
   private discoveryExclusions(targetPath: string, outputPath: string): string[] {
     const relativeOutput = toPosixPath(path.relative(targetPath, outputPath));
@@ -59,6 +205,576 @@ export class ProjectBrainOrchestrator {
       excludePaths: this.discoveryExclusions(targetPath, outputPath)
     });
     return this.contextBuilder.build(discovery, outputPath);
+  }
+
+  async mapTarget(targetPath: string, outputPath = targetPath): Promise<CodebaseMapResult> {
+    const context = await this.initTarget(targetPath, outputPath);
+    const artifact = await writeCodebaseMapArtifacts(context);
+
+    return {
+      context,
+      ...artifact
+    };
+  }
+
+  async analyzeImpact(
+    targetPath: string,
+    outputPath = targetPath,
+    options?: {
+      files?: string[];
+      baseRef?: string;
+      headRef?: string;
+    }
+  ): Promise<ImpactAnalysisResult> {
+    const context = await this.initTarget(targetPath, outputPath);
+    return analyzeImpactRadius(context, options);
+  }
+
+  async buildCodeGraph(targetPath: string, outputPath = targetPath): Promise<CodeGraphBuildResult> {
+    const context = await this.initTarget(targetPath, outputPath);
+    return buildOrUpdateCodeGraphV2(context);
+  }
+
+  async doctor(targetPath: string, outputPath = targetPath): Promise<DoctorResult> {
+    const context = await this.initTarget(targetPath, outputPath);
+    return runDoctor(context, this.aiRouter);
+  }
+
+  async status(targetPath: string, outputPath = targetPath): Promise<StatusResult> {
+    const context = await this.initTarget(targetPath, outputPath);
+    return buildStatus(context);
+  }
+
+  async resume(targetPath: string, outputPath = targetPath): Promise<ResumeResult> {
+    const context = await this.initTarget(targetPath, outputPath);
+    return buildResume(context);
+  }
+
+  async reviewDelta(
+    targetPath: string,
+    outputPath = targetPath,
+    options?: {
+      baseRef?: string;
+      headRef?: string;
+    }
+  ): Promise<ImpactAnalysisResult> {
+    return this.analyzeImpact(targetPath, outputPath, {
+      baseRef: options?.baseRef,
+      headRef: options?.headRef
+    });
+  }
+
+  async inspectFirewall(
+    targetPath: string,
+    outputPath = targetPath,
+    trigger: GovernanceTrigger = "manual"
+  ): Promise<FirewallInspectionResult> {
+    const context = await this.initTarget(targetPath, outputPath);
+    const firewall = await this.selfGovernance.inspectFirewall(context, trigger);
+
+    return {
+      context,
+      firewall
+    };
+  }
+
+  private async buildAskAIEnhancement(
+    intent: string,
+    workflow: AskWorkflow,
+    routingReason: string,
+    scopeMode: "repository" | "workspace"
+  ): Promise<AskAIEnhancement | undefined> {
+    if (!shouldUseAIAskAssist(intent, workflow)) {
+      return undefined;
+    }
+
+    const request: AIRouterRequest = {
+      task: "intent-routing",
+      profile: "planner",
+      allowRemote: true,
+      prompt: [
+        "You are refining a user intent for project-brain.",
+        "Do not invent repository facts.",
+        "Interpret the request and improve the next step selection.",
+        "Return JSON only with this shape:",
+        '{ "headline": string, "summary": string[], "follow_ups": string[], "suggested_workflow": string | null }',
+        `Intent: ${intent}`,
+        `Current workflow: ${workflow}`,
+        `Routing reason: ${routingReason}`,
+        `Scope mode: ${scopeMode}`
+      ].join("\n")
+    };
+
+    try {
+      const modelSelection = await this.aiRouter.selectModel(request);
+      const response = await this.aiRouter.ask(request);
+      const parsed = extractJsonObject(response);
+      if (!parsed) {
+        return undefined;
+      }
+
+      return {
+        headline: typeof parsed.headline === "string" ? parsed.headline : undefined,
+        summary: normalizeStringList(parsed.summary),
+        followUps: normalizeStringList(parsed.follow_ups),
+        suggestedWorkflow: normalizeSuggestedWorkflow(parsed.suggested_workflow),
+        modelSelection
+      };
+    } catch (error) {
+      this.logger.warn("Ask AI enhancement unavailable", {
+        action: "ask_ai_assist_unavailable",
+        intent,
+        workflow,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return undefined;
+    }
+  }
+
+  private async buildGuidedResumeExecution(
+    targetPath: string,
+    outputPath: string,
+    stage: ResumeResult["summary"]["stage"],
+    artifacts: AskArtifact[]
+  ): Promise<AskGuidedExecution | undefined> {
+    if (stage === "bootstrap") {
+      const result = await this.doctor(targetPath, outputPath);
+      return {
+        label: "Doctor",
+        command: `project-brain doctor . --output "${outputPath}"`,
+        headline: "Continued from bootstrap into Doctor.",
+        summary: [
+          result.summary.headline,
+          `Checks: passed=${result.summary.passed}, warnings=${result.summary.warnings}, failed=${result.summary.failed}`
+        ],
+        artifacts: [{ label: "Doctor report", path: result.reportPath }],
+        followUps: result.suggestions.map((suggestion) => suggestion.command)
+      };
+    }
+
+    if (stage === "doctor" && !hasAskArtifact(artifacts, "Codebase map summary")) {
+      const result = await this.mapTarget(targetPath, outputPath);
+      return {
+        label: "Codebase Map",
+        command: `project-brain map-codebase . --output "${outputPath}"`,
+        headline: "Continued from Doctor into Codebase Map.",
+        summary: [
+          `Languages: ${result.context.discovery.languages.join(", ") || "Unknown"}`,
+          `Frameworks: ${result.context.discovery.frameworks.join(", ") || "Unknown"}`,
+          "Generated the repository map as the next structural step."
+        ],
+        artifacts: [
+          { label: "Codebase map summary", path: result.summaryPath },
+          { label: "Codebase map directory", path: result.codebaseMapDir }
+        ],
+        followUps: [
+          'project-brain ask "dime que le falta criticamente"',
+          'project-brain swarm "ayudame a mejorar este repo"',
+          `project-brain status . --output "${outputPath}"`
+        ]
+      };
+    }
+
+    if (stage === "swarm" && !hasAskArtifact(artifacts, "Improvement plan summary")) {
+      const result = await this.planImprovements(targetPath, outputPath, "manual");
+      return {
+        label: "Improvement Plan",
+        command: `project-brain plan-improvements . --output "${outputPath}"`,
+        headline: "Continued from Swarm into Improvement Plan.",
+        summary: [
+          "Converted the latest bounded analysis into a persistent roadmap.",
+          `Plan summary: ${result.summaryPath}`,
+          `Roadmap: ${result.roadmapPath}`
+        ],
+        artifacts: [
+          { label: "Improvement plan summary", path: result.summaryPath },
+          { label: "Improvement roadmap", path: result.roadmapPath }
+        ],
+        followUps: [
+          `project-brain review-delta . --output "${outputPath}"`,
+          `project-brain status . --output "${outputPath}"`,
+          'project-brain ask "dime que le falta criticamente"'
+        ]
+      };
+    }
+
+    if (stage === "plan-improvements" && !hasAskArtifact(artifacts, "Impact report")) {
+      const result = await this.reviewDelta(targetPath, outputPath, {
+        baseRef: "HEAD~1",
+        headRef: "HEAD"
+      });
+      return {
+        label: "Review Delta",
+        command: `project-brain review-delta . --output "${outputPath}"`,
+        headline: "Continued from Improvement Plan into Review Delta.",
+        summary: [
+          `Changed files: ${result.changedFiles.join(", ") || "None"}`,
+          `Review set size: ${result.reviewFiles.length}`,
+          `Related tests: ${result.impactedTests.join(", ") || "None"}`
+        ],
+        artifacts: [
+          { label: "Impact report", path: result.reportPath },
+          { label: "Code graph", path: result.graphPath }
+        ],
+        followUps: [
+          `project-brain status . --output "${outputPath}"`,
+          'project-brain ask "dime que le falta criticamente"',
+          'project-brain ask "inspecciona el firewall y aprobaciones"'
+        ]
+      };
+    }
+
+    return undefined;
+  }
+
+  async ask(targetPath: string, outputPath = targetPath, intent: string): Promise<AskResult> {
+    const scope = await discoverRepositoryTargets(targetPath, outputPath);
+    let route = routeIntent(intent);
+    const briefPath = path.join(outputPath, "reports", "ask_brief.md");
+    const firstRepository = scope.repositories[0];
+    const primaryTargetPath = firstRepository?.targetPath ?? targetPath;
+    const primaryOutputPath =
+      scope.mode === "workspace" && firstRepository
+        ? this.workspaceRepoOutputPath(outputPath, firstRepository)
+        : outputPath;
+    const scopeNote =
+      scope.mode === "workspace" && firstRepository
+        ? `The intent was run against the first repository in the workspace: ${firstRepository.repoName} (${firstRepository.relativePath}).`
+        : undefined;
+    const aiEnhancement = await this.buildAskAIEnhancement(
+      intent,
+      route.workflow,
+      route.reason,
+      scope.mode === "workspace" ? "workspace" : "repository"
+    );
+
+    if (route.workflow === "discover-project" && aiEnhancement?.suggestedWorkflow) {
+      const suggestedRoute = routeIntent(aiEnhancement.suggestedWorkflow.replace(/-/g, " "));
+      route = {
+        ...suggestedRoute,
+        reason: `${route.reason} AI planner refinement suggested ${aiEnhancement.suggestedWorkflow}.`
+      };
+    }
+
+    let headline = "";
+    let summary: string[] = [];
+    let artifacts: AskArtifact[] = [];
+    let guidedExecution: AskGuidedExecution | undefined;
+
+    if (route.workflow === "resume-project") {
+      const result = await this.resume(primaryTargetPath, primaryOutputPath);
+      headline = result.summary.headline;
+      summary = [
+        scopeNote ?? `Target path: ${primaryTargetPath}`,
+        `Recovered stage: ${result.summary.stage}`,
+        ...result.notes
+      ].filter(Boolean);
+      artifacts = [
+        { label: "Resume report", path: result.reportPath },
+        ...(result.latestArtifact ? [{ label: `Latest artifact (${result.latestArtifact.label})`, path: result.latestArtifact.path }] : [])
+      ];
+      route.followUps = mergeUniqueStrings(route.followUps, result.suggestions.map((suggestion) => suggestion.command)).slice(0, 6);
+
+      if (shouldAutoContinueAsk(intent, route.workflow)) {
+        guidedExecution = await this.buildGuidedResumeExecution(
+          primaryTargetPath,
+          primaryOutputPath,
+          result.summary.stage,
+          artifacts
+        );
+
+        if (guidedExecution) {
+          headline = guidedExecution.headline;
+          summary = mergeUniqueStrings(summary, guidedExecution.summary);
+          artifacts = [...artifacts, ...guidedExecution.artifacts];
+          route.followUps = mergeUniqueStrings(route.followUps, guidedExecution.followUps).slice(0, 6);
+          route.followUps = route.followUps.filter((followUp) => followUp !== guidedExecution?.command);
+        }
+      }
+    }
+
+    if (route.workflow === "discover-project") {
+      if (scope.mode === "workspace") {
+        const result = await this.mapWorkspace(targetPath, outputPath, scope.repositories);
+        headline = `Detected a workspace with ${result.repositories.length} repositories.`;
+        summary = [
+          `Root path: ${result.rootPath}`,
+          `Repositories: ${result.repositories.map((repository) => repository.repoName).join(", ") || "None"}`,
+          "Discovery completed and codebase maps were generated for each repository."
+        ];
+        artifacts = [
+          { label: "Workspace codebase map", path: result.summaryPath },
+          ...result.repositories.slice(0, 3).map((repository) => ({
+            label: `${repository.repoName} summary`,
+            path: repository.summaryPath
+          }))
+        ];
+      } else {
+        const result = await this.mapTarget(primaryTargetPath, primaryOutputPath);
+        headline = `Detected ${result.context.repoName} and generated its repository map.`;
+        summary = [
+          `Languages: ${result.context.discovery.languages.join(", ") || "Unknown"}`,
+          `Frameworks: ${result.context.discovery.frameworks.join(", ") || "Unknown"}`,
+          `Testing: ${result.context.discovery.testing.join(", ") || "Not detected"}`,
+          `Infrastructure: ${result.context.discovery.infrastructure.join(", ") || "Not detected"}`
+        ];
+        artifacts = [
+          { label: "Codebase map summary", path: result.summaryPath },
+          { label: "Codebase map directory", path: result.codebaseMapDir }
+        ];
+      }
+    }
+
+    if (route.workflow === "critical-gaps") {
+      if (scope.mode === "workspace") {
+        const result = await this.analyzeWorkspace(targetPath, outputPath, route.trigger, scope.repositories);
+        headline = `Analyzed ${result.repositories.length} repositories for critical gaps.`;
+        summary = [
+          `Trigger used: ${route.trigger}`,
+          `Repositories: ${result.repositories.map((repository) => repository.repoName).join(", ") || "None"}`,
+          `Cross-repo intelligence artifacts were generated for the workspace.`
+        ];
+        artifacts = [
+          { label: "Ecosystem report", path: result.ecosystemReportPath },
+          { label: "Knowledge graph", path: result.knowledgeGraphPath },
+          { label: "Runtime observability", path: result.runtimeObservabilityPath }
+        ];
+      } else {
+        const result = await this.analyzeTarget(primaryTargetPath, primaryOutputPath, route.trigger);
+        const approved = result.governanceSummary?.proposals.filter((proposal) => proposal.status === "APPROVED").length ?? 0;
+        const review = result.governanceSummary?.proposals.filter((proposal) => proposal.status === "REQUIRES_HUMAN_REVIEW").length ?? 0;
+        headline = `Analyzed ${result.context.repoName} for critical gaps and governance findings.`;
+        summary = [
+          `Languages: ${result.context.discovery.languages.join(", ") || "Unknown"}`,
+          `Frameworks: ${result.context.discovery.frameworks.join(", ") || "Unknown"}`,
+          `Agent reports: ${result.agentReports.length}`,
+          `Proposals: approved=${approved}, review=${review}`
+        ];
+        artifacts = [
+          { label: "Risk report", path: result.riskReportPath },
+          { label: "Weekly system report", path: result.weeklyReportPath },
+          { label: "Improvement proposals", path: result.governanceSummary?.improvementReportPath ?? path.join(primaryOutputPath, "reports", "improvement_proposals.md") }
+        ];
+      }
+    }
+
+    if (route.workflow === "review-latest-changes") {
+      const result = await this.reviewDelta(primaryTargetPath, primaryOutputPath, {
+        baseRef: "HEAD~1",
+        headRef: "HEAD"
+      });
+      headline = `Built a bounded review set for the latest repository changes.`;
+      summary = [
+        scopeNote ?? `Target path: ${primaryTargetPath}`,
+        `Changed files: ${result.changedFiles.join(", ") || "None"}`,
+        `Review set size: ${result.reviewFiles.length}`,
+        `Related tests: ${result.impactedTests.join(", ") || "None"}`
+      ].filter(Boolean);
+      artifacts = [
+        { label: "Impact report", path: result.reportPath },
+        { label: "Code graph", path: result.graphPath }
+      ];
+    }
+
+    if (route.workflow === "inspect-firewall") {
+      const result = await this.inspectFirewall(primaryTargetPath, primaryOutputPath, route.trigger);
+      headline = `Inspected the current agent policy and approval model.`;
+      summary = [
+        scopeNote ?? `Target path: ${primaryTargetPath}`,
+        `Allowed tasks: ${result.firewall.stats.allowed}`,
+        `Review-required tasks: ${result.firewall.stats.reviewRequired}`,
+        `Blocked tasks: ${result.firewall.stats.blocked}`
+      ].filter(Boolean);
+      artifacts = [
+        { label: "Firewall report", path: result.firewall.reportPath },
+        { label: "Firewall policy JSON", path: result.firewall.policyPath },
+        { label: "Task packet directory", path: result.firewall.packetDir }
+      ];
+    }
+
+    if (route.workflow === "build-code-graph") {
+      const result = await this.buildCodeGraph(primaryTargetPath, primaryOutputPath);
+      headline = `Built or refreshed the structural code graph.`;
+      summary = [
+        scopeNote ?? `Target path: ${primaryTargetPath}`,
+        `Build mode: ${result.graph.build.mode}`,
+        `Files: ${result.graph.stats.files}`,
+        `Symbols: ${result.graph.stats.symbols}`,
+        `Edges: ${result.graph.stats.edges}`
+      ].filter(Boolean);
+      artifacts = [{ label: "Code graph", path: result.graphPath }];
+    }
+
+    if (aiEnhancement) {
+      headline = aiEnhancement.headline ?? headline;
+      summary = mergeUniqueStrings(summary, aiEnhancement.summary);
+      route.followUps = mergeUniqueStrings(route.followUps, aiEnhancement.followUps).slice(0, 6);
+    }
+
+    await ensureDir(path.dirname(briefPath));
+    await writeFileEnsured(
+      briefPath,
+      `# Ask Brief
+
+## Request
+
+- Intent: ${intent}
+- Workflow: ${route.workflow}
+- Scope mode: ${scope.mode}
+- Routing reason: ${route.reason}
+
+## Headline
+
+${headline}
+
+## Summary
+
+${renderList(summary)}
+
+## Artifacts
+
+${renderArtifactList(artifacts)}
+
+## Guided continuation
+
+${guidedExecution
+  ? renderList([
+      `Step: ${guidedExecution.label}`,
+      `Command: ${guidedExecution.command}`,
+      `Headline: ${guidedExecution.headline}`,
+      ...guidedExecution.summary
+    ])
+  : "- Not used"}
+
+## AI Assist
+
+${aiEnhancement
+  ? renderList([
+      `Model: ${aiEnhancement.modelSelection.model}`,
+      `Provider: ${aiEnhancement.modelSelection.provider}`,
+      `Profile: ${aiEnhancement.modelSelection.profile}`,
+      `Residency: ${aiEnhancement.modelSelection.residency}`,
+      ...(aiEnhancement.suggestedWorkflow ? [`Suggested workflow: ${aiEnhancement.suggestedWorkflow}`] : [])
+    ])
+  : "- Not used"}
+
+## Suggested next prompts
+
+${renderList(route.followUps)}
+`
+    );
+
+    return {
+      intent,
+      workflow: route.workflow,
+      targetPath,
+      outputPath,
+      scopeMode: scope.mode === "workspace" ? "workspace" : "repository",
+      briefPath,
+      headline,
+      summary,
+      artifacts,
+      followUps: route.followUps,
+      routingReason: route.reason,
+      guidedExecution: guidedExecution
+        ? {
+            label: guidedExecution.label,
+            command: guidedExecution.command,
+            headline: guidedExecution.headline,
+            summary: guidedExecution.summary,
+            artifacts: guidedExecution.artifacts
+          }
+        : undefined,
+      aiAssistance: aiEnhancement
+        ? {
+            provider: aiEnhancement.modelSelection.provider,
+            model: aiEnhancement.modelSelection.model,
+            profile: aiEnhancement.modelSelection.profile,
+            residency: aiEnhancement.modelSelection.residency,
+            summary: aiEnhancement.summary,
+            suggestedWorkflow: aiEnhancement.suggestedWorkflow
+          }
+        : undefined
+    };
+  }
+
+  async swarm(
+    targetPath: string,
+    outputPath = targetPath,
+    intent: string,
+    options?: {
+      parallelism?: number;
+      chunkSize?: number;
+      taskTimeoutMs?: number;
+      maxRetries?: number;
+      plannerTimeoutMs?: number;
+      synthesisTimeoutMs?: number;
+      runTimeoutMs?: number;
+      maxQueuedTasks?: number;
+      scopeBias?: "balanced" | "source-first";
+    }
+  ): Promise<SwarmRunResult> {
+    const context = await this.initTarget(targetPath, outputPath);
+    return runSwarm(context, intent, this.aiRouter, options);
+  }
+
+  async selfImprove(
+    targetPath: string,
+    outputPath = targetPath,
+    intent = "ayudame a mejorar este repo y prioriza mejoras reales"
+  ): Promise<SwarmRunResult> {
+    return this.swarm(targetPath, outputPath, intent, {
+      chunkSize: 1,
+      taskTimeoutMs: 12_000,
+      plannerTimeoutMs: 8_000,
+      synthesisTimeoutMs: 8_000,
+      runTimeoutMs: 45_000,
+      maxRetries: 1,
+      scopeBias: "source-first"
+    });
+  }
+
+  async planImprovements(
+    targetPath: string,
+    outputPath = targetPath,
+    trigger: GovernanceTrigger = "manual"
+  ): Promise<ImprovementPlanResult> {
+    const scope = await discoverRepositoryTargets(targetPath, outputPath);
+    const firstRepository = scope.repositories[0];
+    const primaryTargetPath = firstRepository?.targetPath ?? targetPath;
+    const primaryOutputPath =
+      scope.mode === "workspace" && firstRepository
+        ? this.workspaceRepoOutputPath(outputPath, firstRepository)
+        : outputPath;
+    const analysis = await this.analyzeTarget(primaryTargetPath, primaryOutputPath, trigger);
+    const annotations = await listContextAnnotations(primaryOutputPath);
+
+    return writeImprovementPlanArtifacts(
+      analysis.context,
+      analysis.agentReports,
+      analysis.governanceSummary!,
+      annotations
+    );
+  }
+
+  async contextSearch(
+    targetPath: string,
+    outputPath = targetPath,
+    query = "",
+    trust?: "official" | "maintainer" | "community"
+  ): Promise<ContextSearchResult> {
+    const context = await this.initTarget(targetPath, outputPath);
+    return searchContextRegistry(context, query, trust);
+  }
+
+  async contextGet(targetPath: string, outputPath = targetPath, id = ""): Promise<ContextGetResult> {
+    const context = await this.initTarget(targetPath, outputPath);
+    return getContextRegistryEntry(context, id);
+  }
+
+  async contextSources(targetPath: string, outputPath = targetPath): Promise<ContextSourcesResult> {
+    const context = await this.initTarget(targetPath, outputPath);
+    return listContextSources(context);
   }
 
   async analyzeTarget(
@@ -184,6 +900,16 @@ export class ProjectBrainOrchestrator {
     return this.analyzeTarget(scope.repositories[0]?.targetPath ?? targetPath, outputPath, trigger);
   }
 
+  async mapScope(targetPath: string, outputPath = targetPath): Promise<CodebaseMapResult | EcosystemCodebaseMapResult> {
+    const scope = await discoverRepositoryTargets(targetPath, outputPath);
+
+    if (scope.mode === "workspace") {
+      return this.mapWorkspace(targetPath, outputPath, scope.repositories);
+    }
+
+    return this.mapTarget(scope.repositories[0]?.targetPath ?? targetPath, outputPath);
+  }
+
   async generateWeeklyScope(targetPath: string, outputPath = targetPath): Promise<OrchestrationResult | EcosystemAnalysisResult> {
     return this.analyzeScope(targetPath, outputPath, "weekly-review");
   }
@@ -200,6 +926,33 @@ export class ProjectBrainOrchestrator {
     return this.selfGovernance.recordFeedback(context, input);
   }
 
+  async annotateTarget(
+    targetPath: string,
+    outputPath: string,
+    input: {
+      scope: string;
+      note: string;
+    }
+  ): Promise<ContextAnnotation> {
+    await this.initTarget(targetPath, outputPath);
+    return writeContextAnnotation(outputPath, input.scope, input.note);
+  }
+
+  async readAnnotation(targetPath: string, outputPath: string, scope: string): Promise<ContextAnnotation | undefined> {
+    await this.initTarget(targetPath, outputPath);
+    return readContextAnnotation(outputPath, scope);
+  }
+
+  async listAnnotations(targetPath: string, outputPath: string): Promise<ContextAnnotation[]> {
+    await this.initTarget(targetPath, outputPath);
+    return listContextAnnotations(outputPath);
+  }
+
+  async clearAnnotation(targetPath: string, outputPath: string, scope: string): Promise<boolean> {
+    await this.initTarget(targetPath, outputPath);
+    return clearContextAnnotation(outputPath, scope);
+  }
+
   async collectReportManifest(outputPath: string): Promise<ReportManifest> {
     const files = await walkDirectory(outputPath);
     return {
@@ -207,7 +960,10 @@ export class ProjectBrainOrchestrator {
       reportFiles: files.filter((file) => file.startsWith("reports/")),
       docFiles: files.filter((file) => file.startsWith("docs/")),
       learningFiles: files.filter((file) => file.startsWith("memory/learnings/")),
+      swarmFiles: files.filter((file) => file.startsWith("memory/swarm/") || file === "reports/swarm_run.md"),
+      firewallFiles: files.filter((file) => file.startsWith("memory/firewall/")),
       knowledgeFiles: files.filter((file) => file.startsWith("memory/knowledge_graph/")),
+      contextRegistryFiles: files.filter((file) => file.startsWith("memory/context_registry/") || file.startsWith("AI_CONTEXT/EXTERNAL_CONTEXT/")),
       taskFiles: files.filter((file) => file.startsWith("tasks/")),
       patchProposalFiles: files.filter((file) => file.startsWith("patch_proposals/")),
       proposalFiles: files.filter(
@@ -341,6 +1097,66 @@ export class ProjectBrainOrchestrator {
         proposalPaths
       };
     });
+  }
+
+  private async mapWorkspace(
+    rootPath: string,
+    outputPath: string,
+    repositories: RepositoryTarget[]
+  ): Promise<EcosystemCodebaseMapResult> {
+    await ensureDir(outputPath);
+
+    const results = await Promise.all(
+      repositories.map(async (repository) => {
+        const repositoryOutputPath = this.workspaceRepoOutputPath(outputPath, repository);
+        const result = await this.mapTarget(repository.targetPath, repositoryOutputPath);
+
+        return {
+          repoName: repository.repoName,
+          relativePath: repository.relativePath,
+          targetPath: repository.targetPath,
+          outputPath: repositoryOutputPath,
+          codebaseMapDir: result.codebaseMapDir,
+          files: result.files,
+          summaryPath: result.summaryPath
+        };
+      })
+    );
+
+    const summaryPath = await this.writeWorkspaceCodebaseMapSummary(rootPath, outputPath, results);
+
+    return {
+      rootPath,
+      outputPath,
+      repositories: results,
+      summaryPath
+    };
+  }
+
+  private async writeWorkspaceCodebaseMapSummary(
+    rootPath: string,
+    outputPath: string,
+    repositories: EcosystemCodebaseMapResult["repositories"]
+  ): Promise<string> {
+    const summaryPath = path.join(outputPath, "docs", "ecosystem_codebase_map.md");
+    const content = `# Ecosystem Codebase Map
+
+- Root path: ${rootPath}
+- Repositories mapped: ${repositories.length}
+- Repository names: ${uniqueRepositoryNames(repositories).join(", ") || "None"}
+
+## Repository outputs
+
+${renderList(
+  repositories.map(
+    (repository) =>
+      `${repository.repoName} | relative path: ${repository.relativePath} | codebase map: ${repository.codebaseMapDir}`
+  )
+)}
+`;
+
+    await writeFileEnsured(summaryPath, content);
+    return summaryPath;
   }
 
   private async writeWeeklySystemReport(context: ProjectContext, agentReports: AgentReport[]): Promise<string> {

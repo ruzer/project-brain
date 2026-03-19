@@ -6,8 +6,15 @@
     "project-brain": "dist/cli/project-brain.js"
   },
   "scripts": {
+    "lint": "eslint .",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "verify:quick": "npm run lint && npm run typecheck && npm run build",
+    "verify": "npm run verify:quick && npm run test && npm run test:smoke",
+    "security:repo": "node scripts/check-repo-safety.mjs --all",
+    "security:audit": "npm audit --omit=dev --audit-level=high",
+    "hooks:install": "node scripts/install-hooks.mjs",
+    "prepare": "node scripts/install-hooks.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:smoke": "vitest run tests/smoke",
@@ -25,7 +32,8 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "commander": "^14.0.1"
+    "commander": "^14.0.1",
+    "typescript": "^5.9.3"
   },
   "devDependencies": {
     "@types/node": "^24.7.2",
@@ -34,7 +42,6 @@
     "eslint": "^10.0.3",
     "ts-node": "^10.9.2",
     "ts-prune": "^0.10.3",
-    "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   }
 }

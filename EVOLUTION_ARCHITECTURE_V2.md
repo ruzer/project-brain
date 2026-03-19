@@ -13,7 +13,7 @@ The scope of this document is the `project-brain` repository only.
 ## Non-negotiable constraints
 
 - Work only inside `project-brain`.
-- Do not modify ERP-GOB or any external repository automatically.
+- Do not modify any external repository automatically.
 - Preserve the current CLI surface.
 - Keep autonomy bounded to safe improvement classes.
 - Never push automatically.

@@ -1,6 +1,6 @@
-# ERP-GOB integration
+# External repository integration
 
-`project-brain` is used with ERP-GOB as an external intelligence layer.
+`project-brain` is designed to work as an external intelligence layer for repositories it does not own.
 
 ## Primary use cases
 
@@ -11,27 +11,27 @@
 
 ## What it should do
 
-- analyze ERP-GOB frontend and backend repositories
+- analyze frontend, backend, and workspace repositories
 - produce `AI_CONTEXT` artifacts
 - generate UX, architecture, QA, and optimization reports
 - generate task backlogs and review-only diffs
 
 ## What it must not do
 
-- modify ERP-GOB code automatically
-- change backend logic without explicit human direction
+- modify target code automatically
+- change production logic without explicit human direction
 - push code to remote repositories
 - bypass review or validation
 
 ## Recommended workflow
 
-1. Run `project-brain analyze` against the ERP-GOB target.
+1. Run `project-brain analyze` against the target repository.
 2. Review `AI_CONTEXT`, reports, and task outputs.
 3. Select the relevant prompt template from `prompts/context_templates/`.
 4. Provide the generated context plus the template to the downstream coding agent.
 5. Review any patch proposals manually before implementation.
 
-## Common ERP-GOB artifacts
+## Common artifacts
 
 - `UX_IMPLEMENTATION_TASKS.md`
 - `NAVIGATION_RESTRUCTURE.md`
