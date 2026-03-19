@@ -38,7 +38,7 @@
   "devDependencies": {
     "@types/node": "^24.7.2",
     "@typescript-eslint/parser": "^8.57.0",
-    "dependency-cruiser": "^17.3.8",
+    "dependency-cruiser": "^17.3.9",
     "eslint": "^10.0.3",
     "ts-node": "^10.9.2",
     "ts-prune": "^0.10.3",
