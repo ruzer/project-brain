@@ -107,7 +107,7 @@ describe("CLI smoke workflows", () => {
     const result = runCli(["analyze", workspaceFixturePath, "--output", outputDir, "--trigger", "repository-change"], cwd);
 
     expect(result.stdout).toContain("Analyzed ecosystem");
-    expect(result.stdout).toContain("CashCalculator, ERP, OffRoadHub, project-brain");
+    expect(result.stdout).toContain("CashCalculator, ERP, FrontendPortal, project-brain");
     expect(existsSync(path.join(outputDir, "memory", "knowledge_graph", "knowledge_graph.json"))).toBe(true);
     expect(existsSync(path.join(outputDir, "reports", "ecosystem_health.md"))).toBe(true);
     expect(existsSync(path.join(outputDir, "reports", "telemetry"))).toBe(true);

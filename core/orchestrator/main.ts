@@ -11,6 +11,7 @@ import { runDoctor } from "../doctor";
 import { buildResume } from "../resume";
 import { buildStatus } from "../status";
 import { ContextBuilder } from "../context_builder";
+import { writeContextLiteArtifacts } from "../context_lite";
 import { WeeklyScheduler } from "../scheduler";
 import { DiscoveryEngine } from "../discovery_engine";
 import { runDeepAgentsSwarm } from "../deepagents_swarm";
@@ -23,7 +24,7 @@ import { getContextRegistryEntry, listContextSources, searchContextRegistry } fr
 import { updatePersistentMemory } from "../../memory/context_store";
 import { writeImprovementPlanArtifacts } from "../../planning/improvement_plan";
 import { createCycleId, StructuredLogger, withLogContext } from "../../shared/logger";
-import { ensureDir, readJsonSafe, toPosixPath, walkDirectory, writeFileEnsured } from "../../shared/fs-utils";
+import { ensureDir, readJsonSafe, readTextSafe, toPosixPath, uniqueSorted, walkDirectory, writeFileEnsured } from "../../shared/fs-utils";
 import type {
   AgentReport,
   AskArtifact,
@@ -31,6 +32,7 @@ import type {
   AskWorkflow,
   CodeGraphBuildResult,
   CodebaseMapResult,
+  ContextLiteResult,
   ContextGetResult,
   ContextAnnotation,
   ContextSearchResult,
@@ -60,6 +62,111 @@ function highestRisk(agentReports: AgentReport[]): "low" | "medium" | "high" {
     return "medium";
   }
   return "low";
+}
+
+function clampScore(value: number): number {
+  return Math.max(0, Math.min(1, Number(value.toFixed(2))));
+}
+
+function containsPathLikeEvidence(value: string): boolean {
+  return /`[^`]+\.[a-z0-9]+`|(?:^|[\s(])(?:src|app|lib|components|pages|routes|controllers|tests|docs|config)\/[^\s,;:()]+/i.test(value);
+}
+
+function collectGroundedFiles(context: ProjectContext, text: string): string[] {
+  return context.discovery.files.filter((filePath) => text.includes(filePath)).slice(0, 8);
+}
+
+function detectGenericSignals(entries: string[]): string[] {
+  return uniqueSorted(
+    entries.filter(
+      (entry) =>
+        GENERIC_REPORT_PATTERNS.some((pattern) => pattern.test(entry)) &&
+        !containsPathLikeEvidence(entry)
+    )
+  ).slice(0, 4);
+}
+
+async function assessAgentReportQuality(
+  context: ProjectContext,
+  report: AgentReport
+): Promise<AgentReportQualityAssessment> {
+  const reportContent = await readTextSafe(report.outputPath);
+  const evidenceText = [report.summary, ...report.findings, ...report.recommendations, reportContent].join("\n");
+  const groundedFiles = collectGroundedFiles(context, evidenceText);
+  const genericSignals = detectGenericSignals([...report.findings, ...report.recommendations]);
+  const notes: string[] = [];
+  let score = 1;
+
+  if (report.findings.length === 0 && report.recommendations.length === 0) {
+    score -= 0.4;
+    notes.push("No contiene findings ni recomendaciones accionables.");
+  }
+
+  if (!reportContent.trim()) {
+    score -= 0.15;
+    notes.push("El artefacto escrito del agente quedó vacío o no se pudo leer.");
+  }
+
+  if (groundedFiles.length === 0 && !containsPathLikeEvidence(evidenceText)) {
+    score -= 0.45;
+    notes.push("No cita archivos o superficies confirmadas del repositorio.");
+  }
+
+  if (genericSignals.length > 0 && groundedFiles.length === 0) {
+    score -= 0.2;
+    notes.push(`Las recomendaciones parecen genéricas: ${genericSignals.join(" | ")}`);
+  }
+
+  if (report.riskLevel !== "low" && report.findings.length === 0) {
+    score -= 0.1;
+    notes.push("Marca riesgo medio/alto sin findings concretos.");
+  }
+
+  return {
+    report,
+    score: clampScore(score),
+    status: score >= 0.65 ? "accepted" : "review-required",
+    notes: notes.length > 0 ? notes : ["El reporte cita evidencia suficiente para entrar al resumen operativo."],
+    groundedFiles,
+    genericSignals
+  };
+}
+
+function buildReportQualityContent(
+  context: ProjectContext,
+  assessments: AgentReportQualityAssessment[],
+  effectiveReports: AgentReport[],
+  fellBackToRawReports: boolean
+): string {
+  const accepted = assessments.filter((assessment) => assessment.status === "accepted");
+  const reviewRequired = assessments.filter((assessment) => assessment.status === "review-required");
+
+  return `# Report Quality
+
+## Summary
+
+- Repository: ${context.repoName}
+- Accepted reports: ${accepted.length}
+- Review-required reports: ${reviewRequired.length}
+- Effective reports used downstream: ${effectiveReports.length}
+- Fallback to raw reports: ${fellBackToRawReports ? "yes" : "no"}
+
+## Assessments
+
+${assessments
+  .map(
+    (assessment) => `### ${assessment.report.title}
+
+- Agent: ${assessment.report.agentId}
+- Status: ${assessment.status}
+- Score: ${assessment.score}
+- Grounded files: ${assessment.groundedFiles.join(", ") || "None"}
+- Notes:
+${renderList(assessment.notes)}
+`
+  )
+  .join("\n")}
+`;
 }
 
 function renderList(items: string[]): string {
@@ -98,6 +205,23 @@ interface AskGuidedExecution {
 interface ProjectBrainOrchestratorOptions {
   aiRouter?: AskAssistant;
 }
+
+interface AgentReportQualityAssessment {
+  report: AgentReport;
+  score: number;
+  status: "accepted" | "review-required";
+  notes: string[];
+  groundedFiles: string[];
+  genericSignals: string[];
+}
+
+const GENERIC_REPORT_PATTERNS = [
+  /\bimprove (?:the )?(?:ux|ui|architecture|performance|security|reliability)\b/i,
+  /\badd (?:more )?(?:tests|logging|monitoring|documentation)\b/i,
+  /\brefactor (?:the )?(?:codebase|workflow|module|architecture)\b/i,
+  /\benhance (?:the )?(?:workflow|platform|experience|quality)\b/i,
+  /\boptimi[sz]e (?:the )?(?:app|application|system|performance)\b/i
+];
 
 function extractJsonObject(input: string): Record<string, unknown> | undefined {
   const trimmed = input.trim();
@@ -234,6 +358,11 @@ export class ProjectBrainOrchestrator {
   async buildCodeGraph(targetPath: string, outputPath = targetPath): Promise<CodeGraphBuildResult> {
     const context = await this.initTarget(targetPath, outputPath);
     return buildOrUpdateCodeGraphV2(context);
+  }
+
+  async contextLite(targetPath: string, outputPath = targetPath): Promise<ContextLiteResult> {
+    const context = await this.initTarget(targetPath, outputPath);
+    return writeContextLiteArtifacts(context);
   }
 
   async doctor(targetPath: string, outputPath = targetPath): Promise<DoctorResult> {
@@ -805,6 +934,18 @@ ${renderList(route.followUps)}
       const context = await this.contextBuilder.build(discovery, outputPath);
       const governanceRun = await this.selfGovernance.run(context, trigger);
       const agentReports = governanceRun.agentReports;
+      const reportAssessments = await Promise.all(agentReports.map((report) => assessAgentReportQuality(context, report)));
+      const acceptedReports = reportAssessments
+        .filter((assessment) => assessment.status === "accepted")
+        .map((assessment) => assessment.report);
+      const effectiveReports = acceptedReports.length > 0 ? acceptedReports : agentReports;
+      const fellBackToRawReports = acceptedReports.length === 0 && agentReports.length > 0;
+      const reportQualityPath = path.join(context.reportsDir, "report_quality.md");
+
+      await writeFileEnsured(
+        reportQualityPath,
+        buildReportQualityContent(context, reportAssessments, effectiveReports, fellBackToRawReports)
+      );
 
       for (const record of governanceRun.summary.executionRecords) {
         this.logger.info("Agent execution observed", {
@@ -822,8 +963,18 @@ ${renderList(route.followUps)}
         });
       }
 
-      await updatePersistentMemory(context, agentReports);
-      await recordLearningArtifacts(context.memoryDir, agentReports);
+      for (const assessment of reportAssessments.filter((entry) => entry.status === "review-required")) {
+        this.logger.warn("Agent report marked for manual review", {
+          action: "report_quality_review_required",
+          agent: assessment.report.agentId,
+          score: assessment.score,
+          notes: assessment.notes,
+          reportPath: assessment.report.outputPath
+        });
+      }
+
+      await updatePersistentMemory(context, effectiveReports);
+      await recordLearningArtifacts(context.memoryDir, effectiveReports);
 
       if (governanceRun.summary.proposals.length > 0) {
         this.logger.info("Improvement proposals generated", {
@@ -835,20 +986,20 @@ ${renderList(route.followUps)}
         });
       }
 
-      const weeklyReportPath = await this.writeWeeklySystemReport(context, agentReports);
+      const weeklyReportPath = await this.writeWeeklySystemReport(context, effectiveReports);
       this.logger.info("Weekly report generated", {
         action: "report_generated",
         report: "weekly_system_report",
         reportPath: weeklyReportPath
       });
-      const riskReportPath = await this.writeRiskReport(context, agentReports);
+      const riskReportPath = await this.writeRiskReport(context, effectiveReports);
       this.logger.info("Risk report generated", {
         action: "report_generated",
         report: "risk_report",
         reportPath: riskReportPath
       });
 
-      const telemetry = this.metricsCollector.completeCycle(span, context.repoName, agentReports, governanceRun.summary);
+      const telemetry = this.metricsCollector.completeCycle(span, context.repoName, effectiveReports, governanceRun.summary);
       const telemetryPath = await this.metricsCollector.persistCycleTelemetry(context, telemetry);
       const runtimeObservabilityPath = await this.metricsCollector.writeRuntimeObservabilityReport(context.reportsDir);
 
@@ -863,7 +1014,7 @@ ${renderList(route.followUps)}
         action: "cycle_complete",
         repoName: context.repoName,
         outputPath,
-        highestRisk: highestRisk(agentReports),
+        highestRisk: highestRisk(effectiveReports),
         cycleDuration: telemetry.cycleDuration,
         agentsExecuted: telemetry.agentsExecuted,
         risksDetected: telemetry.risksDetected
@@ -874,6 +1025,7 @@ ${renderList(route.followUps)}
         agentReports,
         weeklyReportPath,
         riskReportPath,
+        reportQualityPath,
         governanceSummary: governanceRun.summary
       };
     });

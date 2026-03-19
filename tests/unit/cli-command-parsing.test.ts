@@ -43,6 +43,7 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
 
     expect(helpText).toContain("init");
     expect(helpText).toContain("map-codebase");
+    expect(helpText).toContain("context-lite");
     expect(helpText).toContain("analyze");
     expect(helpText).toContain("agents");
     expect(helpText).toContain("weekly");
@@ -80,6 +81,13 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
 
     expect(mapHelp).toContain("--output");
     expect(mapHelp).toContain("--verbose");
+  });
+
+  it("shows context-lite options", () => {
+    const contextLiteHelp = runCliHelp(["context-lite", "--help"]);
+
+    expect(contextLiteHelp).toContain("lightweight AI context");
+    expect(contextLiteHelp).toContain("--output");
   });
 
   it("shows annotation options", () => {

@@ -7,6 +7,7 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url));
 
 export const fixtureRepoPath = path.resolve(currentDir, "fixtures/sample-repo");
 export const devAgentFixtureRepoPath = path.resolve(currentDir, "fixtures/dev-agent-repo");
+export const nextPrismaFixtureRepoPath = path.resolve(currentDir, "fixtures/next-prisma-repo");
 export const workspaceFixturePath = path.resolve(currentDir, "fixtures/multi-repo-workspace");
 
 export async function createTempOutputDir(prefix: string): Promise<string> {

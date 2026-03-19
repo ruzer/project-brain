@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 
@@ -17,7 +17,8 @@ const blockedDirPrefixes = [
   "logs/",
   "sample-output/",
   "pb-output/",
-  "project-brain/pb-output/"
+  "project-brain/pb-output/",
+  ".project-brain-local/"
 ];
 
 const blockedBinarySuffixes = [".pem", ".p12", ".pfx"];
@@ -32,11 +33,38 @@ const secretPatterns = [
   {
     label: "credential assignment",
     regex: /\b(api[_-]?key|access[_-]?token|auth[_-]?token|secret|password)\b\s*[:=]\s*["'][^"'\\n]{10,}["']/i
+  },
+  {
+    label: "absolute local filesystem path",
+    regex: /(?:^|[\s"'`(])(?:\/Users\/[^/\s]+\/|\/home\/[^/\s]+\/|[A-Za-z]:\\Users\\[^\\\s]+)/ 
   }
 ];
 
+const privatePatternsFile = path.join(".project-brain-local", "private-patterns.txt");
+
 function runGit(argsToRun) {
   return execFileSync("git", argsToRun, { encoding: "utf8" }).trim();
+}
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function loadPrivatePatterns() {
+  const configPath = path.join(process.cwd(), privatePatternsFile);
+  if (!existsSync(configPath)) {
+    return [];
+  }
+
+  const content = readFileSync(configPath, "utf8");
+  return content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"))
+    .map((line) => ({
+      label: `private pattern (${line})`,
+      regex: new RegExp(escapeRegex(line), "i")
+    }));
 }
 
 function listFiles() {
@@ -150,13 +178,15 @@ function collectAllFileLines(files) {
 
 function findSecretHits(lines) {
   const hits = [];
+  const privatePatterns = loadPrivatePatterns();
+  const patterns = [...secretPatterns, ...privatePatterns];
 
   for (const line of lines) {
     if (isPlaceholderValue(line)) {
       continue;
     }
 
-    for (const pattern of secretPatterns) {
+    for (const pattern of patterns) {
       if (pattern.regex.test(line)) {
         hits.push({ label: pattern.label, line: line.trim() });
       }

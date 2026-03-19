@@ -91,6 +91,12 @@ Map an existing repository before deeper analysis:
 project-brain map-codebase /path/to/repo --output /path/to/output
 ```
 
+Generate a lightweight `AI_CONTEXT/` pack for a smaller app without running the full governed pipeline:
+
+```bash
+project-brain context-lite /path/to/repo --output /path/to/output
+```
+
 Use plain language and let `project-brain` route the workflow:
 
 ```bash
@@ -243,6 +249,7 @@ By default it adapts parallel workers and queue budget to the local CPU/load/mem
 
 The repository now includes reusable templates in `prompts/context_templates/` for:
 
+- context bootstrap / AI_CONTEXT refresh
 - frontend analysis
 - UX improvement planning
 - architecture review

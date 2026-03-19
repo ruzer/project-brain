@@ -287,6 +287,28 @@ program
   });
 
 program
+  .command("context-lite")
+  .argument("[target]", "Repository target to materialize lightweight AI context for", ".")
+  .option("-o, --output <dir>", "Output directory")
+  .description("Generate a compact AI_CONTEXT pack for smaller apps without running the full project-brain pipeline.")
+  .action(async (target: string, options: { output?: string }) => {
+    const targetPath = resolveTarget(target);
+    const outputPath = resolveOutput(targetPath, options.output);
+    const result = await orchestrator.contextLite(targetPath, outputPath);
+    console.log(`Context-lite report: ${result.reportPath}`);
+    console.log(`AI_CONTEXT: ${result.context.memoryDir}`);
+    console.log(`Artifacts: ${result.artifactPaths.map((artifactPath) => path.basename(artifactPath)).join(", ")}`);
+    console.log("Summary:");
+    for (const line of result.summary) {
+      console.log(`- ${line}`);
+    }
+    console.log("Requires confirmation:");
+    for (const item of result.openQuestions) {
+      console.log(`- ${item}`);
+    }
+  });
+
+program
   .command("analyze")
   .argument("<target>", "Repository to analyze")
   .option("-o, --output <dir>", "Output directory")
@@ -336,6 +358,9 @@ program
     console.log(`Analyzed ${result.context.repoName}`);
     console.log(`AI_CONTEXT: ${result.context.memoryDir}`);
     console.log(`Reports: ${result.context.reportsDir}`);
+    if (result.reportQualityPath) {
+      console.log(`Report quality: ${result.reportQualityPath}`);
+    }
     console.log(`Docs: ${result.context.docsDir}`);
     console.log(`Tasks: ${result.context.taskBoardDir}`);
     console.log(`Learnings: ${result.context.learningDir}`);
@@ -396,6 +421,9 @@ program
     console.log(`Weekly reports generated for ${result.context.repoName}`);
     console.log(`Weekly report: ${result.weeklyReportPath}`);
     console.log(`Risk report: ${result.riskReportPath}`);
+    if (result.reportQualityPath) {
+      console.log(`Report quality: ${result.reportQualityPath}`);
+    }
   });
 
 program

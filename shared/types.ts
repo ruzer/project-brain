@@ -743,6 +743,14 @@ export interface CodebaseMapResult extends CodebaseMapArtifact {
   context: ProjectContext;
 }
 
+export interface ContextLiteResult {
+  context: ProjectContext;
+  reportPath: string;
+  artifactPaths: string[];
+  summary: string[];
+  openQuestions: string[];
+}
+
 export interface EcosystemCodebaseMapRepositoryResult extends CodebaseMapArtifact {
   relativePath: string;
   targetPath: string;
@@ -760,6 +768,7 @@ export interface OrchestrationResult {
   agentReports: AgentReport[];
   weeklyReportPath: string;
   riskReportPath: string;
+  reportQualityPath?: string;
   governanceSummary?: GovernanceSummary;
 }
 

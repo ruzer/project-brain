@@ -202,6 +202,14 @@ project-brain analyze \
 
 The templates in `prompts/context_templates/` are intended for external repositories. Use them when a coding agent needs high-quality context before proposing frontend, UX, architecture, or performance changes.
 
+Recommended templates:
+
+- `context_bootstrap_master.md`: create or refresh `AI_CONTEXT/` from the real repository state
+- `frontend_analysis.md`: analyze operational frontend surfaces
+- `ux_improvement.md`: produce UX-focused improvement tasks
+- `architecture_review.md`: review module boundaries and structural risk
+- `performance_review.md`: find low-risk performance wins
+
 Recommended process:
 
 1. Run `project-brain map-codebase` against the target repository.

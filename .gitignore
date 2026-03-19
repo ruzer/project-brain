@@ -14,3 +14,4 @@ cache/
 coverage/
 .DS_Store
 sample-output/
+.project-brain-local/
