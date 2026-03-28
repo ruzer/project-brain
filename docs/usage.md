@@ -74,6 +74,14 @@ project-brain context-search "vitest testing" /path/to/repo --trust official --o
 project-brain context-sources /path/to/repo --output /path/to/output
 ```
 
+Discover ecosystem repos from GitHub and feed them into the same local context registry:
+
+```bash
+project-brain ecosystem-radar /path/to/repo --output /path/to/output
+project-brain ecosystem-radar /path/to/repo --bucket memory --limit 4 --output /path/to/output
+project-brain ecosystem-radar /path/to/repo --seed-only --output /path/to/output
+```
+
 Materialize one entry into reusable project context:
 
 ```bash
@@ -84,8 +92,11 @@ This writes:
 
 - `reports/context_search.md`
 - `reports/context_sources.md`
+- `reports/ecosystem_radar.md`
 - `memory/context_registry/`
 - `AI_CONTEXT/EXTERNAL_CONTEXT/<id>.md`
+
+If `GITHUB_TOKEN` is set, `ecosystem-radar` uses authenticated GitHub API requests. Without it, the command still works against public repositories but hits tighter rate limits.
 
 This produces `docs/codebase_map/` with:
 

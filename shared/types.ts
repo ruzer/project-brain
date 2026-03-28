@@ -527,6 +527,26 @@ export interface ContextSourcesResult {
   }>;
 }
 
+export interface EcosystemRadarCandidate {
+  entry: ContextRegistryEntry;
+  repoFullName: string;
+  bucketId: string;
+  score: number;
+  stars: number;
+  forks: number;
+  primaryLanguage?: string;
+  pushedAt?: string;
+  reasons: string[];
+}
+
+export interface EcosystemRadarResult {
+  context: ProjectContext;
+  reportPath: string;
+  cachePath: string;
+  candidates: EcosystemRadarCandidate[];
+  notes: string[];
+}
+
 export interface AgentMessage {
   messageId: string;
   sender: string;

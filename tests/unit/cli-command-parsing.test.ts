@@ -157,11 +157,15 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
     const searchHelp = runCliHelp(["context-search", "--help"]);
     const getHelp = runCliHelp(["context-get", "--help"]);
     const sourcesHelp = runCliHelp(["context-sources", "--help"]);
+    const radarHelp = runCliHelp(["ecosystem-radar", "--help"]);
 
     expect(searchHelp).toContain("--trust");
     expect(searchHelp).toContain("--output");
     expect(getHelp).toContain("--output");
     expect(sourcesHelp).toContain("--output");
+    expect(radarHelp).toContain("--limit");
+    expect(radarHelp).toContain("--bucket");
+    expect(radarHelp).toContain("--seed-only");
   });
 
   it("shows plan-improvements options", () => {

@@ -21,6 +21,7 @@ import { buildKnowledgeGraphArtifacts } from "../../memory/knowledge_graph";
 import { recordLearningArtifacts } from "../../memory/learning_store";
 import { clearContextAnnotation, listContextAnnotations, readContextAnnotation, writeContextAnnotation } from "../../memory/annotations";
 import { getContextRegistryEntry, listContextSources, searchContextRegistry } from "../../memory/context_registry";
+import { runEcosystemRadar } from "../../memory/context_registry/ecosystem_radar";
 import { updatePersistentMemory } from "../../memory/context_store";
 import { writeImprovementPlanArtifacts } from "../../planning/improvement_plan";
 import { createCycleId, StructuredLogger, withLogContext } from "../../shared/logger";
@@ -37,6 +38,7 @@ import type {
   ContextAnnotation,
   ContextSearchResult,
   ContextSourcesResult,
+  EcosystemRadarResult,
   ImpactAnalysisResult,
   EcosystemCodebaseMapResult,
   EcosystemAnalysisResult,
@@ -910,6 +912,19 @@ ${renderList(route.followUps)}
   async contextSources(targetPath: string, outputPath = targetPath): Promise<ContextSourcesResult> {
     const context = await this.initTarget(targetPath, outputPath);
     return listContextSources(context);
+  }
+
+  async ecosystemRadar(
+    targetPath: string,
+    outputPath = targetPath,
+    options: {
+      limit?: number;
+      bucketId?: string;
+      seedOnly?: boolean;
+    } = {}
+  ): Promise<EcosystemRadarResult> {
+    const context = await this.initTarget(targetPath, outputPath);
+    return runEcosystemRadar(context, options);
   }
 
   async analyzeTarget(

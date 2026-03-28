@@ -670,6 +670,32 @@ program
   });
 
 program
+  .command("ecosystem-radar")
+  .argument("[target]", "Repository that owns the output context", ".")
+  .option("-o, --output <dir>", "Output directory")
+  .option("--limit <n>", "Maximum additional discovered repositories to materialize", "6")
+  .option("--bucket <id>", "Only run a specific radar bucket")
+  .option("--seed-only", "Refresh only the curated seed repositories")
+  .action(async (
+    target: string,
+    options: { output?: string; limit?: string; bucket?: string; seedOnly?: boolean }
+  ) => {
+    const targetPath = resolveTarget(target);
+    const outputPath = resolveOutput(targetPath, options.output);
+    const parsedLimit = Number.parseInt(options.limit ?? "6", 10);
+    const result = await orchestrator.ecosystemRadar(targetPath, outputPath, {
+      limit: Number.isFinite(parsedLimit) ? parsedLimit : 6,
+      bucketId: options.bucket,
+      seedOnly: options.seedOnly ?? false
+    });
+    console.log(`Ecosystem radar report: ${result.reportPath}`);
+    console.log(`Cache: ${result.cachePath}`);
+    console.log(
+      `Candidates: ${result.candidates.map((candidate) => `${candidate.repoFullName}(score=${candidate.score})`).join(" | ") || "None"}`
+    );
+  });
+
+program
   .command("plan-improvements")
   .argument("[target]", "Repository to turn into a persistent improvement plan", ".")
   .option("-o, --output <dir>", "Output directory")

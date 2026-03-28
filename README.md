@@ -116,6 +116,13 @@ project-brain context-search "express observability" /path/to/repo --output /pat
 project-brain context-get node-express-api /path/to/repo --output /path/to/output
 ```
 
+Scan GitHub for repos that can improve `project-brain` and materialize them into the local context registry:
+
+```bash
+project-brain ecosystem-radar /path/to/repo --output /path/to/output
+project-brain ecosystem-radar /path/to/repo --bucket memory --limit 4 --output /path/to/output
+```
+
 Attach persistent local context for future runs:
 
 ```bash
