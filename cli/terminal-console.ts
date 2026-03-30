@@ -1,0 +1,655 @@
+import path from "node:path";
+import process from "node:process";
+import { createInterface, type Interface } from "node:readline/promises";
+
+import type { AIRouter } from "../core/ai_router/router";
+import type { ProjectBrainOrchestrator } from "../core/orchestrator/main";
+import { setLoggerOptions } from "../shared/logger";
+import type {
+  AskResult,
+  CodeGraphBuildResult,
+  ContextLiteResult,
+  DoctorResult,
+  EcosystemAnalysisResult,
+  FirewallInspectionResult,
+  GovernanceTrigger,
+  ImpactAnalysisResult,
+  ImprovementPlanResult,
+  OrchestrationResult,
+  ResumeResult,
+  StatusResult,
+  SwarmEngine,
+  SwarmRunResult
+} from "../shared/types";
+
+type WorkflowChoice =
+  | "doctor"
+  | "status"
+  | "resume"
+  | "analyze"
+  | "weekly"
+  | "context-lite"
+  | "ask"
+  | "swarm"
+  | "self-improve"
+  | "code-graph"
+  | "impact-radius"
+  | "review-delta"
+  | "firewall"
+  | "plan-improvements"
+  | "report";
+
+type MenuChoice = "config" | "paths" | "swarm" | "run" | "models" | "exit";
+
+interface ChoiceOption<T extends string> {
+  value: T;
+  label: string;
+}
+
+export interface TerminalSessionState {
+  targetPath: string;
+  outputPath: string;
+  trigger: GovernanceTrigger;
+  verbose: boolean;
+  ollamaTimeoutMs?: number;
+  swarmEngine: SwarmEngine;
+  parallelism?: number;
+  chunkSize?: number;
+  taskTimeoutMs?: number;
+  plannerTimeoutMs?: number;
+  synthesisTimeoutMs?: number;
+  runTimeoutMs?: number;
+  maxQueuedTasks?: number;
+  maxRetries?: number;
+}
+
+interface LaunchTerminalConsoleOptions {
+  orchestrator: ProjectBrainOrchestrator;
+  aiRouter: AIRouter;
+  initialSession?: Partial<TerminalSessionState>;
+  cwd?: string;
+}
+
+const MAIN_MENU: ChoiceOption<MenuChoice>[] = [
+  { value: "config", label: "Ver configuracion actual" },
+  { value: "paths", label: "Configurar target y output" },
+  { value: "swarm", label: "Configurar defaults del swarm" },
+  { value: "run", label: "Ejecutar workflow" },
+  { value: "models", label: "Ver modelos y routing" },
+  { value: "exit", label: "Salir" }
+];
+
+const WORKFLOW_MENU: ChoiceOption<WorkflowChoice>[] = [
+  { value: "doctor", label: "doctor" },
+  { value: "status", label: "status" },
+  { value: "resume", label: "resume" },
+  { value: "analyze", label: "analyze" },
+  { value: "weekly", label: "weekly" },
+  { value: "context-lite", label: "context-lite" },
+  { value: "ask", label: "ask" },
+  { value: "swarm", label: "swarm" },
+  { value: "self-improve", label: "self-improve" },
+  { value: "code-graph", label: "code-graph" },
+  { value: "impact-radius", label: "impact-radius" },
+  { value: "review-delta", label: "review-delta" },
+  { value: "firewall", label: "firewall" },
+  { value: "plan-improvements", label: "plan-improvements" },
+  { value: "report", label: "report manifest" }
+];
+
+const TRIGGER_CHOICES: ChoiceOption<GovernanceTrigger>[] = [
+  { value: "manual", label: "manual" },
+  { value: "repository-change", label: "repository-change" },
+  { value: "weekly-review", label: "weekly-review" },
+  { value: "security-audit", label: "security-audit" },
+  { value: "security-advisory", label: "security-advisory" },
+  { value: "architecture-review", label: "architecture-review" },
+  { value: "incident-detection", label: "incident-detection" },
+  { value: "dependency-update", label: "dependency-update" }
+];
+
+const SWARM_ENGINE_CHOICES: ChoiceOption<SwarmEngine>[] = [
+  { value: "bounded", label: "bounded" },
+  { value: "deepagents", label: "deepagents" }
+];
+
+export function createDefaultTerminalSession(cwd: string): TerminalSessionState {
+  const resolvedCwd = path.resolve(cwd);
+  return {
+    targetPath: resolvedCwd,
+    outputPath: resolvedCwd,
+    trigger: "manual",
+    verbose: false,
+    swarmEngine: "bounded"
+  };
+}
+
+export function summarizeTerminalSession(state: TerminalSessionState): string[] {
+  return [
+    `Target: ${state.targetPath}`,
+    `Output: ${state.outputPath}`,
+    `Trigger: ${state.trigger}`,
+    `Verbose logs: ${state.verbose ? "on" : "off"}`,
+    `Ollama timeout: ${state.ollamaTimeoutMs ?? "default"}`,
+    [
+      "Swarm defaults:",
+      `engine=${state.swarmEngine}`,
+      `parallel=${state.parallelism ?? "auto"}`,
+      `chunkSize=${state.chunkSize ?? "auto"}`,
+      `taskTimeoutMs=${state.taskTimeoutMs ?? "auto"}`,
+      `plannerTimeoutMs=${state.plannerTimeoutMs ?? "auto"}`,
+      `synthesisTimeoutMs=${state.synthesisTimeoutMs ?? "auto"}`,
+      `runTimeoutMs=${state.runTimeoutMs ?? "auto"}`,
+      `maxQueuedTasks=${state.maxQueuedTasks ?? "auto"}`,
+      `maxRetries=${state.maxRetries ?? "auto"}`
+    ].join(" ")
+  ];
+}
+
+export async function launchTerminalConsole(options: LaunchTerminalConsoleOptions): Promise<void> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error("project-brain console requires an interactive terminal.");
+  }
+
+  const cwd = options.cwd ?? process.cwd();
+  const session: TerminalSessionState = {
+    ...createDefaultTerminalSession(cwd),
+    ...options.initialSession
+  };
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  try {
+    console.log("");
+    console.log("project-brain terminal console");
+    console.log("Configura el target, ajusta defaults y ejecuta los workflows principales sin recordar flags.");
+
+    while (true) {
+      console.log("");
+      console.log("Session");
+      for (const line of summarizeTerminalSession(session)) {
+        console.log(`- ${line}`);
+      }
+      console.log("");
+
+      const action = await promptChoice(rl, "Menu principal", MAIN_MENU, "run");
+      if (action === "exit") {
+        console.log("Console closed.");
+        return;
+      }
+
+      try {
+        switch (action) {
+          case "config":
+            await configureGeneralDefaults(rl, session);
+            break;
+          case "paths":
+            await configurePaths(rl, session, cwd);
+            break;
+          case "swarm":
+            await configureSwarmDefaults(rl, session);
+            break;
+          case "run":
+            await runWorkflow(rl, session, options.orchestrator);
+            break;
+          case "models":
+            await showModels(options.aiRouter);
+            break;
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`Console action failed: ${message}`);
+      }
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+function isEcosystemResult(result: OrchestrationResult | EcosystemAnalysisResult): result is EcosystemAnalysisResult {
+  return "repositories" in result && "knowledgeGraphPath" in result;
+}
+
+async function configurePaths(rl: Interface, session: TerminalSessionState, cwd: string): Promise<void> {
+  console.log("");
+  console.log("Configurar target y output");
+  const targetInput = await promptLine(rl, "Target repo/workspace", session.targetPath);
+  const nextTarget = path.resolve(cwd, targetInput);
+  const outputInput = await promptLine(rl, "Output dir", session.outputPath);
+  session.targetPath = nextTarget;
+  session.outputPath = path.resolve(cwd, outputInput);
+}
+
+async function configureGeneralDefaults(rl: Interface, session: TerminalSessionState): Promise<void> {
+  console.log("");
+  console.log("Configuracion general");
+  session.trigger = await promptChoice(rl, "Trigger por defecto", TRIGGER_CHOICES, session.trigger);
+  session.verbose = await promptYesNo(rl, "Verbose logs", session.verbose);
+  session.ollamaTimeoutMs = await promptOptionalInteger(rl, "Ollama timeout ms", session.ollamaTimeoutMs);
+}
+
+async function configureSwarmDefaults(rl: Interface, session: TerminalSessionState): Promise<void> {
+  console.log("");
+  console.log("Configuracion del swarm");
+  session.swarmEngine = await promptChoice(rl, "Engine", SWARM_ENGINE_CHOICES, session.swarmEngine);
+  session.parallelism = await promptOptionalInteger(rl, "Parallel workers", session.parallelism);
+  session.chunkSize = await promptOptionalInteger(rl, "Chunk size", session.chunkSize);
+  session.taskTimeoutMs = await promptOptionalInteger(rl, "Task timeout ms", session.taskTimeoutMs);
+  session.plannerTimeoutMs = await promptOptionalInteger(rl, "Planner timeout ms", session.plannerTimeoutMs);
+  session.synthesisTimeoutMs = await promptOptionalInteger(rl, "Synthesis timeout ms", session.synthesisTimeoutMs);
+  session.runTimeoutMs = await promptOptionalInteger(rl, "Run timeout ms", session.runTimeoutMs);
+  session.maxQueuedTasks = await promptOptionalInteger(rl, "Max queued tasks", session.maxQueuedTasks);
+  session.maxRetries = await promptOptionalInteger(rl, "Max retries", session.maxRetries);
+}
+
+async function runWorkflow(
+  rl: Interface,
+  session: TerminalSessionState,
+  orchestrator: ProjectBrainOrchestrator
+): Promise<void> {
+  applyRuntimeToggles(session);
+  const workflow = await promptChoice(rl, "Workflow", WORKFLOW_MENU, "doctor");
+
+  switch (workflow) {
+    case "doctor": {
+      const result = await orchestrator.doctor(session.targetPath, session.outputPath);
+      printDoctorResult(result);
+      return;
+    }
+    case "status": {
+      const result = await orchestrator.status(session.targetPath, session.outputPath);
+      printStatusResult(result);
+      return;
+    }
+    case "resume": {
+      const result = await orchestrator.resume(session.targetPath, session.outputPath);
+      printResumeResult(result);
+      return;
+    }
+    case "analyze": {
+      const result = await orchestrator.analyzeScope(session.targetPath, session.outputPath, session.trigger);
+      printAnalyzeResult(result);
+      return;
+    }
+    case "weekly": {
+      const result = await orchestrator.generateWeeklyScope(session.targetPath, session.outputPath);
+      printWeeklyResult(result);
+      return;
+    }
+    case "context-lite": {
+      const result = await orchestrator.contextLite(session.targetPath, session.outputPath);
+      printContextLiteResult(result);
+      return;
+    }
+    case "ask": {
+      const intent = await promptRequiredLine(rl, "Intent");
+      const result = await orchestrator.ask(session.targetPath, session.outputPath, intent);
+      printAskResult(result);
+      return;
+    }
+    case "swarm": {
+      const intent = await promptRequiredLine(rl, "Swarm intent");
+      const result = await orchestrator.swarm(session.targetPath, session.outputPath, intent, {
+        engine: session.swarmEngine,
+        parallelism: session.parallelism,
+        chunkSize: session.chunkSize,
+        taskTimeoutMs: session.taskTimeoutMs,
+        plannerTimeoutMs: session.plannerTimeoutMs,
+        synthesisTimeoutMs: session.synthesisTimeoutMs,
+        runTimeoutMs: session.runTimeoutMs,
+        maxQueuedTasks: session.maxQueuedTasks,
+        maxRetries: session.maxRetries
+      });
+      printSwarmResult(result);
+      return;
+    }
+    case "self-improve": {
+      const intent = await promptLine(rl, "Override intent (optional)");
+      const result = await orchestrator.selfImprove(
+        session.targetPath,
+        session.outputPath,
+        intent.trim().length > 0 ? intent : undefined
+      );
+      printSwarmResult(result, "Self-improve");
+      return;
+    }
+    case "code-graph": {
+      const result = await orchestrator.buildCodeGraph(session.targetPath, session.outputPath);
+      printCodeGraphResult(result);
+      return;
+    }
+    case "impact-radius": {
+      const filesInput = await promptLine(rl, "Changed files CSV (optional)");
+      const baseRef = await promptLine(rl, "Base ref", "HEAD~1");
+      const headRef = await promptLine(rl, "Head ref", "HEAD");
+      const result = await orchestrator.analyzeImpact(session.targetPath, session.outputPath, {
+        files: filesInput
+          .split(",")
+          .map((filePath) => filePath.trim())
+          .filter(Boolean),
+        baseRef,
+        headRef
+      });
+      printImpactResult(result);
+      return;
+    }
+    case "review-delta": {
+      const baseRef = await promptLine(rl, "Base ref", "HEAD~1");
+      const headRef = await promptLine(rl, "Head ref", "HEAD");
+      const result = await orchestrator.reviewDelta(session.targetPath, session.outputPath, {
+        baseRef,
+        headRef
+      });
+      printReviewDeltaResult(result);
+      return;
+    }
+    case "firewall": {
+      const result = await orchestrator.inspectFirewall(session.targetPath, session.outputPath, session.trigger);
+      printFirewallResult(result);
+      return;
+    }
+    case "plan-improvements": {
+      const result = await orchestrator.planImprovements(session.targetPath, session.outputPath, session.trigger);
+      printImprovementPlanResult(result);
+      return;
+    }
+    case "report": {
+      const manifest = await orchestrator.collectReportManifest(session.outputPath);
+      console.log(JSON.stringify(manifest, null, 2));
+      return;
+    }
+  }
+}
+
+async function showModels(aiRouter: AIRouter): Promise<void> {
+  const inventory = await aiRouter.listModels();
+  console.log("");
+  console.log("Model inventory");
+  console.log(`- Local model: ${inventory.config.localModel}`);
+  console.log(`- Fallback model: ${inventory.config.fallbackModel}`);
+  console.log(`- Reasoning model: ${inventory.config.reasoningModel}`);
+  console.log(`- Cloud provider: ${inventory.cloudConfigured.provider}`);
+  console.log(`- Cloud model: ${inventory.cloudConfigured.model}`);
+  console.log(`- Offline mode: ${inventory.offlineMode ? "yes" : "no"}`);
+  console.log(`- Offline ready: ${inventory.offlineReady ? "yes" : "no"}`);
+  console.log("Ollama models:");
+  if (inventory.availableModels.length === 0) {
+    console.log("- None detected via Ollama");
+    return;
+  }
+
+  for (const model of inventory.availableModels) {
+    console.log(`- ${model.name} (${model.residency}, offline=${model.offlineCapable ? "yes" : "no"})`);
+  }
+}
+
+function applyRuntimeToggles(session: TerminalSessionState): void {
+  setLoggerOptions({ verbose: session.verbose });
+  if (session.ollamaTimeoutMs) {
+    process.env.OLLAMA_TIMEOUT_MS = String(session.ollamaTimeoutMs);
+  } else {
+    delete process.env.OLLAMA_TIMEOUT_MS;
+  }
+}
+
+async function promptLine(rl: Interface, label: string, defaultValue = ""): Promise<string> {
+  const prompt = defaultValue.length > 0 ? `${label} [${defaultValue}]: ` : `${label}: `;
+  const answer = (await rl.question(prompt)).trim();
+  return answer.length > 0 ? answer : defaultValue;
+}
+
+async function promptRequiredLine(rl: Interface, label: string): Promise<string> {
+  while (true) {
+    const answer = (await rl.question(`${label}: `)).trim();
+    if (answer.length > 0) {
+      return answer;
+    }
+    console.log("Este campo no puede quedar vacio.");
+  }
+}
+
+async function promptOptionalInteger(rl: Interface, label: string, current?: number): Promise<number | undefined> {
+  while (true) {
+    const placeholder = current === undefined ? "auto" : String(current);
+    const answer = (await rl.question(`${label} [${placeholder}; escribe auto para limpiar]: `)).trim().toLowerCase();
+    if (answer.length === 0) {
+      return current;
+    }
+    if (answer === "auto" || answer === "none" || answer === "default") {
+      return undefined;
+    }
+    const parsed = Number(answer);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.trunc(parsed);
+    }
+    console.log("Ingresa un entero positivo o 'auto'.");
+  }
+}
+
+async function promptYesNo(rl: Interface, label: string, current: boolean): Promise<boolean> {
+  while (true) {
+    const answer = (await rl.question(`${label} [${current ? "Y/n" : "y/N"}]: `)).trim().toLowerCase();
+    if (answer.length === 0) {
+      return current;
+    }
+    if (answer === "y" || answer === "yes" || answer === "s" || answer === "si") {
+      return true;
+    }
+    if (answer === "n" || answer === "no") {
+      return false;
+    }
+    console.log("Responde y/n.");
+  }
+}
+
+async function promptChoice<T extends string>(
+  rl: Interface,
+  label: string,
+  options: ChoiceOption<T>[],
+  defaultValue?: T
+): Promise<T> {
+  while (true) {
+    console.log(label);
+    options.forEach((option, index) => {
+      const suffix = option.value === defaultValue ? " (default)" : "";
+      console.log(`  ${index + 1}. ${option.label}${suffix}`);
+    });
+    const answer = (await rl.question("> ")).trim().toLowerCase();
+    if (answer.length === 0 && defaultValue) {
+      return defaultValue;
+    }
+
+    const numeric = Number.parseInt(answer, 10);
+    if (Number.isFinite(numeric) && numeric >= 1 && numeric <= options.length) {
+      return options[numeric - 1].value;
+    }
+
+    const directMatch = options.find((option) => option.value === answer);
+    if (directMatch) {
+      return directMatch.value;
+    }
+
+    console.log("Seleccion invalida. Usa el numero o el valor exacto.");
+  }
+}
+
+function printDoctorResult(result: DoctorResult): void {
+  console.log("");
+  console.log("Doctor");
+  console.log(`- Report: ${result.reportPath}`);
+  console.log(`- Memory: ${result.memoryPath}`);
+  console.log(
+    `- Summary: passed=${result.summary.passed}, warnings=${result.summary.warnings}, failed=${result.summary.failed}`
+  );
+  console.log(`- Headline: ${result.summary.headline}`);
+  for (const check of result.checks) {
+    console.log(`- ${check.label}: ${check.status.toUpperCase()} - ${check.summary}`);
+  }
+}
+
+function printStatusResult(result: StatusResult): void {
+  console.log("");
+  console.log("Status");
+  console.log(`- Report: ${result.reportPath}`);
+  console.log(`- Memory: ${result.memoryPath}`);
+  console.log(`- Git: repo=${result.git.isGitRepo ? "yes" : "no"}, branch=${result.git.branch ?? "unknown"}`);
+  console.log(`- Headline: ${result.summary.headline}`);
+  for (const artifact of result.artifacts) {
+    console.log(`- ${artifact.label}: ${artifact.exists ? "present" : "missing"}`);
+  }
+}
+
+function printResumeResult(result: ResumeResult): void {
+  console.log("");
+  console.log("Resume");
+  console.log(`- Report: ${result.reportPath}`);
+  console.log(`- Memory: ${result.memoryPath}`);
+  console.log(`- Stage: ${result.summary.stage}`);
+  console.log(`- Headline: ${result.summary.headline}`);
+  if (result.latestArtifact) {
+    console.log(`- Latest artifact: ${result.latestArtifact.label}`);
+  }
+  for (const note of result.notes) {
+    console.log(`- ${note}`);
+  }
+}
+
+function printAnalyzeResult(result: OrchestrationResult | EcosystemAnalysisResult): void {
+  console.log("");
+  console.log("Analyze");
+  if (isEcosystemResult(result)) {
+    console.log(`- Workspace: ${result.rootPath}`);
+    console.log(`- Repositories: ${result.repositories.map((repository) => repository.repoName).join(", ")}`);
+    console.log(`- Knowledge graph: ${result.knowledgeGraphPath}`);
+    console.log(`- Ecosystem report: ${result.ecosystemReportPath}`);
+    return;
+  }
+
+  console.log(`- Repo: ${result.context.repoName}`);
+  console.log(`- AI_CONTEXT: ${result.context.memoryDir}`);
+  console.log(`- Reports: ${result.context.reportsDir}`);
+  console.log(`- Docs: ${result.context.docsDir}`);
+}
+
+function printWeeklyResult(result: OrchestrationResult | EcosystemAnalysisResult): void {
+  console.log("");
+  console.log("Weekly");
+  if (isEcosystemResult(result)) {
+    console.log(`- Repositories: ${result.repositories.map((repository) => repository.repoName).join(", ")}`);
+    console.log(`- Ecosystem report: ${result.ecosystemReportPath}`);
+    console.log(`- Knowledge graph: ${result.knowledgeGraphPath}`);
+    return;
+  }
+
+  console.log(`- Weekly report: ${result.weeklyReportPath}`);
+  console.log(`- Risk report: ${result.riskReportPath}`);
+  if (result.reportQualityPath) {
+    console.log(`- Report quality: ${result.reportQualityPath}`);
+  }
+}
+
+function printContextLiteResult(result: ContextLiteResult): void {
+  console.log("");
+  console.log("Context-lite");
+  console.log(`- Report: ${result.reportPath}`);
+  console.log(`- AI_CONTEXT: ${result.context.memoryDir}`);
+  console.log(`- Artifacts: ${result.artifactPaths.map((artifactPath) => path.basename(artifactPath)).join(", ")}`);
+  for (const line of result.summary) {
+    console.log(`- ${line}`);
+  }
+}
+
+function printAskResult(result: AskResult): void {
+  console.log("");
+  console.log("Ask");
+  console.log(`- Workflow: ${result.workflow}`);
+  console.log(`- Brief: ${result.briefPath}`);
+  console.log(`- Headline: ${result.headline}`);
+  console.log(`- Reason: ${result.routingReason}`);
+  console.log(`- Artifacts: ${result.artifacts.map((artifact) => `${artifact.label}=${artifact.path}`).join(" | ") || "None"}`);
+  if (result.guidedExecution) {
+    console.log(`- Guided: ${result.guidedExecution.label} -> ${result.guidedExecution.command}`);
+  }
+  if (result.aiAssistance) {
+    console.log(
+      `- AI assist: ${result.aiAssistance.model} (${result.aiAssistance.provider}, ${result.aiAssistance.residency}, profile=${result.aiAssistance.profile})`
+    );
+  }
+  console.log(`- Next: ${result.followUps.join(" | ") || "None"}`);
+}
+
+function printSwarmResult(result: SwarmRunResult, label = "Swarm"): void {
+  console.log("");
+  console.log(label);
+  console.log(`- Engine: ${result.engine}`);
+  console.log(`- Report: ${result.reportPath}`);
+  console.log(`- Memory: ${result.memoryPath}`);
+  console.log(`- Planner: ${result.planner.model} (${result.planner.provider}, ${result.planner.residency})`);
+  console.log(
+    `- Chunking: size=${result.chunking.selectedChunkSize}, scopeChunks=${result.chunking.scopeChunks}, queuedTasks=${result.chunking.queuedTasks}, scopeBias=${result.chunking.scopeBias}`
+  );
+  console.log(
+    `- Resilience: runTimeoutMs=${result.resilience.runTimeoutMs}, taskTimeoutMs=${result.resilience.taskTimeoutMs}, plannerTimeoutMs=${result.resilience.plannerTimeoutMs}, synthesisTimeoutMs=${result.resilience.synthesisTimeoutMs}, maxRetries=${result.resilience.maxRetries}`
+  );
+  console.log(`- Parallelism: ${result.parallelism.selected} workers, pressure=${result.parallelism.pressure}`);
+  console.log(`- Tasks: ${result.tasks.map((task) => `${task.title}[${task.profile}]`).join(" | ") || "None"}`);
+  console.log(`- Headline: ${result.synthesis.headline}`);
+  if (result.optimization) {
+    console.log(
+      `- Optimization: cacheHits=${result.optimization.cacheHits}, cacheMisses=${result.optimization.cacheMisses}, derivedQueued=${result.optimization.derivedTasksQueued}, derivedSkipped=${result.optimization.derivedTasksSkipped}`
+    );
+  }
+}
+
+function printCodeGraphResult(result: CodeGraphBuildResult): void {
+  console.log("");
+  console.log("Code graph");
+  console.log(`- Graph: ${result.graphPath}`);
+  console.log(`- Files: ${result.graph.stats.files}`);
+  console.log(`- Symbols: ${result.graph.stats.symbols}`);
+  console.log(`- Nodes: ${result.graph.stats.nodes}`);
+  console.log(`- Edges: ${result.graph.stats.edges}`);
+}
+
+function printImpactResult(result: ImpactAnalysisResult): void {
+  console.log("");
+  console.log("Impact radius");
+  console.log(`- Report: ${result.reportPath}`);
+  console.log(`- Graph: ${result.graphPath}`);
+  console.log(`- Changed files: ${result.changedFiles.join(", ") || "None"}`);
+  console.log(`- Review set: ${result.reviewFiles.join(", ") || "None"}`);
+  console.log(`- Related tests: ${result.impactedTests.join(", ") || "None"}`);
+}
+
+function printReviewDeltaResult(result: ImpactAnalysisResult): void {
+  console.log("");
+  console.log("Review delta");
+  console.log(`- Report: ${result.reportPath}`);
+  console.log(`- Changed files: ${result.changedFiles.join(", ") || "None"}`);
+  console.log(`- Review set: ${result.reviewFiles.join(", ") || "None"}`);
+  console.log(`- Related tests: ${result.impactedTests.join(", ") || "None"}`);
+}
+
+function printFirewallResult(result: FirewallInspectionResult): void {
+  console.log("");
+  console.log("Firewall");
+  console.log(`- Report: ${result.firewall.reportPath}`);
+  console.log(`- Policy: ${result.firewall.policyPath}`);
+  console.log(`- Packets: ${result.firewall.packets.length}`);
+  console.log(`- Allowed: ${result.firewall.stats.allowed}`);
+  console.log(`- Review required: ${result.firewall.stats.reviewRequired}`);
+  console.log(`- Blocked: ${result.firewall.stats.blocked}`);
+}
+
+function printImprovementPlanResult(result: ImprovementPlanResult): void {
+  console.log("");
+  console.log("Improvement plan");
+  console.log(`- Plan dir: ${result.planDir}`);
+  console.log(`- Summary: ${result.summaryPath}`);
+  console.log(`- State: ${result.statePath}`);
+  console.log(`- Risks: ${result.risksPath}`);
+  console.log(`- Roadmap: ${result.roadmapPath}`);
+  console.log(`- Tracks: ${result.tracksPath}`);
+}

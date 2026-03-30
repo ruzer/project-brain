@@ -295,6 +295,7 @@ export interface SwarmPlanTask {
   goal: string;
   profile: "worker" | "reviewer" | "reasoning" | "planner" | "synthesizer";
   deliverable: string;
+  dependsOn?: string[];
 }
 
 export interface SwarmWorkerResult {
@@ -370,6 +371,14 @@ export interface SwarmRunResult {
     model: string;
     residency: string;
     overview: string;
+  };
+  optimization?: {
+    cacheHits: number;
+    cacheMisses: number;
+    cacheWrites: number;
+    derivedTasksQueued: number;
+    derivedTasksSkipped: number;
+    learnedScopeBoosts: string[];
   };
   tasks: SwarmPlanTask[];
   workerResults: SwarmWorkerResult[];

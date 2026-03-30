@@ -65,6 +65,7 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
     expect(helpText).toContain("doctor");
     expect(helpText).toContain("status");
     expect(helpText).toContain("resume");
+    expect(helpText).toContain("console");
   });
 
   it("shows trigger support on analyze", () => {
@@ -197,6 +198,16 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
 
     expect(doctorHelp).toContain("environment");
     expect(doctorHelp).toContain("--output");
+  });
+
+  it("shows console options", () => {
+    const consoleHelp = runCliHelp(["console", "--help"]);
+
+    expect(consoleHelp).toContain("interactive terminal console");
+    expect(consoleHelp).toContain("--target");
+    expect(consoleHelp).toContain("--engine");
+    expect(consoleHelp).toContain("--trigger");
+    expect(consoleHelp).toContain("--ollama-timeout");
   });
 
   it("shows status options", () => {

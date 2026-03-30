@@ -16,6 +16,7 @@ import type {
   OrchestrationResult,
   SwarmEngine
 } from "../shared/types";
+import { createDefaultTerminalSession, launchTerminalConsole } from "./terminal-console";
 
 const program = new Command();
 const orchestrator = new ProjectBrainOrchestrator();
@@ -125,6 +126,81 @@ program
   .name("project-brain")
   .description("Analyze repositories, build project context, run specialist agents, and generate reports.")
   .version("0.1.0");
+
+program
+  .command("console")
+  .alias("terminal")
+  .option("--target <path>", "Initial repository or workspace target", ".")
+  .option("-o, --output <dir>", "Initial output directory")
+  .option("--engine <engine>", "Initial swarm engine: bounded or deepagents")
+  .option("--parallel <n>", "Initial max parallel workers for swarm")
+  .option("--chunk-size <n>", "Initial swarm chunk size")
+  .option("--task-timeout-ms <ms>", "Initial per-worker timeout budget in milliseconds")
+  .option("--planner-timeout-ms <ms>", "Initial planner timeout budget in milliseconds")
+  .option("--synthesis-timeout-ms <ms>", "Initial synthesis timeout budget in milliseconds")
+  .option("--run-timeout-ms <ms>", "Initial global timeout budget in milliseconds")
+  .option("--max-queued-tasks <n>", "Initial cap for queued worker tasks")
+  .option("--max-retries <n>", "Initial max retry count for worker chunks")
+  .option("-t, --trigger <trigger>", "Default governance trigger", "manual")
+  .option("--ollama-timeout <ms>", "Default Ollama inference timeout in milliseconds for console runs")
+  .option("--verbose", "Enable verbose runtime logs for supported console actions")
+  .description("Launch an interactive terminal console for configuring and running project-brain workflows.")
+  .action(
+    async (options: {
+      target?: string;
+      output?: string;
+      engine?: string;
+      parallel?: string;
+      chunkSize?: string;
+      taskTimeoutMs?: string;
+      plannerTimeoutMs?: string;
+      synthesisTimeoutMs?: string;
+      runTimeoutMs?: string;
+      maxQueuedTasks?: string;
+      maxRetries?: string;
+      trigger?: string;
+      ollamaTimeout?: string;
+      verbose?: boolean;
+    }) => {
+      const targetPath = resolveTarget(options.target ?? ".");
+      const outputPath = resolveOutput(targetPath, options.output);
+      const session = createDefaultTerminalSession(process.cwd());
+      session.targetPath = targetPath;
+      session.outputPath = outputPath;
+      session.trigger = resolveTrigger(options.trigger);
+      session.verbose = Boolean(options.verbose);
+      session.swarmEngine = options.engine ? parseSwarmEngine(options.engine) : session.swarmEngine;
+      session.parallelism = options.parallel
+        ? parsePositiveInteger(options.parallel, "parallel worker count")
+        : session.parallelism;
+      session.chunkSize = options.chunkSize ? parsePositiveInteger(options.chunkSize, "chunk size") : session.chunkSize;
+      session.taskTimeoutMs = options.taskTimeoutMs
+        ? parsePositiveInteger(options.taskTimeoutMs, "task timeout")
+        : session.taskTimeoutMs;
+      session.plannerTimeoutMs = options.plannerTimeoutMs
+        ? parsePositiveInteger(options.plannerTimeoutMs, "planner timeout")
+        : session.plannerTimeoutMs;
+      session.synthesisTimeoutMs = options.synthesisTimeoutMs
+        ? parsePositiveInteger(options.synthesisTimeoutMs, "synthesis timeout")
+        : session.synthesisTimeoutMs;
+      session.runTimeoutMs = options.runTimeoutMs
+        ? parsePositiveInteger(options.runTimeoutMs, "run timeout")
+        : session.runTimeoutMs;
+      session.maxQueuedTasks = options.maxQueuedTasks
+        ? parsePositiveInteger(options.maxQueuedTasks, "max queued tasks")
+        : session.maxQueuedTasks;
+      session.maxRetries = options.maxRetries ? parsePositiveInteger(options.maxRetries, "max retries") : session.maxRetries;
+      session.ollamaTimeoutMs = options.ollamaTimeout
+        ? parsePositiveInteger(options.ollamaTimeout, "ollama timeout")
+        : session.ollamaTimeoutMs;
+
+      await launchTerminalConsole({
+        orchestrator,
+        aiRouter,
+        initialSession: session
+      });
+    }
+  );
 
 program
   .command("models")

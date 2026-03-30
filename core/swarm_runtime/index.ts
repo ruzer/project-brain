@@ -1,8 +1,9 @@
+import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 
 import { buildRepoSummary } from "../../agents/ai-support";
-import { writeFileEnsured, writeJsonEnsured } from "../../shared/fs-utils";
+import { readJsonSafe, writeFileEnsured, writeJsonEnsured } from "../../shared/fs-utils";
 import type { ProjectContext, SwarmPlanTask, SwarmRunResult, SwarmWorkerResult } from "../../shared/types";
 import type { AIRouterRequest, AIRouterTask, ModelProfile, ModelSelection } from "../ai_router/router";
 
@@ -79,6 +80,51 @@ interface ScopeUnitStat {
   sourceFileCount: number;
 }
 
+interface SwarmResponseCacheEntry {
+  key: string;
+  request: {
+    task?: AIRouterTask;
+    profile?: ModelProfile;
+    prompt: string;
+    context?: string;
+    allowRemote?: boolean;
+  };
+  selection: Pick<ModelSelection, "provider" | "model" | "residency" | "profile">;
+  response: string;
+  createdAt: string;
+  lastUsedAt: string;
+  hits: number;
+}
+
+interface SwarmResponseCacheDocument {
+  version: 1;
+  updatedAt: string;
+  entries: Record<string, SwarmResponseCacheEntry>;
+}
+
+interface SwarmLearningScopeRecord {
+  signalScore: number;
+  completedRuns: number;
+  failureCount: number;
+  timeoutCount: number;
+  lastSeenAt: string;
+}
+
+interface SwarmLearningDocument {
+  version: 1;
+  updatedAt: string;
+  scopes: Record<string, SwarmLearningScopeRecord>;
+}
+
+interface SwarmOptimizationStats {
+  cacheHits: number;
+  cacheMisses: number;
+  cacheWrites: number;
+  derivedTasksQueued: number;
+  derivedTasksSkipped: number;
+  learnedScopeBoosts: string[];
+}
+
 const SOURCE_FILE_PATTERN = /\.(ts|tsx|js|jsx|py|go|java|rs|cs|rb|php)$/i;
 const ROOT_MANIFEST_FILES = new Set([
   "package.json",
@@ -91,6 +137,7 @@ const ROOT_MANIFEST_FILES = new Set([
 ]);
 const SOURCE_LIKE_SCOPE_PATTERN =
   /^(src|app|apps|server|api|core|lib|packages|services|service|modules|module|features|feature|analysis|agents|cli|governance|planning|memory|shared|tools)$/i;
+const SWARM_RESPONSE_CACHE_MAX_ENTRIES = 160;
 
 type ResourcePressure = SwarmRunResult["parallelism"]["pressure"];
 type ScopeBias = SwarmRunResult["chunking"]["scopeBias"];
@@ -238,10 +285,27 @@ function normalizeProfile(value: unknown): SwarmPlanTask["profile"] | undefined 
   return undefined;
 }
 
+function normalizeTaskDependencies(tasks: SwarmPlanTask[]): SwarmPlanTask[] {
+  const validTaskIds = new Set(tasks.map((task) => task.taskId));
+
+  return tasks.map((task) => {
+    const dependsOn = uniqueStrings((task.dependsOn ?? []).filter((dependencyId) => dependencyId !== task.taskId && validTaskIds.has(dependencyId)));
+    return dependsOn.length > 0
+      ? {
+          ...task,
+          dependsOn
+        }
+      : {
+          ...task,
+          dependsOn: undefined
+        };
+  });
+}
+
 function buildFallbackPlan(intent: string): PlannerPayload {
   return {
     overview: `This swarm run breaks the request into bounded repository scanning, risk review, and implementation reasoning for: ${intent}`,
-    tasks: [
+    tasks: normalizeTaskDependencies([
       {
         taskId: "scan-scope",
         title: "Scan project scope",
@@ -254,16 +318,18 @@ function buildFallbackPlan(intent: string): PlannerPayload {
         title: "Review critical risks",
         goal: "Surface concrete technical, security, or process risks related to the request.",
         profile: "reviewer",
-        deliverable: "Findings and improvement recommendations."
+        deliverable: "Findings and improvement recommendations.",
+        dependsOn: ["scan-scope"]
       },
       {
         taskId: "reason-next-steps",
         title: "Reason about next steps",
         goal: "Turn the scan and risk review into practical next steps and tradeoffs.",
         profile: "reasoning",
-        deliverable: "Decision-oriented next-step guidance."
+        deliverable: "Decision-oriented next-step guidance.",
+        dependsOn: ["scan-scope", "review-risks"]
       }
-    ]
+    ])
   };
 }
 
@@ -285,6 +351,7 @@ function normalizePlannerPayload(raw: string, intent: string): PlannerPayload {
           const goal = typeof record.goal === "string" ? record.goal.trim() : "";
           const deliverable = typeof record.deliverable === "string" ? record.deliverable.trim() : "";
           const profile = normalizeProfile(record.profile) ?? (index === 0 ? "worker" : index === 1 ? "reviewer" : "reasoning");
+          const dependsOn = normalizeStringList(record.dependsOn ?? record.depends_on);
 
           if (!title || !goal || !deliverable) {
             return undefined;
@@ -295,7 +362,8 @@ function normalizePlannerPayload(raw: string, intent: string): PlannerPayload {
             title,
             goal,
             profile,
-            deliverable
+            deliverable,
+            dependsOn
           };
         })
         .filter((task): task is SwarmPlanTask => Boolean(task))
@@ -311,7 +379,7 @@ function normalizePlannerPayload(raw: string, intent: string): PlannerPayload {
       typeof parsed.overview === "string" && parsed.overview.trim().length > 0
         ? parsed.overview.trim()
         : buildFallbackPlan(intent).overview,
-    tasks
+    tasks: normalizeTaskDependencies(tasks)
   };
 }
 
@@ -614,8 +682,360 @@ async function drainQueueWithConcurrency(
   return results;
 }
 
+async function drainTaskLevelsWithConcurrency(
+  levels: QueuedSwarmTask[][],
+  concurrency: number,
+  worker: (task: QueuedSwarmTask) => Promise<SwarmTaskOutcome>
+): Promise<SwarmWorkerResult[]> {
+  const results: SwarmWorkerResult[] = [];
+
+  for (const level of levels) {
+    if (level.length === 0) {
+      continue;
+    }
+
+    const levelResults = await drainQueueWithConcurrency([...level], concurrency, worker);
+    results.push(...levelResults);
+  }
+
+  return results;
+}
+
 function uniqueStrings(items: string[]): string[] {
   return [...new Set(items.filter((item) => item.trim().length > 0))];
+}
+
+function stableSerialize(value: unknown): string {
+  if (value === null || value === undefined) {
+    return "null";
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableSerialize(entry)).join(",")}]`;
+  }
+
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort((left, right) => left.localeCompare(right))
+      .map((key) => `${JSON.stringify(key)}:${stableSerialize(record[key])}`)
+      .join(",")}}`;
+  }
+
+  return JSON.stringify(value);
+}
+
+function canonicalizePromptText(text: string | undefined): string | undefined {
+  if (!text) {
+    return undefined;
+  }
+
+  return text
+    .replace(/\r\n/g, "\n")
+    .replace(/^Attempt:\s+\d+\s*$/gim, "Attempt: <retry>")
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .trim();
+}
+
+function buildSwarmCacheKey(
+  context: ProjectContext,
+  request: AIRouterRequest,
+  selection: Pick<ModelSelection, "provider" | "model" | "residency" | "profile">
+): string {
+  return createHash("sha256")
+    .update(
+      stableSerialize({
+        repoName: context.repoName,
+        targetPath: context.targetPath,
+        gitCommit: context.discovery.git.latestCommit ?? "",
+        request: {
+          task: request.task,
+          profile: request.profile,
+          allowRemote: request.allowRemote,
+          prompt: canonicalizePromptText(request.prompt),
+          context: canonicalizePromptText(request.context)
+        },
+        selection
+      })
+    )
+    .digest("hex");
+}
+
+function createEmptySwarmResponseCache(): SwarmResponseCacheDocument {
+  return {
+    version: 1,
+    updatedAt: new Date(0).toISOString(),
+    entries: {}
+  };
+}
+
+function normalizeSwarmResponseCache(document: SwarmResponseCacheDocument | undefined): SwarmResponseCacheDocument {
+  if (!document || document.version !== 1 || !document.entries || typeof document.entries !== "object") {
+    return createEmptySwarmResponseCache();
+  }
+
+  return {
+    version: 1,
+    updatedAt: typeof document.updatedAt === "string" ? document.updatedAt : new Date(0).toISOString(),
+    entries: document.entries
+  };
+}
+
+function pruneSwarmResponseCache(cache: SwarmResponseCacheDocument): void {
+  const entries = Object.entries(cache.entries);
+  if (entries.length <= SWARM_RESPONSE_CACHE_MAX_ENTRIES) {
+    return;
+  }
+
+  entries
+    .sort((left, right) => {
+      const lastUsedDelta = Date.parse(right[1].lastUsedAt) - Date.parse(left[1].lastUsedAt);
+      if (lastUsedDelta !== 0) {
+        return lastUsedDelta;
+      }
+      return right[1].hits - left[1].hits;
+    })
+    .slice(SWARM_RESPONSE_CACHE_MAX_ENTRIES)
+    .forEach(([key]) => {
+      delete cache.entries[key];
+    });
+}
+
+function createEmptySwarmLearning(): SwarmLearningDocument {
+  return {
+    version: 1,
+    updatedAt: new Date(0).toISOString(),
+    scopes: {}
+  };
+}
+
+function normalizeSwarmLearning(document: SwarmLearningDocument | undefined): SwarmLearningDocument {
+  if (!document || document.version !== 1 || !document.scopes || typeof document.scopes !== "object") {
+    return createEmptySwarmLearning();
+  }
+
+  return {
+    version: 1,
+    updatedAt: typeof document.updatedAt === "string" ? document.updatedAt : new Date(0).toISOString(),
+    scopes: document.scopes
+  };
+}
+
+function normalizeLearningScopeKeys(scopePath: string): string[] {
+  const normalized = normalizeHintPath(scopePath) || ".";
+  if (normalized === ".") {
+    return ["."];
+  }
+
+  const topLevel = normalized.split("/")[0] ?? normalized;
+  return uniqueStrings([normalized, topLevel]);
+}
+
+function learningSignalForScope(scopePath: string, learning: SwarmLearningDocument): number {
+  const normalizedScope = normalizeHintPath(scopePath) || ".";
+  let signal = 0;
+
+  for (const [candidatePath, record] of Object.entries(learning.scopes)) {
+    const normalizedCandidate = normalizeHintPath(candidatePath) || ".";
+
+    if (normalizedCandidate === normalizedScope) {
+      signal += record.signalScore * 3;
+      continue;
+    }
+
+    if (normalizedCandidate.startsWith(`${normalizedScope}/`)) {
+      signal += Math.max(1, Math.floor(record.signalScore * 1.5));
+      continue;
+    }
+
+    if (normalizedScope.startsWith(`${normalizedCandidate}/`)) {
+      signal += Math.max(1, Math.floor(record.signalScore / 2));
+    }
+  }
+
+  return signal;
+}
+
+function summarizeLearnedScopeBoosts(scopePaths: string[], learning: SwarmLearningDocument): string[] {
+  return scopePaths
+    .map((scopePath) => ({
+      scopePath,
+      signal: learningSignalForScope(scopePath, learning)
+    }))
+    .filter((entry) => entry.signal > 0)
+    .sort((left, right) => right.signal - left.signal || left.scopePath.localeCompare(right.scopePath))
+    .slice(0, 4)
+    .map((entry) => entry.scopePath);
+}
+
+function signalScoreForResult(result: SwarmWorkerResult): number {
+  if (result.status !== "completed") {
+    return 0;
+  }
+
+  return result.findings.length * 2 + result.recommendations.length;
+}
+
+function updateSwarmLearning(learning: SwarmLearningDocument, workerResults: SwarmWorkerResult[]): void {
+  const now = new Date().toISOString();
+
+  for (const result of workerResults) {
+    for (const scopeKey of result.scopePaths.flatMap((scopePath) => normalizeLearningScopeKeys(scopePath))) {
+      const existing = learning.scopes[scopeKey] ?? {
+        signalScore: 0,
+        completedRuns: 0,
+        failureCount: 0,
+        timeoutCount: 0,
+        lastSeenAt: now
+      };
+
+      if (result.status === "completed") {
+        existing.completedRuns += 1;
+        existing.signalScore = Math.min(existing.signalScore + signalScoreForResult(result), 60);
+      } else if (result.status === "timed_out") {
+        existing.timeoutCount += 1;
+        existing.signalScore = Math.max(0, existing.signalScore - 1);
+      } else {
+        existing.failureCount += 1;
+        existing.signalScore = Math.max(0, existing.signalScore - 2);
+      }
+
+      existing.lastSeenAt = now;
+      learning.scopes[scopeKey] = existing;
+    }
+  }
+
+  learning.updatedAt = now;
+}
+
+function createOptimizationStats(): SwarmOptimizationStats {
+  return {
+    cacheHits: 0,
+    cacheMisses: 0,
+    cacheWrites: 0,
+    derivedTasksQueued: 0,
+    derivedTasksSkipped: 0,
+    learnedScopeBoosts: []
+  };
+}
+
+function splitPlannerTasks(planner: PlannerPayload): {
+  initialTasks: SwarmPlanTask[];
+  deferredReasoningTasks: SwarmPlanTask[];
+} {
+  const deferredReasoningTasks = planner.tasks.filter((task) => task.profile === "reasoning");
+  const initialTasks = planner.tasks.filter((task) => task.profile !== "reasoning");
+
+  if (deferredReasoningTasks.length === 0 || initialTasks.length === 0) {
+    return {
+      initialTasks: planner.tasks,
+      deferredReasoningTasks: []
+    };
+  }
+
+  return {
+    initialTasks,
+    deferredReasoningTasks
+  };
+}
+
+function createTaskLevels(tasks: SwarmPlanTask[]): SwarmPlanTask[][] {
+  const orderedTasks = normalizeTaskDependencies(tasks);
+  const completed = new Set<string>();
+  const levels: SwarmPlanTask[][] = [];
+
+  while (completed.size < orderedTasks.length) {
+    const level = orderedTasks.filter((task) => !completed.has(task.taskId) && (task.dependsOn ?? []).every((dependencyId) => completed.has(dependencyId)));
+
+    if (level.length === 0) {
+      levels.push(orderedTasks.filter((task) => !completed.has(task.taskId)));
+      break;
+    }
+
+    levels.push(level);
+    for (const task of level) {
+      completed.add(task.taskId);
+    }
+  }
+
+  return levels;
+}
+
+function reserveDerivedReasoningBudget(
+  deferredReasoningTasks: SwarmPlanTask[],
+  scopeChunks: ScopeChunk[],
+  queueBudget: number,
+  parallelism: number,
+  localBudgetMode: boolean
+): number {
+  if (deferredReasoningTasks.length === 0 || scopeChunks.length === 0) {
+    return 0;
+  }
+
+  const potentialTasks = deferredReasoningTasks.length * scopeChunks.length;
+  const baselineReserve = localBudgetMode ? 1 : Math.min(Math.max(parallelism, 1), 2);
+  const budgetCap = Math.max(1, Math.floor(queueBudget / 3));
+
+  return Math.min(potentialTasks, baselineReserve, budgetCap);
+}
+
+function deriveReasoningTasks(
+  deferredReasoningTasks: SwarmPlanTask[],
+  scopeChunks: ScopeChunk[],
+  workerResults: SwarmWorkerResult[],
+  reservedBudget: number,
+  scopeHints: string[]
+): {
+  tasks: QueuedSwarmTask[];
+  skipped: number;
+} {
+  if (deferredReasoningTasks.length === 0 || reservedBudget <= 0) {
+    return {
+      tasks: [],
+      skipped: deferredReasoningTasks.length * scopeChunks.length
+    };
+  }
+
+  const chunkScores = scopeChunks
+    .map((chunk, index) => ({
+      chunk,
+      index,
+      hintMatched: chunk.scopePaths.some((scopePath) => matchesScopeHint(scopePath, scopeHints)),
+      evidenceScore: workerResults
+        .filter((result) => result.chunkId === chunk.chunkId)
+        .reduce((total, result) => total + signalScoreForResult(result), 0)
+    }))
+    .filter((entry) => entry.hintMatched || entry.evidenceScore > 0)
+    .sort((left, right) => {
+      if (left.hintMatched !== right.hintMatched) {
+        return left.hintMatched ? -1 : 1;
+      }
+      if (right.evidenceScore !== left.evidenceScore) {
+        return right.evidenceScore - left.evidenceScore;
+      }
+      return left.index - right.index;
+    });
+
+  const candidates = chunkScores.flatMap((entry) =>
+      deferredReasoningTasks.map((task) => ({
+        taskId: `${task.taskId}__${entry.chunk.chunkId}`,
+        parentTaskId: task.taskId,
+        title: `${task.title} [${entry.chunk.label}]`,
+        goal: task.goal,
+      profile: task.profile,
+      deliverable: task.deliverable,
+      chunk: entry.chunk,
+      attempt: 1
+    }))
+  );
+
+  const selectedTasks = candidates.slice(0, reservedBudget);
+  return {
+    tasks: selectedTasks,
+    skipped: Math.max(0, deferredReasoningTasks.length * scopeChunks.length - selectedTasks.length)
+  };
 }
 
 function buildScopeUnitStat(context: ProjectContext, scopePath: string): ScopeUnitStat {
@@ -638,10 +1058,11 @@ function buildScopeUnitStat(context: ProjectContext, scopePath: string): ScopeUn
   };
 }
 
-function scoreScopeUnit(stat: ScopeUnitStat, scopeBias: ScopeBias): number {
+function scoreScopeUnit(stat: ScopeUnitStat, scopeBias: ScopeBias, learning: SwarmLearningDocument): number {
   const sourceLikeBoost = scopeBias === "source-first" ? 90 : 35;
   const testPenalty = scopeBias === "source-first" ? -140 : -25;
   const manifestBonus = scopeBias === "source-first" ? 15 : 30;
+  const learningBoost = Math.min(120, learningSignalForScope(stat.entry, learning) * 6);
 
   return (
     (stat.directory ? 40 : 0) +
@@ -649,6 +1070,7 @@ function scoreScopeUnit(stat: ScopeUnitStat, scopeBias: ScopeBias): number {
     (stat.sourceLike ? sourceLikeBoost : 0) +
     (stat.testLike ? testPenalty : 0) +
     (stat.sourceFileCount > 0 ? 100 + stat.sourceFileCount * 5 : stat.manifest ? manifestBonus : Math.min(stat.fileCount, 10)) +
+    learningBoost +
     (!stat.directory && !stat.manifest && stat.sourceFileCount === 0 ? -30 : 0)
   );
 }
@@ -709,7 +1131,8 @@ function prioritizeScopePaths(
   context: ProjectContext,
   scopePaths: string[],
   scopeBias: ScopeBias,
-  scopeHints: string[] = []
+  scopeHints: string[] = [],
+  learning: SwarmLearningDocument = createEmptySwarmLearning()
 ): string[] {
   const stats: ScopeUnitStat[] = uniqueStrings(scopePaths).map((scopePath) => buildScopeUnitStat(context, scopePath));
 
@@ -721,8 +1144,8 @@ function prioritizeScopePaths(
         return rightHint ? 1 : -1;
       }
 
-      const leftScore = scoreScopeUnit(left, scopeBias);
-      const rightScore = scoreScopeUnit(right, scopeBias);
+      const leftScore = scoreScopeUnit(left, scopeBias, learning);
+      const rightScore = scoreScopeUnit(right, scopeBias, learning);
 
       if (rightScore !== leftScore) {
         return rightScore - leftScore;
@@ -738,12 +1161,23 @@ function prioritizeScopePaths(
     .map((entry) => entry.entry);
 }
 
-function prioritizeScopeUnits(context: ProjectContext, scopeBias: ScopeBias, scopeHints: string[] = []): string[] {
-  return prioritizeScopePaths(context, context.discovery.structure.topLevelDirectories, scopeBias, scopeHints);
+function prioritizeScopeUnits(
+  context: ProjectContext,
+  scopeBias: ScopeBias,
+  scopeHints: string[] = [],
+  learning: SwarmLearningDocument = createEmptySwarmLearning()
+): string[] {
+  return prioritizeScopePaths(context, context.discovery.structure.topLevelDirectories, scopeBias, scopeHints, learning);
 }
 
-function createScopeChunks(context: ProjectContext, chunkSize: number, scopeBias: ScopeBias, scopeHints: string[] = []): ScopeChunk[] {
-  const directories = prioritizeScopeUnits(context, scopeBias, scopeHints);
+function createScopeChunks(
+  context: ProjectContext,
+  chunkSize: number,
+  scopeBias: ScopeBias,
+  scopeHints: string[] = [],
+  learning: SwarmLearningDocument = createEmptySwarmLearning()
+): ScopeChunk[] {
+  const directories = prioritizeScopeUnits(context, scopeBias, scopeHints, learning);
   const scopeUnits = directories.length > 0 ? directories : ["."];
   const chunks: ScopeChunk[] = [];
 
@@ -764,31 +1198,42 @@ function createQueuedTasks(
   scopeChunks: ScopeChunk[],
   parallelism: number,
   queueBudget: number
-): QueuedSwarmTask[] {
+): QueuedSwarmTask[][] {
   const maxQueuedTasks = Math.max(Math.min(queueBudget, 64), planner.tasks.length, parallelism);
-  const queue: QueuedSwarmTask[] = [];
+  const levels = createTaskLevels(planner.tasks);
+  const queuedLevels: QueuedSwarmTask[][] = [];
+  let queuedCount = 0;
 
-  for (let chunkIndex = 0; chunkIndex < scopeChunks.length; chunkIndex += 1) {
-    const chunk = scopeChunks[chunkIndex]!;
-    for (const task of planner.tasks) {
-      queue.push({
-        taskId: `${task.taskId}__${chunk.chunkId}`,
-        parentTaskId: task.taskId,
-        title: `${task.title} [${chunk.label}]`,
-        goal: task.goal,
-        profile: task.profile,
-        deliverable: task.deliverable,
-        chunk,
-        attempt: 1
-      });
+  for (const level of levels) {
+    const queuedLevel: QueuedSwarmTask[] = [];
 
-      if (queue.length >= maxQueuedTasks) {
-        return queue;
+    for (let chunkIndex = 0; chunkIndex < scopeChunks.length; chunkIndex += 1) {
+      const chunk = scopeChunks[chunkIndex]!;
+      for (const task of level) {
+        queuedLevel.push({
+          taskId: `${task.taskId}__${chunk.chunkId}`,
+          parentTaskId: task.taskId,
+          title: `${task.title} [${chunk.label}]`,
+          goal: task.goal,
+          profile: task.profile,
+          deliverable: task.deliverable,
+          chunk,
+          attempt: 1
+        });
+        queuedCount += 1;
+
+        if (queuedCount >= maxQueuedTasks) {
+          return queuedLevel.length > 0 ? [...queuedLevels, queuedLevel] : queuedLevels;
+        }
       }
+    }
+
+    if (queuedLevel.length > 0) {
+      queuedLevels.push(queuedLevel);
     }
   }
 
-  return queue;
+  return queuedLevels;
 }
 
 function totalPotentialQueuedTasks(planner: PlannerPayload, scopeChunks: ScopeChunk[]): number {
@@ -811,7 +1256,8 @@ function listImmediateChildScopePaths(
   context: ProjectContext,
   scopePath: string,
   scopeBias: ScopeBias,
-  scopeHints: string[] = []
+  scopeHints: string[] = [],
+  learning: SwarmLearningDocument = createEmptySwarmLearning()
 ): string[] {
   const normalizedScope = scopePath.trim().replace(/^\.\/+/, "") || ".";
   const prefix = normalizedScope === "." ? "" : `${normalizedScope}/`;
@@ -835,7 +1281,7 @@ function listImmediateChildScopePaths(
     children.add(normalizedScope === "." ? head : `${normalizedScope}/${head}`);
   }
 
-  return prioritizeScopePaths(context, [...children], scopeBias, scopeHints);
+  return prioritizeScopePaths(context, [...children], scopeBias, scopeHints, learning);
 }
 
 function groupScopePaths(scopePaths: string[], maxGroupSize: number): string[][] {
@@ -854,13 +1300,14 @@ function splitScopeChunk(
   chunk: ScopeChunk,
   scopeBias: ScopeBias,
   scopeHints: string[],
+  learning: SwarmLearningDocument,
   pressure: ResourcePressure,
   localBudgetMode: boolean
 ): ScopeChunk[] {
   const splitGroupSize = deriveSplitGroupSize(pressure, localBudgetMode);
 
   if (chunk.scopePaths.length === 1) {
-    const childScopePaths = listImmediateChildScopePaths(context, chunk.scopePaths[0]!, scopeBias, scopeHints);
+    const childScopePaths = listImmediateChildScopePaths(context, chunk.scopePaths[0]!, scopeBias, scopeHints, learning);
     if (childScopePaths.length <= 1) {
       return [];
     }
@@ -914,8 +1361,9 @@ function buildPlannerPrompt(context: ProjectContext, intent: string): AIRouterRe
       "Do not invent repository facts.",
       "Split the user request into at most 4 small analysis tasks.",
       "Each task must fit one profile: worker, reviewer, or reasoning.",
+      "When a task logically needs prior evidence, add dependsOn with the upstream task IDs.",
       "Return JSON only in this shape:",
-      '{ "overview": string, "tasks": [{ "taskId": string, "title": string, "goal": string, "profile": "worker|reviewer|reasoning", "deliverable": string }] }',
+      '{ "overview": string, "tasks": [{ "taskId": string, "title": string, "goal": string, "profile": "worker|reviewer|reasoning", "deliverable": string, "dependsOn"?: string[] }] }',
       `User intent: ${intent}`
     ].join("\n")
   };
@@ -962,6 +1410,72 @@ function buildSynthesisPrompt(intent: string, overview: string, workerResults: S
   };
 }
 
+function selectionIdentity(selection: Pick<ModelSelection, "provider" | "model" | "residency" | "profile">): Pick<
+  ModelSelection,
+  "provider" | "model" | "residency" | "profile"
+> {
+  return {
+    provider: selection.provider,
+    model: selection.model,
+    residency: selection.residency,
+    profile: selection.profile
+  };
+}
+
+function recordSwarmCacheEntry(
+  cache: SwarmResponseCacheDocument,
+  key: string,
+  context: ProjectContext,
+  request: AIRouterRequest,
+  selection: Pick<ModelSelection, "provider" | "model" | "residency" | "profile">,
+  response: string
+): void {
+  const now = new Date().toISOString();
+  cache.entries[key] = {
+    key,
+    request: {
+      task: request.task,
+      profile: request.profile,
+      prompt: canonicalizePromptText(request.prompt) ?? "",
+      context: canonicalizePromptText(request.context),
+      allowRemote: request.allowRemote
+    },
+    selection: selectionIdentity(selection),
+    response,
+    createdAt: now,
+    lastUsedAt: now,
+    hits: 0
+  };
+  cache.updatedAt = now;
+  pruneSwarmResponseCache(cache);
+}
+
+async function askWithSwarmCache(
+  context: ProjectContext,
+  assistant: SwarmAssistant,
+  request: AIRouterRequest,
+  selection: ModelSelection,
+  cache: SwarmResponseCacheDocument,
+  optimization: SwarmOptimizationStats
+): Promise<string> {
+  const key = buildSwarmCacheKey(context, request, selectionIdentity(selection));
+  const cachedEntry = cache.entries[key];
+
+  if (cachedEntry) {
+    cachedEntry.hits += 1;
+    cachedEntry.lastUsedAt = new Date().toISOString();
+    cache.updatedAt = cachedEntry.lastUsedAt;
+    optimization.cacheHits += 1;
+    return cachedEntry.response;
+  }
+
+  optimization.cacheMisses += 1;
+  const response = await assistant.ask(request);
+  recordSwarmCacheEntry(cache, key, context, request, selection, response);
+  optimization.cacheWrites += 1;
+  return response;
+}
+
 function renderSwarmReport(
   context: ProjectContext,
   intent: string,
@@ -970,6 +1484,7 @@ function renderSwarmReport(
   parallelism: SwarmRunResult["parallelism"],
   plannerSelection: ModelSelection,
   planner: PlannerPayload,
+  optimization: SwarmOptimizationStats,
   workerResults: SwarmWorkerResult[],
   synthesisSelection: ModelSelection,
   synthesis: SynthesisPayload
@@ -1016,6 +1531,12 @@ function renderSwarmReport(
 - Profile: ${plannerSelection.profile}
 - Residency: ${plannerSelection.residency}
 - Overview: ${planner.overview}
+- Cache hits: ${optimization.cacheHits}
+- Cache misses: ${optimization.cacheMisses}
+- Cache writes: ${optimization.cacheWrites}
+- Derived reasoning tasks queued: ${optimization.derivedTasksQueued}
+- Derived reasoning tasks skipped: ${optimization.derivedTasksSkipped}
+- Learned scope boosts: ${optimization.learnedScopeBoosts.join(", ") || "None"}
 
 ## Delegated tasks
 
@@ -1025,6 +1546,7 @@ ${planner.tasks
 
 - Task ID: ${task.taskId}
 - Profile: ${task.profile}
+- Depends on: ${task.dependsOn?.join(", ") || "None"}
 - Goal: ${task.goal}
 - Deliverable: ${task.deliverable}`
   )
@@ -1086,6 +1608,7 @@ export async function runSwarm(
   const parallelism = recommendedParallelism(options.parallelism);
   const chunking = recommendedChunkSize(context, options.chunkSize, options.scopeBias ?? "balanced");
   chunking.scopeHints = extractIntentScopeHints(context, intent);
+  const optimization = createOptimizationStats();
   const resilience = recommendedResilience(options.taskTimeoutMs, options.maxRetries);
   applyResilienceOverrides(resilience, options, parallelism);
   resilience.localBudgetMode = shouldUseLocalBudgetMode(resilience);
@@ -1095,6 +1618,13 @@ export async function runSwarm(
   if (resilience.localBudgetMode && resilience.adaptiveQueueBudget) {
     resilience.queueBudget = Math.min(resilience.queueBudget, Math.max(parallelism.selected * 2 + 2, 6));
   }
+
+  const swarmResponseCachePath = path.join(context.memoryDir, "swarm", "request_cache.json");
+  const swarmLearningPath = path.join(context.memoryDir, "swarm", "learning.json");
+  const responseCache = normalizeSwarmResponseCache(await readJsonSafe<SwarmResponseCacheDocument>(swarmResponseCachePath));
+  const swarmLearning = normalizeSwarmLearning(await readJsonSafe<SwarmLearningDocument>(swarmLearningPath));
+  optimization.learnedScopeBoosts = summarizeLearnedScopeBoosts(context.discovery.structure.topLevelDirectories, swarmLearning);
+
   const deadline = createDeadline(resilience.runTimeoutMs);
   const plannerRequest: AIRouterRequest = {
     ...buildPlannerPrompt(context, intent),
@@ -1105,7 +1635,7 @@ export async function runSwarm(
   let planner: PlannerPayload;
 
   try {
-    const plannerResponse = await assistant.ask(plannerRequest);
+    const plannerResponse = await askWithSwarmCache(context, assistant, plannerRequest, plannerSelection, responseCache, optimization);
     planner = normalizePlannerPayload(plannerResponse, intent);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -1117,151 +1647,193 @@ export async function runSwarm(
     }
   }
 
-  const scopeChunks = createScopeChunks(context, chunking.selectedChunkSize, chunking.scopeBias, chunking.scopeHints);
-  const queuedTasks = createQueuedTasks(planner, scopeChunks, parallelism.selected, resilience.queueBudget);
+  const scopeChunks = createScopeChunks(context, chunking.selectedChunkSize, chunking.scopeBias, chunking.scopeHints, swarmLearning);
+  const { initialTasks, deferredReasoningTasks } = splitPlannerTasks(planner);
+  const reservedReasoningBudget =
+    deferredReasoningTasks.length > 0 && resilience.queueBudget > initialTasks.length
+      ? reserveDerivedReasoningBudget(
+          deferredReasoningTasks,
+          scopeChunks,
+          resilience.queueBudget,
+          parallelism.selected,
+          resilience.localBudgetMode
+        )
+      : 0;
+  const initialPlanner: PlannerPayload = {
+    overview: planner.overview,
+    tasks: initialTasks.length > 0 ? initialTasks : planner.tasks
+  };
+  const initialQueueBudget = reservedReasoningBudget > 0 ? resilience.queueBudget - reservedReasoningBudget : resilience.queueBudget;
+  const queuedTaskLevels = createQueuedTasks(initialPlanner, scopeChunks, parallelism.selected, initialQueueBudget);
   chunking.scopeChunks = scopeChunks.length;
-  chunking.queuedTasks = queuedTasks.length;
-  resilience.droppedTasks = Math.max(0, totalPotentialQueuedTasks(planner, scopeChunks) - queuedTasks.length);
+  chunking.queuedTasks = queuedTaskLevels.reduce((total, level) => total + level.length, 0);
 
-  const workerResults = await drainQueueWithConcurrency(
-    [...queuedTasks],
-    parallelism.selected,
-    async (task): Promise<SwarmTaskOutcome> => {
-      const remainingMs = remainingBudgetMs(deadline);
-      if (remainingMs <= 0) {
-        resilience.runTimedOut = true;
-        resilience.droppedTasks += 1;
-        return {
-          result: {
-            taskId: task.taskId,
-            parentTaskId: task.parentTaskId,
-            chunkId: task.chunk.chunkId,
-            attempt: task.attempt,
-            status: "timed_out",
-            title: task.title,
-            profile: task.profile,
-            scopePaths: task.chunk.scopePaths,
-            provider: "ollama",
-            model: "budget-exhausted",
-            residency: "local",
-            summary: "The global swarm time budget was exhausted before this task could run.",
-            findings: [],
-            recommendations: ["Increase the run timeout or reduce the queue budget/chunk size."],
-            error: "Run timeout exceeded before task execution."
-          }
-        };
+  const executeQueuedTask = async (task: QueuedSwarmTask): Promise<SwarmTaskOutcome> => {
+    const remainingMs = remainingBudgetMs(deadline);
+    if (remainingMs <= 0) {
+      resilience.runTimedOut = true;
+      resilience.droppedTasks += 1;
+      return {
+        result: {
+          taskId: task.taskId,
+          parentTaskId: task.parentTaskId,
+          chunkId: task.chunk.chunkId,
+          attempt: task.attempt,
+          status: "timed_out",
+          title: task.title,
+          profile: task.profile,
+          scopePaths: task.chunk.scopePaths,
+          provider: "ollama",
+          model: "budget-exhausted",
+          residency: "local",
+          summary: "The global swarm time budget was exhausted before this task could run.",
+          findings: [],
+          recommendations: ["Increase the run timeout or reduce the queue budget/chunk size."],
+          error: "Run timeout exceeded before task execution."
+        }
+      };
+    }
+
+    const request = buildWorkerPrompt(context, intent, planner.overview, {
+      ...task
+    });
+    const timedRequest: AIRouterRequest = {
+      ...request,
+      timeoutMs: Math.min(resilience.taskTimeoutMs, remainingMs)
+    };
+    let selection: ModelSelection | undefined;
+
+    try {
+      selection = await assistant.selectModel(timedRequest);
+      const response = await askWithSwarmCache(context, assistant, timedRequest, selection, responseCache, optimization);
+      const payload = normalizeWorkerPayload(response, {
+        taskId: task.taskId,
+        title: task.title,
+        goal: task.goal,
+        profile: task.profile,
+        deliverable: task.deliverable
+      });
+
+      return {
+        result: {
+          taskId: task.taskId,
+          parentTaskId: task.parentTaskId,
+          chunkId: task.chunk.chunkId,
+          attempt: task.attempt,
+          status: "completed",
+          title: task.title,
+          profile: task.profile,
+          scopePaths: task.chunk.scopePaths,
+          provider: selection.provider,
+          model: selection.model,
+          residency: selection.residency,
+          summary: payload.summary,
+          findings: payload.findings,
+          recommendations: payload.recommendations
+        }
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const timedOut = /abort|timeout/i.test(message);
+      if (timedOut) {
+        resilience.timedOutTasks += 1;
       }
 
-      const request = buildWorkerPrompt(context, intent, planner.overview, {
-        ...task
-      });
-      const timedRequest: AIRouterRequest = {
-        ...request,
-        timeoutMs: Math.min(resilience.taskTimeoutMs, remainingMs)
-      };
-
-      try {
-        const selection = await assistant.selectModel(timedRequest);
-        const response = await assistant.ask(timedRequest);
-        const payload = normalizeWorkerPayload(response, {
-          taskId: task.taskId,
-          title: task.title,
-          goal: task.goal,
-          profile: task.profile,
-          deliverable: task.deliverable
-        });
-
-        return {
-          result: {
-            taskId: task.taskId,
-            parentTaskId: task.parentTaskId,
-            chunkId: task.chunk.chunkId,
-            attempt: task.attempt,
-            status: "completed",
-            title: task.title,
-            profile: task.profile,
-            scopePaths: task.chunk.scopePaths,
-            provider: selection.provider,
-            model: selection.model,
-            residency: selection.residency,
-            summary: payload.summary,
-            findings: payload.findings,
-            recommendations: payload.recommendations
-          }
-        };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        const timedOut = /abort|timeout/i.test(message);
-        if (timedOut) {
-          resilience.timedOutTasks += 1;
-        }
-
-        if (timedOut) {
-          const splitChunks = splitScopeChunk(
-            context,
-            task.chunk,
-            chunking.scopeBias,
-            chunking.scopeHints,
-            parallelism.pressure,
-            resilience.localBudgetMode
-          );
-          if (splitChunks.length > 0) {
-            resilience.splitTasks += splitChunks.length;
-            return {
-              requeue: splitChunks.map((chunk) => ({
-                taskId: `${task.parentTaskId}__${chunk.chunkId}`,
-                parentTaskId: task.parentTaskId,
-                title: `${task.title.split(" [")[0]} [${chunk.label}]`,
-                goal: task.goal,
-                profile: task.profile,
-                deliverable: task.deliverable,
-                chunk,
-                attempt: task.attempt + 1
-              }))
-            };
-          }
-        }
-
-        if (task.attempt <= resilience.maxRetries) {
-          resilience.retriedTasks += 1;
+      if (timedOut) {
+        const splitChunks = splitScopeChunk(
+          context,
+          task.chunk,
+          chunking.scopeBias,
+          chunking.scopeHints,
+          swarmLearning,
+          parallelism.pressure,
+          resilience.localBudgetMode
+        );
+        if (splitChunks.length > 0) {
+          resilience.splitTasks += splitChunks.length;
           return {
-            requeue: [
-              {
-                ...task,
-                attempt: task.attempt + 1
-              }
-            ]
+            requeue: splitChunks.map((chunk) => ({
+              taskId: `${task.parentTaskId}__${chunk.chunkId}`,
+              parentTaskId: task.parentTaskId,
+              title: `${task.title.split(" [")[0]} [${chunk.label}]`,
+              goal: task.goal,
+              profile: task.profile,
+              deliverable: task.deliverable,
+              chunk,
+              attempt: task.attempt + 1
+            }))
           };
         }
+      }
 
-        resilience.failedTasks += 1;
-        const selection = await assistant.selectModel(timedRequest);
+      if (task.attempt <= resilience.maxRetries) {
+        resilience.retriedTasks += 1;
         return {
-          result: {
-            taskId: task.taskId,
-            parentTaskId: task.parentTaskId,
-            chunkId: task.chunk.chunkId,
-            attempt: task.attempt,
-            status: timedOut ? "timed_out" : "failed",
-            title: task.title,
-            profile: task.profile,
-            scopePaths: task.chunk.scopePaths,
-            provider: selection.provider,
-            model: selection.model,
-            residency: selection.residency,
-            summary: timedOut
-              ? `The worker exceeded the time budget for this scope chunk.`
-              : `The worker failed before producing structured output.`,
-            findings: [],
-            recommendations: timedOut
-              ? ["Reduce chunk size or increase the worker timeout for this task."]
-              : ["Retry the task or inspect the affected scope manually."],
-            error: message
-          }
+          requeue: [
+            {
+              ...task,
+              attempt: task.attempt + 1
+            }
+          ]
         };
       }
+
+      resilience.failedTasks += 1;
+      return {
+        result: {
+          taskId: task.taskId,
+          parentTaskId: task.parentTaskId,
+          chunkId: task.chunk.chunkId,
+          attempt: task.attempt,
+          status: timedOut ? "timed_out" : "failed",
+          title: task.title,
+          profile: task.profile,
+          scopePaths: task.chunk.scopePaths,
+          provider: selection?.provider ?? "ollama",
+          model: selection?.model ?? "selection-failed",
+          residency: selection?.residency ?? "local",
+          summary: timedOut
+            ? "The worker exceeded the time budget for this scope chunk."
+            : "The worker failed before producing structured output.",
+          findings: [],
+          recommendations: timedOut
+            ? ["Reduce chunk size or increase the worker timeout for this task."]
+            : ["Retry the task or inspect the affected scope manually."],
+          error: message
+        }
+      };
     }
+  };
+
+  let workerResults = await drainTaskLevelsWithConcurrency(
+    queuedTaskLevels,
+    parallelism.selected,
+    executeQueuedTask
   );
+
+  if (deferredReasoningTasks.length > 0) {
+    const derivedReasoning = deriveReasoningTasks(
+      deferredReasoningTasks,
+      scopeChunks,
+      workerResults,
+      reservedReasoningBudget,
+      chunking.scopeHints
+    );
+    optimization.derivedTasksQueued = derivedReasoning.tasks.length;
+    optimization.derivedTasksSkipped = derivedReasoning.skipped;
+    chunking.queuedTasks += derivedReasoning.tasks.length;
+
+    if (derivedReasoning.tasks.length > 0 && remainingBudgetMs(deadline) > 0) {
+      const reasoningResults = await drainQueueWithConcurrency(
+        [...derivedReasoning.tasks],
+        Math.min(parallelism.selected, derivedReasoning.tasks.length),
+        executeQueuedTask
+      );
+      workerResults = [...workerResults, ...reasoningResults];
+    }
+  }
+
+  resilience.droppedTasks = Math.max(0, totalPotentialQueuedTasks(planner, scopeChunks) - chunking.queuedTasks);
 
   let synthesis: SynthesisPayload;
   const synthesisRequest: AIRouterRequest = {
@@ -1285,7 +1857,14 @@ export async function runSwarm(
     };
   } else {
     try {
-      const synthesisResponse = await assistant.ask(synthesisRequest);
+      const synthesisResponse = await askWithSwarmCache(
+        context,
+        assistant,
+        synthesisRequest,
+        synthesisSelection,
+        responseCache,
+        optimization
+      );
       synthesis = normalizeSynthesisPayload(synthesisResponse, intent);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1306,12 +1885,28 @@ export async function runSwarm(
     }
   }
 
+  updateSwarmLearning(swarmLearning, workerResults);
+  await writeJsonEnsured(swarmResponseCachePath, responseCache);
+  await writeJsonEnsured(swarmLearningPath, swarmLearning);
+
   const reportPath = path.join(context.reportsDir, "swarm_run.md");
   const memoryPath = path.join(context.memoryDir, "swarm", "swarm_run.json");
 
   await writeFileEnsured(
       reportPath,
-      renderSwarmReport(context, intent, resilience, chunking, parallelism, plannerSelection, planner, workerResults, synthesisSelection, synthesis)
+      renderSwarmReport(
+        context,
+        intent,
+        resilience,
+        chunking,
+        parallelism,
+        plannerSelection,
+        planner,
+        optimization,
+        workerResults,
+        synthesisSelection,
+        synthesis
+      )
   );
   await writeJsonEnsured(memoryPath, {
     repoName: context.repoName,
@@ -1324,6 +1919,7 @@ export async function runSwarm(
       overview: planner.overview,
       tasks: planner.tasks
     },
+    optimization,
     workers: workerResults,
     synthesis: {
       selection: synthesisSelection,
@@ -1346,6 +1942,7 @@ export async function runSwarm(
       residency: plannerSelection.residency,
       overview: planner.overview
     },
+    optimization,
     tasks: planner.tasks,
     workerResults,
     synthesis: {

@@ -103,6 +103,12 @@ Use plain language and let `project-brain` route the workflow:
 project-brain ask "identifica este proyecto" /path/to/repo --output /path/to/output
 ```
 
+Open an interactive terminal console when you want one place to configure target paths, swarm defaults, and the main workflows:
+
+```bash
+project-brain console --target /path/to/repo --output /path/to/output
+```
+
 Persist a project-level improvement roadmap from the current analysis state:
 
 ```bash
@@ -305,8 +311,13 @@ The last mile still lives in GitHub settings, because branch protection and secr
 
 ## Documentation
 
+- [Documentation Index](docs/README.md)
 - [Architecture](docs/architecture.md)
 - [Agents](docs/agents.md)
 - [Usage](docs/usage.md)
 - [External Repository Integration](docs/external-repository-integration.md)
+- [Production Architecture Spec](docs/production-architecture-spec.md)
+- [Self-Governance](docs/agent-self-governance.md)
+- [Roadmap](docs/roadmap/evolution-plan.md)
+- [Architecture Assessments](docs/assessments/system-architecture-audit.md)
 - [Acknowledgements](ACKNOWLEDGEMENTS.md)
