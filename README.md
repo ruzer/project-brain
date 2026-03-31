@@ -69,9 +69,72 @@ project-brain/
 
 ## Installation
 
+Requisitos:
+
+- Node.js 18+ (project-brain runtime)
+- `npm` (paquete, `build`, `lint`, etc.)
+- Ollama para runtime local de modelos.
+- Toolchains abiertos según el lenguaje del repositorio analizado (por ejemplo `npm`, `python3`, `go`, `cargo`, `java`, `php`, `ruby`, `dotnet`).
+
+Instalación rápida:
+
 ```bash
 npm install
 npm run build
+```
+
+Si quieres validar la instalación completa localmente:
+
+```bash
+project-brain doctor .
+project-brain models
+project-brain console --target /ruta/al/repo --output /tmp/project-brain-run
+```
+
+Instalación recomendada de Ollama (si aún no lo tienes):
+
+```bash
+# Linux
+curl -fsSL https://ollama.com/install.sh | sh
+
+# macOS
+brew install ollama
+
+# Descarga un modelo por defecto
+ollama pull qwen2.5-coder:7b
+ollama pull deepseek-coder:6.7b
+ollama pull llama3.1:8b
+```
+
+Para entornos sin `brew`, usa la guía oficial de Ollama para tu sistema para completar la instalación.
+
+## Run project-brain from source
+
+1. Install dependencies and build once:
+
+```bash
+npm install
+npm run build
+```
+
+2. Ejecuta el CLI directamente desde `dist`:
+
+```bash
+node dist/cli/project-brain.js --help
+```
+
+3. Prueba rápida de compilación en tu máquina:
+
+```bash
+npm run typecheck
+npm run build
+```
+
+If you changed CLI behavior, run this sequence before running a repo:
+
+```bash
+npm run build
+node dist/cli/project-brain.js doctor .
 ```
 
 ## Validation
@@ -81,6 +144,13 @@ npm run hooks:install
 npm run lint
 npm run typecheck
 npm run verify
+```
+
+The minimal compilation validation is:
+
+```bash
+npm run typecheck
+npm run build
 ```
 
 ## Typical usage
