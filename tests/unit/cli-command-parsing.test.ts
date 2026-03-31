@@ -63,6 +63,7 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
     expect(helpText).toContain("feedback");
     expect(helpText).toContain("models");
     expect(helpText).toContain("doctor");
+    expect(helpText).toContain("security-audit");
     expect(helpText).toContain("status");
     expect(helpText).toContain("resume");
     expect(helpText).toContain("console");
@@ -198,6 +199,15 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
 
     expect(doctorHelp).toContain("environment");
     expect(doctorHelp).toContain("--output");
+  });
+
+  it("shows security-audit options", () => {
+    const auditHelp = runCliHelp(["security-audit", "--help"]);
+
+    expect(auditHelp).toContain("multi-agent security audit");
+    expect(auditHelp).toContain("--output");
+    expect(auditHelp).toContain("--trigger");
+    expect(auditHelp).toContain("--verbose");
   });
 
   it("shows console options", () => {

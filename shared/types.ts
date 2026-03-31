@@ -6,6 +6,7 @@ export type ContextTrustLevel = "official" | "maintainer" | "community";
 export type AskWorkflow =
   | "resume-project"
   | "discover-project"
+  | "security-audit"
   | "critical-gaps"
   | "review-latest-changes"
   | "inspect-firewall"
@@ -57,6 +58,49 @@ export type LearningOutcome =
   | "REPEATED_BUG_PATTERN"
   | "PENDING_REVIEW";
 export type AgentPriority = "critical" | "high" | "normal" | "low";
+export type SecurityFindingSeverity = "critical" | "high" | "medium" | "low" | "info";
+export type SecurityFindingProblemType = "code" | "configuration" | "architecture" | "code+configuration";
+export type SecurityFixEffort = "low" | "medium" | "high";
+export type SecurityAuditArea =
+  | "auth_sessions"
+  | "authorization"
+  | "input_validation"
+  | "web_attacks"
+  | "http_headers"
+  | "infra_config"
+  | "abuse_protection"
+  | "sensitive_data"
+  | "observability";
+
+export interface SecurityFinding {
+  area: SecurityAuditArea;
+  severity: SecurityFindingSeverity;
+  title: string;
+  location: string;
+  evidence: string;
+  attackVector: string[];
+  impact: string;
+  fix: string;
+  references: string[];
+  effort: SecurityFixEffort;
+  problemType: SecurityFindingProblemType;
+  agentId: string;
+}
+
+export interface SecurityCoverageStatus {
+  area: SecurityAuditArea;
+  status: "finding" | "ok" | "not-reviewed";
+  note: string;
+  agentId?: string;
+}
+
+export interface VerifiedAppContext {
+  architectureSummary: string[];
+  attackSurface: string[];
+  criticalAssets: string[];
+  trustBoundaries: string[];
+  contextGaps: string[];
+}
 
 export interface RepoStructure {
   topLevelDirectories: string[];
@@ -178,6 +222,8 @@ export interface AgentReport {
   recommendations: string[];
   riskLevel: RiskLevel;
   outputPath: string;
+  securityFindings?: SecurityFinding[];
+  coverage?: SecurityCoverageStatus[];
 }
 
 export interface AgentDescriptor {
@@ -395,12 +441,24 @@ export interface SwarmRunResult {
 
 export type DoctorCheckStatus = "pass" | "warn" | "fail";
 export type SuggestedActionPriority = "high" | "medium" | "low";
+export type DoctorSetupTier = "required" | "recommended" | "optional";
+export type DoctorSetupStatus = "installed" | "missing";
 
 export interface DoctorCheck {
   id: string;
   label: string;
   status: DoctorCheckStatus;
   summary: string;
+  details: string[];
+}
+
+export interface DoctorSetupItem {
+  id: string;
+  label: string;
+  tier: DoctorSetupTier;
+  status: DoctorSetupStatus;
+  summary: string;
+  installHint: string;
   details: string[];
 }
 
@@ -422,6 +480,7 @@ export interface DoctorResult {
     headline: string;
   };
   checks: DoctorCheck[];
+  setupItems: DoctorSetupItem[];
   suggestions: SuggestedAction[];
 }
 
@@ -490,6 +549,22 @@ export interface ImprovementPlanResult {
   risksPath: string;
   roadmapPath: string;
   tracksPath: string;
+}
+
+export interface SecurityAuditResult {
+  context: ProjectContext;
+  trigger: GovernanceTrigger;
+  reportPath: string;
+  memoryPath: string;
+  contextLiteReportPath?: string;
+  verifiedContext: VerifiedAppContext;
+  findings: SecurityFinding[];
+  coverage: SecurityCoverageStatus[];
+  checklist: string[];
+  securityDebt: string[];
+  sourceReports: string[];
+  verdict: "No apta para producción" | "Apta con remediaciones obligatorias" | "Apta con hardening recomendado";
+  headline: string;
 }
 
 export interface ContextRegistryEntry {
@@ -658,6 +733,8 @@ export interface AgentEvaluation {
   aiInsights?: string[];
   combinedRecommendations?: string[];
   content?: string;
+  securityFindings?: SecurityFinding[];
+  coverage?: SecurityCoverageStatus[];
 }
 
 export interface ReportManifest {
@@ -668,6 +745,7 @@ export interface ReportManifest {
   taskFiles: string[];
   swarmFiles?: string[];
   firewallFiles?: string[];
+  securityFiles?: string[];
   contextRegistryFiles?: string[];
   proposalFiles: string[];
   knowledgeFiles?: string[];

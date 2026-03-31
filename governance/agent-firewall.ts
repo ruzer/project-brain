@@ -55,6 +55,14 @@ function detectScopePaths(agentId: string, context: ProjectContext): string[] {
     return [...manifests, ...infraFiles];
   }
 
+  if (agentId === "auth-agent") {
+    return ["src/lib/auth/", "app/api/auth/", "middleware.", ...apiFiles];
+  }
+
+  if (agentId === "infra-agent") {
+    return [...infraFiles, ".github/", "config/"];
+  }
+
   if (agentId === "documentation-agent" || agentId === "product-owner-agent") {
     return ["docs/", "README.md", ...apiFiles];
   }

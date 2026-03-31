@@ -33,6 +33,15 @@ function followUpsFor(workflow: AskRoute["workflow"]): string[] {
     ];
   }
 
+  if (workflow === "security-audit") {
+    return [
+      "project-brain security-audit .",
+      'project-brain ask "revisa los cambios recientes"',
+      'project-brain ask "inspecciona el firewall y aprobaciones"',
+      'project-brain swarm "prioriza remediaciones reales de seguridad para este repo"'
+    ];
+  }
+
   if (workflow === "review-latest-changes") {
     return [
       'project-brain ask "dime si el riesgo de estos cambios es alto"',
@@ -172,6 +181,9 @@ export function routeIntent(intent: string): AskRoute {
 
   if (
     includesAny(normalizedIntent, [
+      /security audit/,
+      /auditoria de seguridad/,
+      /auditoría de seguridad/,
       /critical/,
       /critic/,
       /que le falta/,
@@ -181,6 +193,12 @@ export function routeIntent(intent: string): AskRoute {
       /risk/,
       /security/,
       /seguridad/,
+      /owasp/,
+      /cwe/,
+      /auth/,
+      /csrf/,
+      /xss/,
+      /idor/,
       /documentation/,
       /documentacion/,
       /deuda tecnica/,
@@ -188,10 +206,12 @@ export function routeIntent(intent: string): AskRoute {
     ])
   ) {
     return {
-      workflow: "critical-gaps",
-      reason: "The request asks for weaknesses, risks, or missing capabilities.",
+      workflow: /security|seguridad|owasp|cwe|auth|csrf|xss|idor/i.test(normalizedIntent) ? "security-audit" : "critical-gaps",
+      reason: /security|seguridad|owasp|cwe|auth|csrf|xss|idor/i.test(normalizedIntent)
+        ? "The request asks for a security-focused audit with vulnerabilities, auth, or exploitability concerns."
+        : "The request asks for weaknesses, risks, or missing capabilities.",
       trigger: inferTrigger(normalizedIntent, "manual"),
-      followUps: followUpsFor("critical-gaps")
+      followUps: followUpsFor(/security|seguridad|owasp|cwe|auth|csrf|xss|idor/i.test(normalizedIntent) ? "security-audit" : "critical-gaps")
     };
   }
 

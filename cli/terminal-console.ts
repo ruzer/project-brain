@@ -17,6 +17,7 @@ import type {
   ImprovementPlanResult,
   OrchestrationResult,
   ResumeResult,
+  SecurityAuditResult,
   StatusResult,
   SwarmEngine,
   SwarmRunResult
@@ -26,6 +27,7 @@ type WorkflowChoice =
   | "doctor"
   | "status"
   | "resume"
+  | "security-audit"
   | "analyze"
   | "weekly"
   | "context-lite"
@@ -39,7 +41,7 @@ type WorkflowChoice =
   | "plan-improvements"
   | "report";
 
-type MenuChoice = "config" | "paths" | "swarm" | "run" | "models" | "exit";
+type MenuChoice = "config" | "paths" | "swarm" | "run" | "models" | "setup" | "exit";
 
 interface ChoiceOption<T extends string> {
   value: T;
@@ -76,6 +78,7 @@ const MAIN_MENU: ChoiceOption<MenuChoice>[] = [
   { value: "swarm", label: "Configurar defaults del swarm" },
   { value: "run", label: "Ejecutar workflow" },
   { value: "models", label: "Ver modelos y routing" },
+  { value: "setup", label: "Ver setup local y toolchains open source" },
   { value: "exit", label: "Salir" }
 ];
 
@@ -83,6 +86,7 @@ const WORKFLOW_MENU: ChoiceOption<WorkflowChoice>[] = [
   { value: "doctor", label: "doctor" },
   { value: "status", label: "status" },
   { value: "resume", label: "resume" },
+  { value: "security-audit", label: "security-audit" },
   { value: "analyze", label: "analyze" },
   { value: "weekly", label: "weekly" },
   { value: "context-lite", label: "context-lite" },
@@ -197,6 +201,9 @@ export async function launchTerminalConsole(options: LaunchTerminalConsoleOption
           case "models":
             await showModels(options.aiRouter);
             break;
+          case "setup":
+            await showRuntimeSetup(session, options.orchestrator);
+            break;
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -271,6 +278,11 @@ async function runWorkflow(
     case "analyze": {
       const result = await orchestrator.analyzeScope(session.targetPath, session.outputPath, session.trigger);
       printAnalyzeResult(result);
+      return;
+    }
+    case "security-audit": {
+      const result = await orchestrator.securityAudit(session.targetPath, session.outputPath, session.trigger);
+      printSecurityAuditResult(result);
       return;
     }
     case "weekly": {
@@ -385,6 +397,34 @@ async function showModels(aiRouter: AIRouter): Promise<void> {
   }
 }
 
+async function showRuntimeSetup(
+  session: TerminalSessionState,
+  orchestrator: ProjectBrainOrchestrator
+): Promise<void> {
+  applyRuntimeToggles(session);
+  const result = await orchestrator.doctor(session.targetPath, session.outputPath);
+  console.log("");
+  console.log("Runtime setup");
+  for (const tier of ["required", "recommended", "optional"] as const) {
+    const items = result.setupItems.filter((item) => item.tier === tier);
+    if (items.length === 0) {
+      continue;
+    }
+    const title =
+      tier === "required"
+        ? "Required local runtime"
+        : tier === "recommended"
+          ? "Recommended for this target"
+          : "Optional open-source expansion";
+    console.log(title);
+    for (const item of items) {
+      console.log(`- ${item.label}: ${item.status.toUpperCase()} - ${item.summary}`);
+      console.log(`  Install / enable: ${item.installHint}`);
+    }
+    console.log("");
+  }
+}
+
 function applyRuntimeToggles(session: TerminalSessionState): void {
   setLoggerOptions({ verbose: session.verbose });
   if (session.ollamaTimeoutMs) {
@@ -486,6 +526,22 @@ function printDoctorResult(result: DoctorResult): void {
   console.log(`- Headline: ${result.summary.headline}`);
   for (const check of result.checks) {
     console.log(`- ${check.label}: ${check.status.toUpperCase()} - ${check.summary}`);
+  }
+  for (const tier of ["required", "recommended", "optional"] as const) {
+    const items = result.setupItems.filter((item) => item.tier === tier);
+    if (items.length === 0) {
+      continue;
+    }
+    const title =
+      tier === "required"
+        ? "Required local runtime"
+        : tier === "recommended"
+          ? "Recommended for this target"
+          : "Optional open-source expansion";
+    console.log(`- ${title}:`);
+    for (const item of items) {
+      console.log(`  - ${item.label}: ${item.status.toUpperCase()} - ${item.installHint}`);
+    }
   }
 }
 
@@ -601,6 +657,27 @@ function printSwarmResult(result: SwarmRunResult, label = "Swarm"): void {
       `- Optimization: cacheHits=${result.optimization.cacheHits}, cacheMisses=${result.optimization.cacheMisses}, derivedQueued=${result.optimization.derivedTasksQueued}, derivedSkipped=${result.optimization.derivedTasksSkipped}`
     );
   }
+}
+
+function printSecurityAuditResult(result: SecurityAuditResult): void {
+  const counts = result.findings.reduce<Record<string, number>>((accumulator, finding) => {
+    accumulator[finding.severity] = (accumulator[finding.severity] ?? 0) + 1;
+    return accumulator;
+  }, {});
+
+  console.log("");
+  console.log("Security audit");
+  console.log(`- Report: ${result.reportPath}`);
+  console.log(`- Memory: ${result.memoryPath}`);
+  if (result.contextLiteReportPath) {
+    console.log(`- Context-lite: ${result.contextLiteReportPath}`);
+  }
+  console.log(`- Verdict: ${result.verdict}`);
+  console.log(`- Headline: ${result.headline}`);
+  console.log(
+    `- Findings: critical=${counts.critical ?? 0}, high=${counts.high ?? 0}, medium=${counts.medium ?? 0}, low=${counts.low ?? 0}, info=${counts.info ?? 0}`
+  );
+  console.log(`- Coverage gaps: ${result.coverage.filter((entry) => entry.status === "not-reviewed").length}`);
 }
 
 function printCodeGraphResult(result: CodeGraphBuildResult): void {

@@ -15,6 +15,7 @@ import { writeContextLiteArtifacts } from "../context_lite";
 import { WeeklyScheduler } from "../scheduler";
 import { DiscoveryEngine } from "../discovery_engine";
 import { runDeepAgentsSwarm } from "../deepagents_swarm";
+import { runSecurityAudit } from "../security_audit";
 import { runSwarm } from "../swarm_runtime";
 import { AgentSelfGovernanceSystem } from "../../governance/self-governance-system";
 import { buildKnowledgeGraphArtifacts } from "../../memory/knowledge_graph";
@@ -52,6 +53,7 @@ import type {
   RepositoryTarget,
   DoctorResult,
   ResumeResult,
+  SecurityAuditResult,
   StatusResult,
   SwarmRunResult
 } from "../../shared/types";
@@ -266,6 +268,7 @@ function normalizeSuggestedWorkflow(value: unknown): AskWorkflow | undefined {
   const allowed: AskWorkflow[] = [
     "resume-project",
     "discover-project",
+    "security-audit",
     "critical-gaps",
     "review-latest-changes",
     "inspect-firewall",
@@ -276,6 +279,10 @@ function normalizeSuggestedWorkflow(value: unknown): AskWorkflow | undefined {
 }
 
 function shouldUseAIAskAssist(intent: string, workflow: AskWorkflow): boolean {
+  if (workflow === "security-audit") {
+    return false;
+  }
+
   const strategic = /estrateg|strategy|roadmap|stack|tecnolog|deploy|alcance|scope|arquitect|architecture|producto|product|idea|greenfield/i.test(
     intent
   );
@@ -365,6 +372,32 @@ export class ProjectBrainOrchestrator {
   async contextLite(targetPath: string, outputPath = targetPath): Promise<ContextLiteResult> {
     const context = await this.initTarget(targetPath, outputPath);
     return writeContextLiteArtifacts(context);
+  }
+
+  async securityAudit(
+    targetPath: string,
+    outputPath = targetPath,
+    trigger: GovernanceTrigger = "security-audit"
+  ): Promise<SecurityAuditResult> {
+    const scope = await discoverRepositoryTargets(targetPath, outputPath);
+    const firstRepository = scope.repositories[0];
+    const primaryTargetPath = firstRepository?.targetPath ?? targetPath;
+    const primaryOutputPath =
+      scope.mode === "workspace" && firstRepository
+        ? this.workspaceRepoOutputPath(outputPath, firstRepository)
+        : outputPath;
+    const scopeNote =
+      scope.mode === "workspace" && firstRepository
+        ? `Workspace detectado; la auditoría se ejecutó sobre el primer repositorio materializado: ${firstRepository.repoName} (${firstRepository.relativePath}).`
+        : undefined;
+    const context = await this.initTarget(primaryTargetPath, primaryOutputPath);
+    const contextLite = await writeContextLiteArtifacts(context);
+    const governanceRun = await this.selfGovernance.run(context, trigger);
+
+    return runSecurityAudit(context, governanceRun, contextLite, {
+      trigger,
+      scopeNote
+    });
   }
 
   async doctor(targetPath: string, outputPath = targetPath): Promise<DoctorResult> {
@@ -688,6 +721,26 @@ export class ProjectBrainOrchestrator {
           { label: "Improvement proposals", path: result.governanceSummary?.improvementReportPath ?? path.join(primaryOutputPath, "reports", "improvement_proposals.md") }
         ];
       }
+    }
+
+    if (route.workflow === "security-audit") {
+      const result = await this.securityAudit(primaryTargetPath, primaryOutputPath, route.trigger);
+      const severityCounts = result.findings.reduce<Record<string, number>>((accumulator, finding) => {
+        accumulator[finding.severity] = (accumulator[finding.severity] ?? 0) + 1;
+        return accumulator;
+      }, {});
+      headline = result.headline;
+      summary = [
+        scopeNote ?? `Target path: ${primaryTargetPath}`,
+        `Verdict: ${result.verdict}`,
+        `Findings: critical=${severityCounts.critical ?? 0}, high=${severityCounts.high ?? 0}, medium=${severityCounts.medium ?? 0}, low=${severityCounts.low ?? 0}, info=${severityCounts.info ?? 0}`,
+        `Context gaps: ${result.verifiedContext.contextGaps.slice(0, 3).join(" | ") || "None"}`
+      ].filter(Boolean);
+      artifacts = [
+        { label: "Security audit report", path: result.reportPath },
+        { label: "Security audit memory", path: result.memoryPath },
+        ...(result.contextLiteReportPath ? [{ label: "Context-lite report", path: result.contextLiteReportPath }] : [])
+      ];
     }
 
     if (route.workflow === "review-latest-changes") {
@@ -1135,6 +1188,7 @@ ${renderList(route.followUps)}
       learningFiles: files.filter((file) => file.startsWith("memory/learnings/")),
       swarmFiles: files.filter((file) => file.startsWith("memory/swarm/") || file === "reports/swarm_run.md"),
       firewallFiles: files.filter((file) => file.startsWith("memory/firewall/")),
+      securityFiles: files.filter((file) => file.startsWith("memory/security/") || file === "reports/security_audit.md"),
       knowledgeFiles: files.filter((file) => file.startsWith("memory/knowledge_graph/")),
       contextRegistryFiles: files.filter((file) => file.startsWith("memory/context_registry/") || file.startsWith("AI_CONTEXT/EXTERNAL_CONTEXT/")),
       taskFiles: files.filter((file) => file.startsWith("tasks/")),

@@ -129,6 +129,8 @@ export abstract class BaseAgent {
       deterministicFindings: string[];
       recommendations: string[];
       riskLevel: AgentEvaluation["riskLevel"];
+      securityFindings?: AgentEvaluation["securityFindings"];
+      coverage?: AgentEvaluation["coverage"];
     },
     aiResponse: AgentAIResponse | undefined
   ): AgentEvaluation {
@@ -144,7 +146,9 @@ export abstract class BaseAgent {
       combinedRecommendations,
       findings: combineRecommendations(base.deterministicFindings, aiResponse?.issues.map(normalizeAIInsight) ?? []),
       recommendations: combinedRecommendations,
-      riskLevel: mergeRiskLevel(base.riskLevel, aiResponse?.issues ?? [])
+      riskLevel: mergeRiskLevel(base.riskLevel, aiResponse?.issues ?? []),
+      securityFindings: base.securityFindings,
+      coverage: base.coverage
     };
   }
 
@@ -175,7 +179,9 @@ export abstract class BaseAgent {
       findings: evaluation.findings,
       recommendations: evaluation.recommendations,
       riskLevel: evaluation.riskLevel,
-      outputPath
+      outputPath,
+      securityFindings: evaluation.securityFindings,
+      coverage: evaluation.coverage
     };
   }
 }

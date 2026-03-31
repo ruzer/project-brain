@@ -103,11 +103,19 @@ Use plain language and let `project-brain` route the workflow:
 project-brain ask "identifica este proyecto" /path/to/repo --output /path/to/output
 ```
 
+Run a structured, evidence-based security audit with verified architecture and a coordinated agent team:
+
+```bash
+project-brain security-audit /path/to/repo --output /path/to/output
+```
+
 Open an interactive terminal console when you want one place to configure target paths, swarm defaults, and the main workflows:
 
 ```bash
 project-brain console --target /path/to/repo --output /path/to/output
 ```
+
+Inside the console, the setup panel now shows whether Ollama is installed and which open-source language toolchains are missing or available so `project-brain` can expand beyond static analysis and run stack-specific commands on free/local runtimes.
 
 Persist a project-level improvement roadmap from the current analysis state:
 

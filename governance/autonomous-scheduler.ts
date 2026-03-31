@@ -28,8 +28,8 @@ export class AutonomousScheduler {
       {
         cadence: "daily",
         trigger: "security-audit",
-        agentIds: ["security-agent", "dependency-agent", "qa-agent"],
-        rationale: "Security posture, dependency hygiene, and test-safety verification."
+        agentIds: ["security-agent", "auth-agent", "infra-agent", "dependency-agent", "qa-agent", "observability-agent", "dev-agent"],
+        rationale: "Structured security audit across auth, infra, dependency hygiene, abuse safety, observability, and code-level remediation."
       },
       {
         cadence: "weekly",

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { ProjectBrainOrchestrator } from "../../core/orchestrator/main";
 import type { ImprovementPlanResult, ResumeResult } from "../../shared/types";
-import { cleanupDir, createTempOutputDir, fixtureRepoPath } from "../helpers";
+import { cleanupDir, createTempOutputDir, fixtureRepoPath, nextPrismaFixtureRepoPath } from "../helpers";
 
 describe("Ask intent routing", () => {
   const cleanupTargets: string[] = [];
@@ -44,6 +44,23 @@ describe("Ask intent routing", () => {
     const brief = await readFile(result.briefPath, "utf8");
     expect(brief).toContain("inspect-firewall");
     expect(brief).toContain("Firewall report");
+  });
+
+  it("routes security prompts into the dedicated security audit workflow", async () => {
+    const outputDir = await createTempOutputDir("project-brain-ask-security-audit");
+    cleanupTargets.push(outputDir);
+    const orchestrator = new ProjectBrainOrchestrator();
+    process.env.OLLAMA_TIMEOUT_MS = "1";
+
+    const result = await orchestrator.ask(nextPrismaFixtureRepoPath, outputDir, "haz una auditoria de seguridad del repositorio");
+
+    expect(result.workflow).toBe("security-audit");
+    expect(result.artifacts.some((artifact) => artifact.label === "Security audit report")).toBe(true);
+    await access(result.briefPath);
+
+    const brief = await readFile(result.briefPath, "utf8");
+    expect(brief).toContain("security-audit");
+    expect(brief).toContain("Security audit report");
   });
 
   it("can enrich strategic ask flows with the planner model", async () => {

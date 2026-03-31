@@ -1,6 +1,6 @@
 import { BaseAgent } from "../base-agent";
 
-import type { AgentEvaluation, ProjectContext } from "../../shared/types";
+import type { AgentEvaluation, ProjectContext, SecurityCoverageStatus } from "../../shared/types";
 
 export class ObservabilityAgent extends BaseAgent {
   constructor() {
@@ -10,6 +10,7 @@ export class ObservabilityAgent extends BaseAgent {
   protected async evaluate(context: ProjectContext): Promise<AgentEvaluation> {
     const findings: string[] = [];
     const recommendations: string[] = [];
+    const coverage: SecurityCoverageStatus[] = [];
     const { discovery } = context;
 
     if (discovery.logging.frameworks.length === 0) {
@@ -27,12 +28,23 @@ export class ObservabilityAgent extends BaseAgent {
       recommendations.push("Define alert thresholds for latency, error rate, and infrastructure saturation.");
     }
 
+    coverage.push({
+      area: "observability",
+      status: findings.length > 0 ? "finding" : "ok",
+      note:
+        findings.length > 0
+          ? `Hallazgos observability: ${findings.join(" | ")}`
+          : "Se confirmaron señales razonables de logging, métricas y alerting para investigación operativa.",
+      agentId: this.agentId
+    });
+
     return {
       title: "Observability Report",
       summary: "ObservabilityAgent checked logging, metrics, and alert readiness.",
       findings,
       recommendations,
-      riskLevel: findings.length >= 2 ? "medium" : findings.length === 1 ? "low" : "low"
+      riskLevel: findings.length >= 2 ? "medium" : findings.length === 1 ? "low" : "low",
+      coverage
     };
   }
 }

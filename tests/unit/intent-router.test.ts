@@ -12,6 +12,7 @@ describe("routeIntent", () => {
   it("keeps generic security asks on the broader security-audit trigger", () => {
     const security = routeIntent("haz una auditoria de seguridad del repositorio");
 
+    expect(security.workflow).toBe("security-audit");
     expect(security.trigger).toBe("security-audit");
   });
 });

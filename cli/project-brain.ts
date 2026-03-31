@@ -9,6 +9,7 @@ import { setLoggerOptions, StructuredLogger } from "../shared/logger";
 import type {
   CodebaseMapResult,
   ContextTrustLevel,
+  DoctorSetupItem,
   EcosystemAnalysisResult,
   EcosystemCodebaseMapResult,
   GovernanceTrigger,
@@ -67,6 +68,30 @@ function printSuggestions(
     console.log(`- [${suggestion.priority.toUpperCase()}] ${suggestion.label}`);
     console.log(`  Command: ${suggestion.command}`);
     console.log(`  Why: ${suggestion.rationale}`);
+  }
+}
+
+function printDoctorSetup(setupItems: DoctorSetupItem[]): void {
+  if (setupItems.length === 0) {
+    return;
+  }
+
+  const groups: Array<{ title: string; items: DoctorSetupItem[] }> = [
+    { title: "Required local runtime", items: setupItems.filter((item) => item.tier === "required") },
+    { title: "Recommended for this target", items: setupItems.filter((item) => item.tier === "recommended") },
+    { title: "Optional open-source expansion", items: setupItems.filter((item) => item.tier === "optional") }
+  ];
+
+  console.log("Runtime setup:");
+  for (const group of groups) {
+    if (group.items.length === 0) {
+      continue;
+    }
+    console.log(`- ${group.title}:`);
+    for (const item of group.items) {
+      console.log(`  - ${item.label}: ${item.status.toUpperCase()} - ${item.summary}`);
+      console.log(`    Install / enable: ${item.installHint}`);
+    }
   }
 }
 
@@ -258,7 +283,38 @@ program
     for (const check of result.checks) {
       console.log(`- ${check.label}: ${check.status.toUpperCase()} - ${check.summary}`);
     }
+    printDoctorSetup(result.setupItems);
     printSuggestions(result.suggestions);
+  });
+
+program
+  .command("security-audit")
+  .argument("[target]", "Repository or workspace target to audit", ".")
+  .option("-o, --output <dir>", "Output directory")
+  .option("-t, --trigger <trigger>", "Governance trigger", "security-audit")
+  .option("--verbose", "Print structured runtime logs")
+  .description("Run a structured multi-agent security audit with verified context and evidence-based findings.")
+  .action(async (target: string, options: { output?: string; trigger?: string; verbose?: boolean }) => {
+    setLoggerOptions({ verbose: Boolean(options.verbose) });
+    const targetPath = resolveTarget(target);
+    const outputPath = resolveOutput(targetPath, options.output);
+    const result = await orchestrator.securityAudit(targetPath, outputPath, resolveTrigger(options.trigger));
+    const counts = result.findings.reduce<Record<string, number>>((accumulator, finding) => {
+      accumulator[finding.severity] = (accumulator[finding.severity] ?? 0) + 1;
+      return accumulator;
+    }, {});
+
+    console.log(`Security audit report: ${result.reportPath}`);
+    console.log(`Security audit memory: ${result.memoryPath}`);
+    if (result.contextLiteReportPath) {
+      console.log(`Context-lite report: ${result.contextLiteReportPath}`);
+    }
+    console.log(`Headline: ${result.headline}`);
+    console.log(`Verdict: ${result.verdict}`);
+    console.log(
+      `Findings: critical=${counts.critical ?? 0}, high=${counts.high ?? 0}, medium=${counts.medium ?? 0}, low=${counts.low ?? 0}, info=${counts.info ?? 0}`
+    );
+    console.log(`Coverage gaps: ${result.coverage.filter((entry) => entry.status === "not-reviewed").length}`);
   });
 
 program
