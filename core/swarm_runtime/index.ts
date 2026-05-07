@@ -3,8 +3,9 @@ import os from "node:os";
 import path from "node:path";
 
 import { buildMemoryBriefSummary, buildRepoSummary } from "../../agents/ai-support";
+import { loadScopeMemoryRecords, renderScopeMemoryForPrompt, writeScopeMemoryFromSwarmResult } from "../../memory/scope_store";
 import { readJsonSafe, writeFileEnsured, writeJsonEnsured } from "../../shared/fs-utils";
-import type { ProjectContext, SwarmPlanTask, SwarmRunResult, SwarmWorkerResult } from "../../shared/types";
+import type { ProjectContext, ScopeMemoryRecord, SwarmPlanTask, SwarmRunResult, SwarmWorkerResult } from "../../shared/types";
 import type { AIRouterRequest, AIRouterTask, ModelProfile, ModelSelection } from "../ai_router/router";
 import { applyTokenPolicy } from "../token_policy";
 
@@ -127,6 +128,10 @@ interface SwarmOptimizationStats {
   cacheHits: number;
   cacheMisses: number;
   cacheWrites: number;
+  scopeMemoryHits: number;
+  scopeMemoryMisses: number;
+  scopeMemoryStale: number;
+  scopeMemoryWrites: number;
   derivedTasksQueued: number;
   derivedTasksSkipped: number;
   learnedScopeBoosts: string[];
@@ -959,6 +964,10 @@ function createOptimizationStats(): SwarmOptimizationStats {
     cacheHits: 0,
     cacheMisses: 0,
     cacheWrites: 0,
+    scopeMemoryHits: 0,
+    scopeMemoryMisses: 0,
+    scopeMemoryStale: 0,
+    scopeMemoryWrites: 0,
     derivedTasksQueued: 0,
     derivedTasksSkipped: 0,
     learnedScopeBoosts: []
@@ -1415,15 +1424,23 @@ function buildPlannerPrompt(context: ProjectContext, intent: string): AIRouterRe
   };
 }
 
-function buildWorkerPrompt(context: ProjectContext, intent: string, overview: string, task: QueuedSwarmTask): AIRouterRequest {
+function buildWorkerPrompt(
+  context: ProjectContext,
+  intent: string,
+  overview: string,
+  task: QueuedSwarmTask,
+  scopeMemory: ScopeMemoryRecord[]
+): AIRouterRequest {
   return {
     task: taskTypeForProfile(task.profile as ModelProfile),
     profile: task.profile as ModelProfile,
     allowRemote: task.profile === "planner" || task.profile === "synthesizer",
-    context: buildChunkContext(context, task.chunk.scopePaths),
+    context: [buildChunkContext(context, task.chunk.scopePaths), renderScopeMemoryForPrompt(scopeMemory)].join("\n\n"),
     prompt: [
       "You are a bounded worker inside a project-brain swarm.",
       "MEMORY_BRIEF is the priority context. Use it first, then scoped files and generated artifacts.",
+      "If scope memory is available and fresh, reuse it and only add new evidence or changed facts.",
+      "If scope memory is stale, call out changed or missing evidence instead of repeating the old analysis blindly.",
       "Use only the scoped repository context provided.",
       "Do not assume facts that are not in the repository summary.",
       "Every factual claim must be backed by a file path, route, config, manifest, or generated artifact reference.",
@@ -1592,6 +1609,10 @@ function renderSwarmReport(
 - Cache hits: ${optimization.cacheHits}
 - Cache misses: ${optimization.cacheMisses}
 - Cache writes: ${optimization.cacheWrites}
+- Scope memory hits: ${optimization.scopeMemoryHits}
+- Scope memory misses: ${optimization.scopeMemoryMisses}
+- Scope memory stale: ${optimization.scopeMemoryStale}
+- Scope memory writes: ${optimization.scopeMemoryWrites}
 - Derived reasoning tasks queued: ${optimization.derivedTasksQueued}
 - Derived reasoning tasks skipped: ${optimization.derivedTasksSkipped}
 - Learned scope boosts: ${optimization.learnedScopeBoosts.join(", ") || "None"}
@@ -1727,6 +1748,14 @@ export async function runSwarm(
   }
 
   const scopeChunks = createScopeChunks(context, chunking.selectedChunkSize, chunking.scopeBias, chunking.scopeHints, swarmLearning);
+  const scopeMemoryByChunk = new Map<string, ScopeMemoryRecord[]>();
+  for (const chunk of scopeChunks) {
+    const lookup = await loadScopeMemoryRecords(context, chunk.scopePaths);
+    scopeMemoryByChunk.set(chunk.chunkId, lookup.records);
+    optimization.scopeMemoryHits += lookup.hits;
+    optimization.scopeMemoryMisses += lookup.misses;
+    optimization.scopeMemoryStale += lookup.stale;
+  }
   const { initialTasks, deferredReasoningTasks } = splitPlannerTasks(planner);
   const reservedReasoningBudget =
     deferredReasoningTasks.length > 0 && resilience.queueBudget > initialTasks.length
@@ -1776,9 +1805,15 @@ export async function runSwarm(
       };
     }
 
-    const request = buildWorkerPrompt(context, intent, planner.overview, {
-      ...task
-    });
+    const request = buildWorkerPrompt(
+      context,
+      intent,
+      planner.overview,
+      {
+        ...task
+      },
+      scopeMemoryByChunk.get(task.chunk.chunkId) ?? []
+    );
     const timedRequest: AIRouterRequest = {
       ...request,
       timeoutMs: Math.min(resilience.taskTimeoutMs, remainingMs)
@@ -1985,6 +2020,37 @@ export async function runSwarm(
 
   const reportPath = path.join(context.reportsDir, "swarm_run.md");
   const memoryPath = path.join(context.memoryDir, "swarm", "swarm_run.json");
+  optimization.scopeMemoryWrites = await writeScopeMemoryFromSwarmResult(context, {
+    engine: "bounded",
+    context,
+    intent,
+    reportPath,
+    memoryPath,
+    resilience,
+    chunking,
+    parallelism,
+    planner: {
+      provider: plannerSelection.provider,
+      model: plannerSelection.model,
+      residency: plannerSelection.residency,
+      overview: planner.overview
+    },
+    optimization,
+    tasks: planner.tasks,
+    workerResults,
+    synthesis: {
+      provider: synthesisSelection.provider,
+      model: synthesisSelection.model,
+      residency: synthesisSelection.residency,
+      headline: synthesis.headline,
+      summary: synthesis.summary,
+      priorities: synthesis.priorities,
+      nextSteps: synthesis.next_steps,
+      verifiedFacts: synthesis.verified_facts,
+      unknowns: synthesis.unknowns,
+      evidenceRefs: synthesis.evidence_refs
+    }
+  });
 
   await writeFileEnsured(
       reportPath,

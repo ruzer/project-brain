@@ -385,6 +385,50 @@ export interface SwarmWorkerResult {
   error?: string;
 }
 
+export interface ScopeMemoryFileHash {
+  path: string;
+  sha256?: string;
+  missing?: boolean;
+}
+
+export interface ScopeMemoryRecord {
+  version: 1;
+  repoName: string;
+  targetPath: string;
+  scope: string;
+  scopeKey: string;
+  updatedAt: string;
+  generatedBy: {
+    command: "swarm";
+    intent: string;
+    provider?: string;
+    model?: string;
+  };
+  files: {
+    count: number;
+    hashed: ScopeMemoryFileHash[];
+  };
+  freshness: {
+    status: "fresh" | "stale";
+    changedFiles: string[];
+    missingFiles: string[];
+    unchangedFiles: number;
+  };
+  decisions: string[];
+  verifiedFacts: string[];
+  unknowns: string[];
+  evidenceRefs: string[];
+  nextActions: string[];
+  sourceArtifacts: string[];
+}
+
+export interface ScopeMemoryLookupResult {
+  records: ScopeMemoryRecord[];
+  hits: number;
+  misses: number;
+  stale: number;
+}
+
 export type SwarmEngine = "bounded" | "deepagents";
 
 export interface SwarmRunResult {
@@ -445,6 +489,10 @@ export interface SwarmRunResult {
     cacheHits: number;
     cacheMisses: number;
     cacheWrites: number;
+    scopeMemoryHits?: number;
+    scopeMemoryMisses?: number;
+    scopeMemoryStale?: number;
+    scopeMemoryWrites?: number;
     derivedTasksQueued: number;
     derivedTasksSkipped: number;
     learnedScopeBoosts: string[];
@@ -971,7 +1019,15 @@ export interface FactQueryResult {
     memoryBriefPath: string;
     memoryBriefJsonPath: string;
     repositoryFactGraphPath: string;
+    scopeMemoryDir?: string;
   };
+  scopeMemoryMatches?: Array<{
+    scope: string;
+    kind: string;
+    text: string;
+    score: number;
+    evidenceRefs: string[];
+  }>;
   memoryMatches: Array<{
     kind: string;
     text: string;

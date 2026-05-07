@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -160,8 +160,11 @@ describe("Swarm runtime", () => {
     expect(report).toContain("Scope bias: balanced");
     expect(report).toContain("Parallel workers: 2");
     expect(report).toContain("Scope:");
+    expect(report).toContain("Scope memory writes:");
     expect(report).toContain("Review critical risks");
     expect(memory).toContain("\"workers\"");
+    expect(memory).toContain("\"scopeMemoryWrites\"");
+    expect((await readdir(path.join(outputDir, "AI_CONTEXT", "memory", "scopes"))).length).toBeGreaterThan(0);
   });
 
   it("salvages worker and synthesis outputs when local models return markdown instead of JSON", async () => {

@@ -188,12 +188,14 @@ export async function writeMemoryBriefArtifacts(context: ProjectContext): Promis
   const harnessAuditPath = path.join(context.reportsDir, "harness_audit.md");
   const factQueryPath = path.join(context.reportsDir, "fact_query.md");
   const startPath = path.join(context.reportsDir, "start.md");
+  const scopeMemoryPath = path.join(context.runtimeMemoryDir, "scopes");
   const canonicalInputs = [
     path.join(context.memoryDir, "MEMORY_BRIEF.md"),
     path.join(context.memoryDir, "CONTEXT.md"),
     path.join(context.memoryDir, "PROJECT_MODEL.md"),
     path.join(context.memoryDir, "STACK_PROFILE.md"),
     path.join(context.runtimeMemoryDir, "knowledge_graph", "repository_fact_graph.json"),
+    scopeMemoryPath,
     path.join(context.memoryDir, "swarm", "swarm_run.json"),
     factQueryPath,
     runbookPath,
@@ -225,6 +227,7 @@ export async function writeMemoryBriefArtifacts(context: ProjectContext): Promis
     tokenGuidance: [
       "Read MEMORY_BRIEF before broad reports.",
       "Use repository_fact_graph.json for structural facts before asking a model.",
+      "Use memory/scopes/*.json to reuse scoped verified facts before repeating a swarm analysis.",
       "Use UNKNOWN instead of guessing missing relationships.",
       "Append new corrections, learnings, and decisions instead of duplicating whole reports.",
       "Prefer targeted scopes over full-repo swarm runs."

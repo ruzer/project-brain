@@ -6,9 +6,11 @@ import type {
   ProjectContext,
   RepositoryFactGraphDocument,
   RepositoryFactGraphEdge,
-  RepositoryFactGraphNode
+  RepositoryFactGraphNode,
+  ScopeMemoryRecord
 } from "../../shared/types";
 import type { MemoryBriefDocument } from "../memory_brief";
+import { listScopeMemoryRecords } from "../scope_store";
 
 interface ScoredMatch<T> {
   item: T;
@@ -96,6 +98,16 @@ function memoryLines(brief: MemoryBriefDocument | undefined): string[] {
   ];
 }
 
+function scopeMemoryLines(record: ScopeMemoryRecord): string[] {
+  return [
+    ...record.decisions.map((entry) => `decision: ${entry}`),
+    ...record.verifiedFacts.map((entry) => `verified-fact: ${entry}`),
+    ...record.unknowns.map((entry) => `unknown: ${entry}`),
+    ...record.evidenceRefs.map((entry) => `evidence: ${entry}`),
+    ...record.nextActions.map((entry) => `next-action: ${entry}`)
+  ];
+}
+
 function nodeText(node: RepositoryFactGraphNode): string {
   return `${node.kind} ${node.id} ${node.label} ${JSON.stringify(node.attributes ?? {})}`;
 }
@@ -118,12 +130,14 @@ function renderFactQueryReport(result: FactQueryResult): string {
 - Tokens: ${result.tokens.join(", ") || "None"}
 - Memory brief: ${result.sources.memoryBriefPath}
 - Repository fact graph: ${result.sources.repositoryFactGraphPath}
+- Scope memory: ${result.sources.scopeMemoryDir ?? "None"}
 
 ## Summary
 
 - Memory matches: ${result.memoryMatches.length}
 - Node matches: ${result.nodeMatches.length}
 - Edge matches: ${result.edgeMatches.length}
+- Scope memory matches: ${result.scopeMemoryMatches?.length ?? 0}
 - Evidence refs: ${result.evidenceRefs.length}
 
 ## Memory Matches
@@ -138,6 +152,10 @@ ${renderList(result.nodeMatches.map((match) => `${match.kind}: ${match.label} ($
 
 ${renderList(result.edgeMatches.map((match) => `${match.kind}: ${match.from} -> ${match.to}${match.evidencePath ? ` | ${match.evidencePath}` : ""}`))}
 
+## Scope Memory Matches
+
+${renderList((result.scopeMemoryMatches ?? []).map((match) => `${match.scope} | ${match.kind}: ${match.text}`))}
+
 ## Evidence Refs
 
 ${renderList(result.evidenceRefs)}
@@ -150,15 +168,19 @@ ${renderList(result.unknowns)}
 
 function buildAnswer(
   memoryMatches: FactQueryResult["memoryMatches"],
+  scopeMemoryMatches: NonNullable<FactQueryResult["scopeMemoryMatches"]>,
   nodeMatches: FactQueryResult["nodeMatches"],
   edgeMatches: FactQueryResult["edgeMatches"]
 ): string {
-  if (memoryMatches.length === 0 && nodeMatches.length === 0 && edgeMatches.length === 0) {
+  if (memoryMatches.length === 0 && scopeMemoryMatches.length === 0 && nodeMatches.length === 0 && edgeMatches.length === 0) {
     return "UNKNOWN";
   }
 
   const parts = [
     memoryMatches[0] ? `memory=${memoryMatches[0].kind}: ${memoryMatches[0].text}` : undefined,
+    scopeMemoryMatches[0]
+      ? `scope-memory=${scopeMemoryMatches[0].scope}/${scopeMemoryMatches[0].kind}: ${scopeMemoryMatches[0].text}`
+      : undefined,
     nodeMatches[0] ? `node=${nodeMatches[0].kind}: ${nodeMatches[0].label}` : undefined,
     edgeMatches[0] ? `edge=${edgeMatches[0].kind}: ${edgeMatches[0].from} -> ${edgeMatches[0].to}` : undefined
   ].filter((part): part is string => Boolean(part));
@@ -171,10 +193,12 @@ export async function runFactQuery(context: ProjectContext, query: string): Prom
   const memoryBriefPath = path.join(context.memoryDir, "MEMORY_BRIEF.md");
   const memoryBriefJsonPath = path.join(context.runtimeMemoryDir, "memory_brief", "memory_brief.json");
   const repositoryFactGraphPath = path.join(context.runtimeMemoryDir, "knowledge_graph", "repository_fact_graph.json");
+  const scopeMemoryDir = path.join(context.runtimeMemoryDir, "scopes");
   const reportPath = path.join(context.reportsDir, "fact_query.md");
   const memoryPath = path.join(context.memoryDir, "fact_query", "fact_query.json");
   const brief = await readJsonSafe<MemoryBriefDocument>(memoryBriefJsonPath);
   const graph = await readJsonSafe<RepositoryFactGraphDocument>(repositoryFactGraphPath);
+  const scopeRecords = await listScopeMemoryRecords(context);
   const memoryMatches = topMatches(memoryLines(brief), tokens, (line) => line, 12).map((match) => {
     const [kind, ...rest] = match.item.split(": ");
     return {
@@ -198,8 +222,24 @@ export async function runFactQuery(context: ProjectContext, query: string): Prom
     line: match.item.line,
     score: match.score
   }));
+  const scopeMemoryMatches = scopeRecords
+    .flatMap((record) =>
+      topMatches(scopeMemoryLines(record), tokens, (line) => line, 8).map((match) => {
+        const [kind, ...rest] = match.item.split(": ");
+        return {
+          scope: record.scope,
+          kind: kind || "scope-memory",
+          text: rest.join(": ") || match.item,
+          score: match.score,
+          evidenceRefs: record.evidenceRefs
+        };
+      })
+    )
+    .sort((left, right) => right.score - left.score || left.scope.localeCompare(right.scope))
+    .slice(0, 12);
   const evidenceRefs = uniqueSorted([
     ...memoryMatches.filter((match) => match.kind === "evidence").map((match) => match.text),
+    ...scopeMemoryMatches.flatMap((match) => match.evidenceRefs),
     ...nodeMatches.map((match) => String(match.attributes?.filePath ?? "")).filter(Boolean),
     ...edgeMatches.map((match) => match.evidencePath ?? "").filter(Boolean)
   ]).slice(0, 20);
@@ -210,15 +250,17 @@ export async function runFactQuery(context: ProjectContext, query: string): Prom
   ];
   const result: FactQueryResult = {
     query,
-    answer: buildAnswer(memoryMatches, nodeMatches, edgeMatches),
+    answer: buildAnswer(memoryMatches, scopeMemoryMatches, nodeMatches, edgeMatches),
     tokens,
     reportPath,
     memoryPath,
     sources: {
       memoryBriefPath,
       memoryBriefJsonPath,
-      repositoryFactGraphPath
+      repositoryFactGraphPath,
+      scopeMemoryDir
     },
+    scopeMemoryMatches,
     memoryMatches,
     nodeMatches,
     edgeMatches,
