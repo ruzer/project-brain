@@ -161,10 +161,16 @@ describe("Swarm runtime", () => {
     expect(report).toContain("Parallel workers: 2");
     expect(report).toContain("Scope:");
     expect(report).toContain("Scope memory writes:");
+    expect(report).toContain("Scope memory reuse candidates:");
     expect(report).toContain("Review critical risks");
     expect(memory).toContain("\"workers\"");
     expect(memory).toContain("\"scopeMemoryWrites\"");
-    expect((await readdir(path.join(outputDir, "AI_CONTEXT", "memory", "scopes"))).length).toBeGreaterThan(0);
+    const scopeFiles = await readdir(path.join(outputDir, "AI_CONTEXT", "memory", "scopes"));
+    expect(scopeFiles.length).toBeGreaterThan(0);
+    const scopeMemory = JSON.parse(await readFile(path.join(outputDir, "AI_CONTEXT", "memory", "scopes", scopeFiles[0]!), "utf8")) as {
+      coverage?: { status?: string };
+    };
+    expect(scopeMemory.coverage?.status).toBeTruthy();
   });
 
   it("salvages worker and synthesis outputs when local models return markdown instead of JSON", async () => {

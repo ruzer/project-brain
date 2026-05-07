@@ -406,7 +406,16 @@ export interface ScopeMemoryRecord {
   };
   files: {
     count: number;
+    totalCount?: number;
+    hashTruncated?: boolean;
     hashed: ScopeMemoryFileHash[];
+  };
+  coverage: {
+    status: "complete" | "partial" | "failed" | "timed_out";
+    workerTaskIds: string[];
+    completedWorkers: number;
+    failedWorkers: number;
+    timedOutWorkers: number;
   };
   freshness: {
     status: "fresh" | "stale";
@@ -493,6 +502,8 @@ export interface SwarmRunResult {
     scopeMemoryMisses?: number;
     scopeMemoryStale?: number;
     scopeMemoryWrites?: number;
+    scopeMemoryReuseCandidates?: number;
+    scopeMemoryReductionHints?: string[];
     derivedTasksQueued: number;
     derivedTasksSkipped: number;
     learnedScopeBoosts: string[];

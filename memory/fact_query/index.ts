@@ -199,6 +199,7 @@ export async function runFactQuery(context: ProjectContext, query: string): Prom
   const brief = await readJsonSafe<MemoryBriefDocument>(memoryBriefJsonPath);
   const graph = await readJsonSafe<RepositoryFactGraphDocument>(repositoryFactGraphPath);
   const scopeRecords = await listScopeMemoryRecords(context);
+  const freshScopeRecords = scopeRecords.filter((record) => record.freshness.status === "fresh");
   const memoryMatches = topMatches(memoryLines(brief), tokens, (line) => line, 12).map((match) => {
     const [kind, ...rest] = match.item.split(": ");
     return {
@@ -222,7 +223,7 @@ export async function runFactQuery(context: ProjectContext, query: string): Prom
     line: match.item.line,
     score: match.score
   }));
-  const scopeMemoryMatches = scopeRecords
+  const scopeMemoryMatches = freshScopeRecords
     .flatMap((record) =>
       topMatches(scopeMemoryLines(record), tokens, (line) => line, 8).map((match) => {
         const [kind, ...rest] = match.item.split(": ");
@@ -245,6 +246,9 @@ export async function runFactQuery(context: ProjectContext, query: string): Prom
   ]).slice(0, 20);
   const unknowns = [
     ...(brief?.recentUnknowns ?? []),
+    ...scopeRecords
+      .filter((record) => record.freshness.status === "stale")
+      .map((record) => `Scope memory for ${record.scope} is stale; rerun swarm for that scope before treating it as factual.`),
     ...(graph ? [] : ["repository_fact_graph.json is missing; run project-brain code-graph first."]),
     ...(brief ? [] : ["memory_brief.json is missing; run project-brain status first."])
   ];

@@ -227,7 +227,8 @@ export async function writeMemoryBriefArtifacts(context: ProjectContext): Promis
     tokenGuidance: [
       "Read MEMORY_BRIEF before broad reports.",
       "Use repository_fact_graph.json for structural facts before asking a model.",
-      "Use memory/scopes/*.json to reuse scoped verified facts before repeating a swarm analysis.",
+      "Use memory/scopes/*.json to reuse fresh and complete scoped verified facts before repeating a swarm analysis.",
+      "Treat stale or partial scope memory as a delta target, not as confirmed current state.",
       "Use UNKNOWN instead of guessing missing relationships.",
       "Append new corrections, learnings, and decisions instead of duplicating whole reports.",
       "Prefer targeted scopes over full-repo swarm runs."

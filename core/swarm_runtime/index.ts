@@ -132,6 +132,8 @@ interface SwarmOptimizationStats {
   scopeMemoryMisses: number;
   scopeMemoryStale: number;
   scopeMemoryWrites: number;
+  scopeMemoryReuseCandidates: number;
+  scopeMemoryReductionHints: string[];
   derivedTasksQueued: number;
   derivedTasksSkipped: number;
   learnedScopeBoosts: string[];
@@ -968,10 +970,22 @@ function createOptimizationStats(): SwarmOptimizationStats {
     scopeMemoryMisses: 0,
     scopeMemoryStale: 0,
     scopeMemoryWrites: 0,
+    scopeMemoryReuseCandidates: 0,
+    scopeMemoryReductionHints: [],
     derivedTasksQueued: 0,
     derivedTasksSkipped: 0,
     learnedScopeBoosts: []
   };
+}
+
+function reusableScopeMemory(records: ScopeMemoryRecord[]): ScopeMemoryRecord[] {
+  return records.filter((record) => record.freshness.status === "fresh" && record.coverage?.status === "complete");
+}
+
+function scopeMemoryReductionHints(records: ScopeMemoryRecord[]): string[] {
+  return reusableScopeMemory(records).map(
+    (record) => `${record.scope}: fresh complete memory available; prefer delta analysis and verify only changed evidence.`
+  );
 }
 
 function splitPlannerTasks(planner: PlannerPayload): {
@@ -1440,6 +1454,7 @@ function buildWorkerPrompt(
       "You are a bounded worker inside a project-brain swarm.",
       "MEMORY_BRIEF is the priority context. Use it first, then scoped files and generated artifacts.",
       "If scope memory is available and fresh, reuse it and only add new evidence or changed facts.",
+      "If scope memory coverage is complete, do not restate old facts unless they are needed to explain a delta.",
       "If scope memory is stale, call out changed or missing evidence instead of repeating the old analysis blindly.",
       "Use only the scoped repository context provided.",
       "Do not assume facts that are not in the repository summary.",
@@ -1613,6 +1628,8 @@ function renderSwarmReport(
 - Scope memory misses: ${optimization.scopeMemoryMisses}
 - Scope memory stale: ${optimization.scopeMemoryStale}
 - Scope memory writes: ${optimization.scopeMemoryWrites}
+- Scope memory reuse candidates: ${optimization.scopeMemoryReuseCandidates}
+- Scope memory reduction hints: ${optimization.scopeMemoryReductionHints.join(", ") || "None"}
 - Derived reasoning tasks queued: ${optimization.derivedTasksQueued}
 - Derived reasoning tasks skipped: ${optimization.derivedTasksSkipped}
 - Learned scope boosts: ${optimization.learnedScopeBoosts.join(", ") || "None"}
@@ -1755,6 +1772,11 @@ export async function runSwarm(
     optimization.scopeMemoryHits += lookup.hits;
     optimization.scopeMemoryMisses += lookup.misses;
     optimization.scopeMemoryStale += lookup.stale;
+    optimization.scopeMemoryReuseCandidates += reusableScopeMemory(lookup.records).length;
+    optimization.scopeMemoryReductionHints = [
+      ...optimization.scopeMemoryReductionHints,
+      ...scopeMemoryReductionHints(lookup.records)
+    ].slice(0, 12);
   }
   const { initialTasks, deferredReasoningTasks } = splitPlannerTasks(planner);
   const reservedReasoningBudget =

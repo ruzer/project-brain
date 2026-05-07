@@ -33,12 +33,41 @@ export function scopeMemoryPath(context: ProjectContext, scope: string): string 
 
 function filesForScope(context: ProjectContext, scope: string): string[] {
   const normalized = normalizeScope(scope);
-  const files =
-    normalized === "."
-      ? context.discovery.files
-      : context.discovery.files.filter((file) => file === normalized || file.startsWith(`${normalized}/`));
+  return normalized === "."
+    ? context.discovery.files
+    : context.discovery.files.filter((file) => file === normalized || file.startsWith(`${normalized}/`));
+}
 
-  return files.slice(0, MAX_HASHED_FILES_PER_SCOPE);
+function hashedFilesForScope(context: ProjectContext, scope: string): string[] {
+  return filesForScope(context, scope).slice(0, MAX_HASHED_FILES_PER_SCOPE);
+}
+
+function mergeMemoryItems(previous: string[] | undefined, next: string[], limit: number): string[] {
+  return uniqueSorted([...(previous ?? []), ...next].map((item) => item.trim()).filter(Boolean)).slice(0, limit);
+}
+
+function scopedWorkerScopes(context: ProjectContext, workerResults: SwarmWorkerResult[]): string[] {
+  const scopesFromWorkers = workerResults.flatMap((worker) => worker.scopePaths.map(normalizeScope));
+  if (scopesFromWorkers.length > 0) {
+    return scopesFromWorkers;
+  }
+
+  return context.discovery.structure.topLevelDirectories;
+}
+
+function scopeFileStats(context: ProjectContext, scope: string): { totalCount: number; hashTruncated: boolean } {
+  const totalCount = filesForScope(context, scope).length;
+  return {
+    totalCount,
+    hashTruncated: totalCount > MAX_HASHED_FILES_PER_SCOPE
+  };
+}
+
+function normalizeRecordFreshness(context: ProjectContext, record: ScopeMemoryRecord): Promise<ScopeMemoryRecord> {
+  return hashScopeFiles(context, record.scope).then((currentHashes) => ({
+    ...record,
+    freshness: compareFreshness(record, currentHashes)
+  }));
 }
 
 async function hashFile(context: ProjectContext, relativePath: string): Promise<ScopeMemoryFileHash> {
@@ -57,14 +86,16 @@ async function hashFile(context: ProjectContext, relativePath: string): Promise<
 }
 
 async function hashScopeFiles(context: ProjectContext, scope: string): Promise<ScopeMemoryFileHash[]> {
-  return Promise.all(filesForScope(context, scope).map((file) => hashFile(context, file)));
+  return Promise.all(hashedFilesForScope(context, scope).map((file) => hashFile(context, file)));
 }
 
 function compareFreshness(
   existing: ScopeMemoryRecord,
   currentHashes: ScopeMemoryFileHash[]
 ): ScopeMemoryRecord["freshness"] {
-  const previous = new Map(existing.files.hashed.map((file) => [file.path, file]));
+  const previousHashes = existing.files?.hashed ?? [];
+  const previous = new Map(previousHashes.map((file) => [file.path, file]));
+  const currentPaths = new Set(currentHashes.map((file) => file.path));
   const changedFiles: string[] = [];
   const missingFiles: string[] = [];
   let unchangedFiles = 0;
@@ -80,6 +111,12 @@ function compareFreshness(
       continue;
     }
     unchangedFiles += 1;
+  }
+
+  for (const previousFile of previousHashes) {
+    if (!currentPaths.has(previousFile.path)) {
+      missingFiles.push(previousFile.path);
+    }
   }
 
   return {
@@ -143,7 +180,11 @@ export async function listScopeMemoryRecords(context: ProjectContext): Promise<S
         .filter((entry) => entry.endsWith(".json"))
         .map((entry) => readJsonSafe<ScopeMemoryRecord>(path.join(scopeMemoryDir(context), entry)))
     );
-    return records.filter((record): record is ScopeMemoryRecord => Boolean(record));
+    return Promise.all(
+      records
+        .filter((record): record is ScopeMemoryRecord => Boolean(record))
+        .map((record) => normalizeRecordFreshness(context, record))
+    );
   } catch {
     return [];
   }
@@ -165,17 +206,42 @@ function mergeWorkerItems(
   ).slice(0, limit);
 }
 
+function workersForScope(workerResults: SwarmWorkerResult[], scope: string): SwarmWorkerResult[] {
+  return workerResults.filter((result) => result.scopePaths.map(normalizeScope).includes(normalizeScope(scope)));
+}
+
+function coverageForScope(workerResults: SwarmWorkerResult[], scope: string): ScopeMemoryRecord["coverage"] {
+  const workers = workersForScope(workerResults, scope);
+  const completedWorkers = workers.filter((worker) => worker.status === "completed").length;
+  const failedWorkers = workers.filter((worker) => worker.status === "failed").length;
+  const timedOutWorkers = workers.filter((worker) => worker.status === "timed_out").length;
+  const status =
+    completedWorkers > 0 && failedWorkers === 0 && timedOutWorkers === 0
+      ? "complete"
+      : completedWorkers > 0
+        ? "partial"
+        : timedOutWorkers > 0
+          ? "timed_out"
+          : "failed";
+
+  return {
+    status,
+    workerTaskIds: workers.map((worker) => worker.taskId),
+    completedWorkers,
+    failedWorkers,
+    timedOutWorkers
+  };
+}
+
 export async function writeScopeMemoryFromSwarmResult(context: ProjectContext, result: SwarmRunResult): Promise<number> {
-  const scopes = uniqueSorted(
-    result.workerResults
-      .filter((worker) => worker.status === "completed")
-      .flatMap((worker) => worker.scopePaths.map(normalizeScope))
-  );
+  const scopes = uniqueSorted(scopedWorkerScopes(context, result.workerResults));
   await ensureDir(scopeMemoryDir(context));
 
   let writes = 0;
   for (const scope of scopes) {
+    const previous = await readScopeMemory(context, scope);
     const hashes = await hashScopeFiles(context, scope);
+    const stats = scopeFileStats(context, scope);
     const verifiedFacts = mergeWorkerItems(result.workerResults, scope, (worker) => worker.verifiedFacts, 16);
     const unknowns = mergeWorkerItems(result.workerResults, scope, (worker) => worker.unknowns, 12);
     const evidenceRefs = mergeWorkerItems(result.workerResults, scope, (worker) => worker.evidenceRefs, 16);
@@ -195,21 +261,24 @@ export async function writeScopeMemoryFromSwarmResult(context: ProjectContext, r
         model: result.synthesis.model
       },
       files: {
-        count: filesForScope(context, scope).length,
+        count: hashes.length,
+        totalCount: stats.totalCount,
+        hashTruncated: stats.hashTruncated,
         hashed: hashes
       },
+      coverage: coverageForScope(result.workerResults, scope),
       freshness: {
         status: "fresh",
         changedFiles: [],
         missingFiles: hashes.filter((file) => file.missing).map((file) => file.path),
         unchangedFiles: hashes.filter((file) => file.sha256).length
       },
-      decisions: [`Swarm analyzed scope "${scope}" for intent: ${result.intent}`],
-      verifiedFacts,
-      unknowns,
-      evidenceRefs,
-      nextActions,
-      sourceArtifacts: uniqueSorted([result.reportPath, result.memoryPath, ...evidenceRefs]).slice(0, 24)
+      decisions: mergeMemoryItems(previous?.decisions, [`Swarm analyzed scope "${scope}" for intent: ${result.intent}`], 12),
+      verifiedFacts: mergeMemoryItems(previous?.verifiedFacts, verifiedFacts, 24),
+      unknowns: mergeMemoryItems(previous?.unknowns, unknowns, 18),
+      evidenceRefs: mergeMemoryItems(previous?.evidenceRefs, evidenceRefs, 24),
+      nextActions: mergeMemoryItems(previous?.nextActions, nextActions, 16),
+      sourceArtifacts: mergeMemoryItems(previous?.sourceArtifacts, [result.reportPath, result.memoryPath, ...evidenceRefs], 32)
     };
 
     await writeJsonEnsured(scopeMemoryPath(context, scope), record);
@@ -230,7 +299,9 @@ export function renderScopeMemoryForPrompt(records: ScopeMemoryRecord[]): string
       [
         `- Scope: ${record.scope}`,
         `  Freshness: ${record.freshness.status}`,
-        `  Generated by: ${record.generatedBy.command} (${record.generatedBy.model ?? "unknown model"})`,
+        `  Coverage: ${record.coverage?.status ?? "unknown"}`,
+        `  Hashed files: ${record.files?.count ?? record.files?.hashed?.length ?? 0}/${record.files?.totalCount ?? record.files?.count ?? "unknown"}${record.files?.hashTruncated ? " (truncated)" : ""}`,
+        `  Generated by: ${record.generatedBy?.command ?? "unknown"} (${record.generatedBy?.model ?? "unknown model"})`,
         `  Verified facts: ${record.verifiedFacts.slice(0, 5).join(" | ") || "None"}`,
         `  Unknowns: ${record.unknowns.slice(0, 4).join(" | ") || "None"}`,
         `  Evidence: ${record.evidenceRefs.slice(0, 4).join(" | ") || "None"}`
