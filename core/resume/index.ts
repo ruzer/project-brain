@@ -2,6 +2,7 @@ import path from "node:path";
 
 import { buildStatus } from "../status";
 import { deriveResumeSuggestions } from "../reaction_engine";
+import { workflowForArtifactLabel } from "../workflow_registry";
 import { readJsonSafe, readTextSafe, writeFileEnsured, writeJsonEnsured } from "../../shared/fs-utils";
 import type { ProjectContext, ResumeResult, ResumeStage, StatusArtifactSummary, StatusResult } from "../../shared/types";
 
@@ -10,30 +11,7 @@ interface ResumeDeps {
 }
 
 function artifactPriority(label: string): number {
-  switch (label) {
-    case "Improvement Plan":
-      return 7;
-    case "Swarm":
-      return 6;
-    case "Memory Brief":
-    case "Memory Brief JSON":
-      return 5;
-    case "Repository Fact Graph":
-    case "Repository Fact Graph Report":
-      return 5;
-    case "Impact Radius":
-      return 4;
-    case "Firewall":
-      return 3;
-    case "Codebase Map":
-      return 2;
-    case "Doctor":
-      return 1;
-    case "Ask Brief":
-      return 1;
-    default:
-      return 0;
-  }
+  return workflowForArtifactLabel(label)?.resumePriority ?? 0;
 }
 
 function latestArtifact(artifacts: StatusArtifactSummary[]): StatusArtifactSummary | undefined {
@@ -50,28 +28,8 @@ function latestArtifact(artifacts: StatusArtifactSummary[]): StatusArtifactSumma
 }
 
 function stageFromArtifactLabel(label: string | undefined): ResumeStage {
-  switch (label) {
-    case "Doctor":
-      return "doctor";
-    case "Ask Brief":
-      return "ask";
-    case "Codebase Map":
-    case "Memory Brief":
-    case "Memory Brief JSON":
-    case "Repository Fact Graph":
-    case "Repository Fact Graph Report":
-      return "map-codebase";
-    case "Firewall":
-      return "firewall";
-    case "Impact Radius":
-      return "review-delta";
-    case "Swarm":
-      return "swarm";
-    case "Improvement Plan":
-      return "plan-improvements";
-    default:
-      return "bootstrap";
-  }
+  const stage = label ? workflowForArtifactLabel(label)?.resumeStage : undefined;
+  return stage ?? "bootstrap";
 }
 
 function firstUsefulLines(input: string, limit = 2): string[] {
@@ -108,6 +66,16 @@ async function buildStageNotes(
     const doctor = await readJsonSafe<{ summary?: { headline?: string } }>(path.join(context.memoryDir, "doctor", "doctor.json"));
     if (doctor?.summary?.headline) {
       notes.push(doctor.summary.headline);
+    }
+  }
+
+  if (stage === "start") {
+    const start = await readJsonSafe<{ headline?: string; nextCommand?: string }>(path.join(context.memoryDir, "start", "start.json"));
+    if (start?.headline) {
+      notes.push(start.headline);
+    }
+    if (start?.nextCommand) {
+      notes.push(`Start next command: ${start.nextCommand}`);
     }
   }
 
@@ -157,6 +125,36 @@ async function buildStageNotes(
     }
   }
 
+  if (stage === "fact-query") {
+    const lines = firstUsefulLines(await readTextSafe(path.join(context.reportsDir, "fact_query.md")), 3);
+    if (lines.length > 0) {
+      notes.push(...lines);
+    }
+    notes.push("A factual memory query is available; use it before broad swarm analysis.");
+  }
+
+  if (stage === "runbook") {
+    const lines = firstUsefulLines(await readTextSafe(path.join(context.reportsDir, "runbook.md")), 3);
+    if (lines.length > 0) {
+      notes.push(...lines);
+    }
+    notes.push("A token-aware runbook exists; continue with its first non-done step.");
+  }
+
+  if (stage === "harness-audit") {
+    const audit = await readJsonSafe<{ score?: number; tokenRisk?: string; suggestedCommands?: string[] }>(
+      path.join(context.memoryDir, "harness_audit", "harness_audit.json")
+    );
+    if (audit) {
+      notes.push(`Harness audit: score=${audit.score ?? "unknown"}, tokenRisk=${audit.tokenRisk ?? "unknown"}.`);
+      if (audit.suggestedCommands && audit.suggestedCommands.length > 0) {
+        notes.push(`Harness next command: ${audit.suggestedCommands[0]}`);
+      }
+    } else {
+      notes.push("A harness audit exists; use it to confirm memory, cost gates, and continuity before model-heavy work.");
+    }
+  }
+
   if (stage === "ask") {
     const lines = firstUsefulLines(await readTextSafe(path.join(context.reportsDir, "ask_brief.md")));
     if (lines.length > 0) {
@@ -196,12 +194,28 @@ function buildResumeHeadline(stage: ResumeStage, latest: StatusArtifactSummary |
     return `Resume from Swarm: ${notes[1]}`;
   }
 
+  if (stage === "start") {
+    return "Resume from Start: the guided path already prepared the project context.";
+  }
+
   if (stage === "plan-improvements") {
     return "Resume from Improvement Plan: a persistent roadmap already exists for this output path.";
   }
 
   if (stage === "map-codebase") {
     return "Resume from Codebase Map: structural discovery is already in place.";
+  }
+
+  if (stage === "fact-query") {
+    return "Resume from Fact Query: filtered factual memory is ready for the next analysis step.";
+  }
+
+  if (stage === "runbook") {
+    return "Resume from Runbook: a token-aware execution path is ready.";
+  }
+
+  if (stage === "harness-audit") {
+    return "Resume from Harness Audit: memory and cost readiness have been checked.";
   }
 
   if (stage === "doctor") {
@@ -249,6 +263,7 @@ function renderResumeReport(result: ResumeResult): string {
 - Git repo: ${result.git.isGitRepo ? "yes" : "no"}
 - Branch: ${result.git.branch ?? "unknown"}
 - Stage: ${result.summary.stage}
+- Memory readiness: ${result.memoryReadiness.status} (${result.memoryReadiness.reason})
 - Artifact count: ${result.summary.artifactCount}
 - Latest artifact: ${result.summary.latestArtifactLabel ?? "none"}${result.summary.latestArtifactUpdatedAt ? ` (${result.summary.latestArtifactUpdatedAt})` : ""}
 - Headline: ${result.summary.headline}
@@ -298,6 +313,7 @@ export async function buildResume(context: ProjectContext, deps: ResumeDeps = {}
     git: status.git,
     summary,
     latestArtifact: latest,
+    memoryReadiness: status.memoryReadiness,
     artifacts: status.artifacts,
     notes,
     suggestions
@@ -311,6 +327,7 @@ export async function buildResume(context: ProjectContext, deps: ResumeDeps = {}
     git: result.git,
     summary,
     latestArtifact: latest,
+    memoryReadiness: status.memoryReadiness,
     artifacts: result.artifacts,
     notes,
     suggestions

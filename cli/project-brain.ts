@@ -51,6 +51,68 @@ function parseSwarmEngine(value: string): SwarmEngine {
   throw new Error(`Invalid swarm engine: ${value}. Expected bounded or deepagents.`);
 }
 
+type SwarmPreset = "cheap" | "balanced" | "thorough";
+
+function parseSwarmPreset(value?: string): SwarmPreset | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "cheap" || normalized === "balanced" || normalized === "thorough") {
+    return normalized;
+  }
+
+  throw new Error(`Invalid swarm preset: ${value}. Expected cheap, balanced, or thorough.`);
+}
+
+function swarmPresetOptions(preset?: SwarmPreset): {
+  parallelism?: number;
+  chunkSize?: number;
+  taskTimeoutMs?: number;
+  plannerTimeoutMs?: number;
+  synthesisTimeoutMs?: number;
+  runTimeoutMs?: number;
+  maxQueuedTasks?: number;
+  maxRetries?: number;
+} {
+  switch (preset) {
+    case "cheap":
+      return {
+        parallelism: 2,
+        chunkSize: 1,
+        taskTimeoutMs: 90_000,
+        plannerTimeoutMs: 60_000,
+        synthesisTimeoutMs: 60_000,
+        runTimeoutMs: 120_000,
+        maxQueuedTasks: 4,
+        maxRetries: 0
+      };
+    case "balanced":
+      return {
+        chunkSize: 1,
+        taskTimeoutMs: 120_000,
+        plannerTimeoutMs: 80_000,
+        synthesisTimeoutMs: 90_000,
+        runTimeoutMs: 180_000,
+        maxQueuedTasks: 6,
+        maxRetries: 1
+      };
+    case "thorough":
+      return {
+        parallelism: 4,
+        chunkSize: 2,
+        taskTimeoutMs: 180_000,
+        plannerTimeoutMs: 120_000,
+        synthesisTimeoutMs: 120_000,
+        runTimeoutMs: 360_000,
+        maxQueuedTasks: 12,
+        maxRetries: 1
+      };
+    default:
+      return {};
+  }
+}
+
 function printSuggestions(
   suggestions: Array<{
     label: string;
@@ -326,13 +388,15 @@ program
     const targetPath = resolveTarget(target);
     const outputPath = resolveOutput(targetPath, options.output);
     const result = await orchestrator.status(targetPath, outputPath);
+    const present = result.artifacts.filter((artifact) => artifact.exists).map((artifact) => artifact.label);
+    const missing = result.artifacts.filter((artifact) => !artifact.exists).map((artifact) => artifact.label);
     console.log(`Status report: ${result.reportPath}`);
     console.log(`Status memory: ${result.memoryPath}`);
     console.log(`Git: repo=${result.git.isGitRepo ? "yes" : "no"}, branch=${result.git.branch ?? "unknown"}`);
     console.log(`Headline: ${result.summary.headline}`);
-    for (const artifact of result.artifacts) {
-      console.log(`- ${artifact.label}: ${artifact.exists ? "present" : "missing"}${artifact.updatedAt ? ` (${artifact.updatedAt})` : ""}`);
-    }
+    console.log(`Memory: ${result.memoryReadiness.status} - ${result.memoryReadiness.reason}`);
+    console.log(`Ready: ${present.join(", ") || "None"}`);
+    console.log(`Missing: ${missing.slice(0, 6).join(", ") || "None"}${missing.length > 6 ? ", plus more" : ""}`);
     printSuggestions(result.suggestions);
   });
 
@@ -350,6 +414,7 @@ program
     console.log(`Git: repo=${result.git.isGitRepo ? "yes" : "no"}, branch=${result.git.branch ?? "unknown"}`);
     console.log(`Stage: ${result.summary.stage}`);
     console.log(`Headline: ${result.summary.headline}`);
+    console.log(`Memory: ${result.memoryReadiness.status} - ${result.memoryReadiness.reason}`);
     if (result.latestArtifact) {
       console.log(
         `Latest artifact: ${result.latestArtifact.label}${result.latestArtifact.updatedAt ? ` (${result.latestArtifact.updatedAt})` : ""}`
@@ -359,6 +424,32 @@ program
       console.log(`- ${note}`);
     }
     printSuggestions(result.suggestions);
+  });
+
+program
+  .command("start")
+  .alias("go")
+  .argument("[intent]", "Plain-language goal", "optimize analysis and cost")
+  .argument("[target]", "Repository target", ".")
+  .option("-o, --output <dir>", "Output directory")
+  .option("--with-swarm", "Also run the model-heavy bounded swarm after cheap preflight")
+  .description("Run the simple guided path: cheap memory, facts, runbook, harness audit, firewall, then suggest next step.")
+  .action(async (intent: string, target: string, options: { output?: string; withSwarm?: boolean }) => {
+    const targetPath = resolveTarget(target);
+    const outputPath = resolveOutput(targetPath, options.output);
+    const result = await orchestrator.start(targetPath, outputPath, intent, {
+      withSwarm: Boolean(options.withSwarm)
+    });
+    console.log(`Start report: ${result.reportPath}`);
+    console.log(`Start memory: ${result.memoryPath}`);
+    console.log(`Headline: ${result.headline}`);
+    console.log(`Memory: ${result.memoryReadiness.status} - ${result.memoryReadiness.reason}`);
+    for (const step of result.executedSteps) {
+      console.log(`- [${step.status}] ${step.label}: ${step.summary}`);
+    }
+    if (result.nextCommand) {
+      console.log(`Next: ${result.nextCommand}`);
+    }
   });
 
 program
@@ -460,6 +551,49 @@ program
     console.log(`Evidence refs: ${result.evidenceRefs.join(", ") || "None"}`);
     if (result.unknowns.length > 0) {
       console.log(`Unknowns: ${result.unknowns.join(" | ")}`);
+    }
+  });
+
+program
+  .command("harness-audit")
+  .alias("ha")
+  .argument("[target]", "Repository target", ".")
+  .option("-o, --output <dir>", "Output directory")
+  .description("Audit progressive memory, cost gates, and continuity before model-heavy analysis.")
+  .action(async (target: string, options: { output?: string }) => {
+    const targetPath = resolveTarget(target);
+    const outputPath = resolveOutput(targetPath, options.output);
+    const result = await orchestrator.harnessAudit(targetPath, outputPath);
+    console.log(`Harness audit report: ${result.reportPath}`);
+    console.log(`Harness audit memory: ${result.memoryPath}`);
+    console.log(`Score: ${result.score}`);
+    console.log(`Token risk: ${result.tokenRisk}`);
+    console.log(`Memory: ${result.memoryReadiness.status} - ${result.memoryReadiness.reason}`);
+    for (const item of result.checks) {
+      console.log(`- [${item.status}] ${item.label}: ${item.summary}`);
+    }
+    if (result.suggestedCommands.length > 0) {
+      console.log("Suggested commands:");
+      for (const command of result.suggestedCommands) {
+        console.log(`- ${command}`);
+      }
+    }
+  });
+
+program
+  .command("runbook")
+  .argument("<intent>", "Goal to organize into a token-aware project-brain runbook")
+  .argument("[target]", "Repository target", ".")
+  .option("-o, --output <dir>", "Output directory")
+  .description("Create a deterministic, token-aware runbook before expensive model analysis.")
+  .action(async (intent: string, target: string, options: { output?: string }) => {
+    const targetPath = resolveTarget(target);
+    const outputPath = resolveOutput(targetPath, options.output);
+    const result = await orchestrator.runbook(targetPath, outputPath, intent);
+    console.log(`Runbook report: ${result.reportPath}`);
+    console.log(`Runbook memory: ${result.memoryPath}`);
+    for (const item of result.steps) {
+      console.log(`- [${item.status}] ${item.id}. ${item.title}: ${item.command}`);
     }
   });
 
@@ -691,6 +825,7 @@ program
   .argument("[target]", "Repository target", ".")
   .option("-o, --output <dir>", "Output directory")
   .option("--engine <engine>", "Swarm engine: bounded or deepagents", "bounded")
+  .option("--preset <preset>", "Execution preset: cheap, balanced, or thorough")
   .option("--parallel <n>", "Maximum parallel workers for the swarm")
   .option("--chunk-size <n>", "How many top-level areas each worker should inspect at once")
   .option("--task-timeout-ms <ms>", "Per-worker timeout budget in milliseconds")
@@ -705,6 +840,7 @@ program
     options: {
       output?: string;
       engine?: string;
+      preset?: string;
       parallel?: string;
       chunkSize?: string;
       taskTimeoutMs?: string;
@@ -717,16 +853,17 @@ program
   ) => {
     const targetPath = resolveTarget(target);
     const outputPath = resolveOutput(targetPath, options.output);
+    const presetOptions = swarmPresetOptions(parseSwarmPreset(options.preset));
     const result = await orchestrator.swarm(targetPath, outputPath, intent, {
       engine: options.engine ? parseSwarmEngine(options.engine) : undefined,
-      parallelism: options.parallel ? parsePositiveInteger(options.parallel, "parallel worker count") : undefined,
-      chunkSize: options.chunkSize ? parsePositiveInteger(options.chunkSize, "chunk size") : undefined,
-      taskTimeoutMs: options.taskTimeoutMs ? parsePositiveInteger(options.taskTimeoutMs, "task timeout") : undefined,
-      plannerTimeoutMs: options.plannerTimeoutMs ? parsePositiveInteger(options.plannerTimeoutMs, "planner timeout") : undefined,
-      synthesisTimeoutMs: options.synthesisTimeoutMs ? parsePositiveInteger(options.synthesisTimeoutMs, "synthesis timeout") : undefined,
-      runTimeoutMs: options.runTimeoutMs ? parsePositiveInteger(options.runTimeoutMs, "run timeout") : undefined,
-      maxQueuedTasks: options.maxQueuedTasks ? parsePositiveInteger(options.maxQueuedTasks, "max queued tasks") : undefined,
-      maxRetries: options.maxRetries ? parsePositiveInteger(options.maxRetries, "max retries") : undefined
+      parallelism: options.parallel ? parsePositiveInteger(options.parallel, "parallel worker count") : presetOptions.parallelism,
+      chunkSize: options.chunkSize ? parsePositiveInteger(options.chunkSize, "chunk size") : presetOptions.chunkSize,
+      taskTimeoutMs: options.taskTimeoutMs ? parsePositiveInteger(options.taskTimeoutMs, "task timeout") : presetOptions.taskTimeoutMs,
+      plannerTimeoutMs: options.plannerTimeoutMs ? parsePositiveInteger(options.plannerTimeoutMs, "planner timeout") : presetOptions.plannerTimeoutMs,
+      synthesisTimeoutMs: options.synthesisTimeoutMs ? parsePositiveInteger(options.synthesisTimeoutMs, "synthesis timeout") : presetOptions.synthesisTimeoutMs,
+      runTimeoutMs: options.runTimeoutMs ? parsePositiveInteger(options.runTimeoutMs, "run timeout") : presetOptions.runTimeoutMs,
+      maxQueuedTasks: options.maxQueuedTasks ? parsePositiveInteger(options.maxQueuedTasks, "max queued tasks") : presetOptions.maxQueuedTasks,
+      maxRetries: options.maxRetries ? parsePositiveInteger(options.maxRetries, "max retries") : presetOptions.maxRetries
     });
     console.log(`Engine: ${result.engine}`);
     console.log(`Swarm report: ${result.reportPath}`);

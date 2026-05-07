@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { readJsonSafe, readTextSafe, uniqueSorted, writeFileEnsured, writeJsonEnsured } from "../../shared/fs-utils";
+import { fileExists, readJsonSafe, readTextSafe, uniqueSorted, writeFileEnsured, writeJsonEnsured } from "../../shared/fs-utils";
 import type { LearningRecord, ProjectContext } from "../../shared/types";
 
 interface SwarmMemoryShape {
@@ -88,6 +88,34 @@ function renderList(items: string[]): string {
   return items.length > 0 ? items.map((item) => `- ${item}`).join("\n") : "- None";
 }
 
+function discoveryFacts(context: ProjectContext): string[] {
+  const { discovery } = context;
+  return normalizeList(
+    [
+      `Repository ${context.repoName} has ${discovery.structure.sourceFileCount} source files and ${discovery.structure.testFileCount} test files.`,
+      discovery.languages.length > 0 ? `Languages: ${discovery.languages.join(", ")}.` : undefined,
+      discovery.frameworks.length > 0 ? `Frameworks: ${discovery.frameworks.join(", ")}.` : undefined,
+      discovery.apis.length > 0 ? `APIs: ${discovery.apis.join(", ")}.` : undefined,
+      discovery.infrastructure.length > 0 ? `Infrastructure: ${discovery.infrastructure.join(", ")}.` : undefined,
+      discovery.testing.length > 0 ? `Testing: ${discovery.testing.join(", ")}.` : undefined,
+      discovery.ci.providers.length > 0 ? `CI/CD: ${discovery.ci.providers.join(", ")}.` : undefined,
+      discovery.structure.topLevelDirectories.length > 0
+        ? `Top-level directories: ${discovery.structure.topLevelDirectories.slice(0, 12).join(", ")}.`
+        : undefined
+    ],
+    10
+  );
+}
+
+function discoveryActions(context: ProjectContext): string[] {
+  return normalizeList(context.discovery.recommendations, 6);
+}
+
+async function existingArtifacts(paths: string[]): Promise<string[]> {
+  const pairs = await Promise.all(paths.map(async (artifactPath) => ({ artifactPath, exists: await fileExists(artifactPath) })));
+  return pairs.filter((pair) => pair.exists).map((pair) => pair.artifactPath);
+}
+
 function renderMemoryBrief(brief: MemoryBriefDocument): string {
   return `# MEMORY_BRIEF
 
@@ -156,17 +184,27 @@ export async function writeMemoryBriefArtifacts(context: ProjectContext): Promis
   const unknowns = normalizeList(synthesis?.unknowns ?? [], 8);
   const evidenceRefs = normalizeList([...(synthesis?.evidence_refs ?? []), ...(synthesis?.evidenceRefs ?? [])], 10);
   const nextSteps = normalizeList([...(synthesis?.next_steps ?? []), ...(synthesis?.nextSteps ?? []), ...(synthesis?.priorities ?? [])], 8);
+  const runbookPath = path.join(context.reportsDir, "runbook.md");
+  const harnessAuditPath = path.join(context.reportsDir, "harness_audit.md");
+  const factQueryPath = path.join(context.reportsDir, "fact_query.md");
+  const startPath = path.join(context.reportsDir, "start.md");
   const canonicalInputs = [
     path.join(context.memoryDir, "MEMORY_BRIEF.md"),
+    path.join(context.memoryDir, "CONTEXT.md"),
     path.join(context.memoryDir, "PROJECT_MODEL.md"),
     path.join(context.memoryDir, "STACK_PROFILE.md"),
     path.join(context.runtimeMemoryDir, "knowledge_graph", "repository_fact_graph.json"),
     path.join(context.memoryDir, "swarm", "swarm_run.json"),
+    factQueryPath,
+    runbookPath,
+    harnessAuditPath,
+    startPath,
     path.join(context.memoryDir, "DECISIONS.md"),
     path.join(context.memoryDir, "LEARNINGS.md"),
     path.join(context.memoryDir, "ERRORS.md"),
     path.join(context.memoryDir, "ANNOTATIONS.md")
   ];
+  const existingInputs = await existingArtifacts(canonicalInputs);
 
   const brief: MemoryBriefDocument = {
     version: 1,
@@ -174,16 +212,16 @@ export async function writeMemoryBriefArtifacts(context: ProjectContext): Promis
     repoName: context.repoName,
     targetPath: context.targetPath,
     outputPath: context.outputPath,
-    canonicalInputs,
-    decisions,
+    canonicalInputs: existingInputs,
+    decisions: decisions.length > 0 ? decisions : ["Adopt non-destructive analysis as the operating mode."],
     learnings,
     corrections,
     annotations,
     repeatedPatterns: learningPatterns(learningRecords, 8),
-    recentVerifiedFacts: verifiedFacts,
+    recentVerifiedFacts: normalizeList([...discoveryFacts(context), ...verifiedFacts], 14),
     recentUnknowns: unknowns,
-    evidenceRefs,
-    nextBestActions: nextSteps,
+    evidenceRefs: normalizeList([...evidenceRefs, ...existingInputs], 14),
+    nextBestActions: normalizeList([...nextSteps, ...discoveryActions(context)], 10),
     tokenGuidance: [
       "Read MEMORY_BRIEF before broad reports.",
       "Use repository_fact_graph.json for structural facts before asking a model.",

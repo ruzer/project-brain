@@ -15,6 +15,7 @@ The core principle is simple: deterministic facts and persisted artifacts should
 - `code-graph` also creates `memory/knowledge_graph/repository_fact_graph.json`.
 - `initTarget` refreshes `AI_CONTEXT/MEMORY_BRIEF.md` and `memory/memory_brief/memory_brief.json`.
 - `status` and `resume` track available artifacts.
+- `runbook` orders cheap deterministic steps before model-heavy workflows.
 - `swarm` has response caching and learned scope boosts.
 - `AI_CONTEXT`, `reports`, `docs`, `memory`, and `tasks` give stable artifact locations.
 

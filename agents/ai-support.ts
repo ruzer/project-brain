@@ -53,6 +53,8 @@ export function buildRepoSummary(context: ProjectContext): string {
   const { discovery } = context;
   const memoryBrief = buildMemoryBriefSummary(context);
   return [
+    "Memory contract: read this MEMORY_BRIEF before using repository details. Treat missing evidence as UNKNOWN.",
+    memoryBrief,
     `Repository: ${context.repoName}`,
     `Languages: ${discovery.languages.join(", ") || "Unknown"}`,
     `Frameworks: ${discovery.frameworks.join(", ") || "Unknown"}`,
@@ -63,8 +65,7 @@ export function buildRepoSummary(context: ProjectContext): string {
     `Top-level directories: ${discovery.structure.topLevelDirectories.join(", ") || "Unknown"}`,
     `Source files: ${discovery.structure.sourceFileCount}`,
     `Test files: ${discovery.structure.testFileCount}`,
-    `Recommendations: ${discovery.recommendations.join(" | ") || "None"}`,
-    memoryBrief
+    `Recommendations: ${discovery.recommendations.join(" | ") || "None"}`
   ].join("\n");
 }
 

@@ -45,10 +45,13 @@ project-brain map-codebase /path/to/repo --output /path/to/output
 Start with plain language instead of choosing a command manually:
 
 ```bash
+project-brain start "quiero analizar y mejorar este proyecto" /path/to/repo --output /path/to/output
 project-brain ask "identifica este proyecto" /path/to/repo --output /path/to/output
 project-brain ask "dime que le falta criticamente" /path/to/repo --output /path/to/output
 project-brain ask "revisa los cambios recientes" /path/to/repo --output /path/to/output
 ```
+
+`start` is the simple path for non-technical users. It runs cheap deterministic preflight first: doctor, codebase map, code graph, fact query, runbook, harness audit, and firewall. It does not run the model-heavy swarm unless you pass `--with-swarm`.
 
 `ask` routes the request into the current best workflow and writes `reports/ask_brief.md` with artifacts and suggested next prompts.
 
@@ -152,6 +155,32 @@ This writes:
 - `AI_CONTEXT/fact_query/fact_query.json`
 
 Use this before giving another AI a broad task. It returns a short deterministic answer plus matching memory lines, graph nodes, graph edges, evidence refs, and unknowns.
+
+Create a token-aware runbook before expensive analysis:
+
+```bash
+project-brain runbook "optimize analysis and cost" /path/to/repo --output /path/to/output
+```
+
+This writes:
+
+- `reports/runbook.md`
+- `AI_CONTEXT/runbook/runbook.json`
+
+The runbook orders cheap deterministic steps before model-heavy work: doctor, map, code graph, fact query, harness audit, firewall, bounded swarm, planning, resume.
+
+Audit the agent harness before model-heavy analysis:
+
+```bash
+project-brain harness-audit /path/to/repo --output /path/to/output
+```
+
+This writes:
+
+- `reports/harness_audit.md`
+- `AI_CONTEXT/harness_audit/harness_audit.json`
+
+The harness audit is deterministic and model-free. It checks whether progressive memory exists before broad analysis: compact memory index, factual graph, filtered context query, execution controls, and deep analysis memory. This adapts the useful parts of memory-first and harness-optimization systems without making project-brain Claude-specific.
 
 Review the latest git delta instead of naming files manually:
 
@@ -260,9 +289,12 @@ project-brain annotate /path/to/repo "Known legacy hotspot" --output /path/to/ou
 project-brain code-graph /path/to/repo
 project-brain impact-radius /path/to/repo --files src/core/service.ts
 project-brain review-delta /path/to/repo
+project-brain start "quiero analizar y mejorar este proyecto" /path/to/repo
 project-brain ask "identifica este proyecto" /path/to/repo
 project-brain ask "ayudame a definir el stack y el alcance" /path/to/repo
-project-brain swarm "ayudame a mejorar este repo" /path/to/repo
+project-brain swarm "ayudame a mejorar este repo" /path/to/repo --preset cheap
+project-brain swarm "ayudame a mejorar este repo" /path/to/repo --preset balanced
+project-brain swarm "ayudame a mejorar este repo" /path/to/repo --preset thorough
 project-brain swarm "ayudame a mejorar este repo" /path/to/repo --parallel 3
 project-brain swarm "ayudame a mejorar este repo" /path/to/repo --parallel 3 --chunk-size 1
 project-brain swarm "ayudame a mejorar este repo" /path/to/repo --parallel 3 --chunk-size 1 --task-timeout-ms 12000 --max-retries 1
@@ -351,6 +383,7 @@ If the next move is clear and bounded, `ask` will also execute one guided contin
 - `synthesizer`: merges the delegated outputs into one report
 
 Artifacts land in `reports/swarm_run.md` and `AI_CONTEXT/swarm/swarm_run.json`.
+Use `--preset cheap`, `--preset balanced`, or `--preset thorough` before tuning low-level runtime flags manually.
 If you do not pass `--parallel`, `project-brain` picks a bounded worker count from local CPU, load average, and free memory.
 If you do not pass `--chunk-size`, `project-brain` picks a repo-slice size from repository size and then enqueues smaller scope chunks so local workers inspect only a few top-level areas at a time.
 The worker queue is round-robin, so a short queue budget samples multiple parent tasks before going deeper into any single one.

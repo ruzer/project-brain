@@ -517,6 +517,21 @@ export interface StatusArtifactSummary {
   updatedAt?: string;
 }
 
+export type MemoryReadinessStatus = "ready" | "missing" | "stale" | "invalid";
+
+export interface MemoryReadinessResult {
+  status: MemoryReadinessStatus;
+  memoryBriefPath: string;
+  memoryBriefJsonPath: string;
+  generatedAt?: string;
+  ageHours?: number;
+  maxAgeHours: number;
+  factsCount: number;
+  evidenceCount: number;
+  tokenGuidanceCount: number;
+  reason: string;
+}
+
 export interface StatusResult {
   context: ProjectContext;
   reportPath: string;
@@ -532,15 +547,20 @@ export interface StatusResult {
     swarmStatus: "available" | "missing";
     planStatus: "available" | "missing";
   };
+  memoryReadiness: MemoryReadinessResult;
   artifacts: StatusArtifactSummary[];
   suggestions: SuggestedAction[];
 }
 
 export type ResumeStage =
   | "bootstrap"
+  | "start"
   | "doctor"
   | "ask"
   | "map-codebase"
+  | "fact-query"
+  | "runbook"
+  | "harness-audit"
   | "firewall"
   | "review-delta"
   | "swarm"
@@ -562,8 +582,30 @@ export interface ResumeResult {
     latestArtifactUpdatedAt?: string;
   };
   latestArtifact?: StatusArtifactSummary;
+  memoryReadiness: MemoryReadinessResult;
   artifacts: StatusArtifactSummary[];
   notes: string[];
+  suggestions: SuggestedAction[];
+}
+
+export interface StartStep {
+  id: string;
+  label: string;
+  status: "done" | "skipped" | "suggested";
+  command: string;
+  summary: string;
+}
+
+export interface StartResult {
+  context: ProjectContext;
+  intent: string;
+  reportPath: string;
+  memoryPath: string;
+  headline: string;
+  memoryReadiness: MemoryReadinessResult;
+  executedSteps: StartStep[];
+  nextCommand?: string;
+  artifacts: StatusArtifactSummary[];
   suggestions: SuggestedAction[];
 }
 
@@ -952,6 +994,57 @@ export interface FactQueryResult {
   }>;
   evidenceRefs: string[];
   unknowns: string[];
+}
+
+export interface RunbookStep {
+  id: string;
+  title: string;
+  status: "pending" | "ready" | "blocked" | "done";
+  command: string;
+  rationale: string;
+  cheap: boolean;
+  usesModel: boolean;
+  evidence: string[];
+}
+
+export interface RunbookResult {
+  context: ProjectContext;
+  intent: string;
+  generatedAt: string;
+  reportPath: string;
+  memoryPath: string;
+  steps: RunbookStep[];
+}
+
+export interface HarnessAuditCheck {
+  id: string;
+  label: string;
+  status: "pass" | "warn" | "fail";
+  summary: string;
+  evidence: string[];
+  recommendation?: string;
+}
+
+export interface HarnessAuditMemoryLayer {
+  id: string;
+  label: string;
+  status: "ready" | "partial" | "missing";
+  tokenCost: "low" | "medium" | "high";
+  artifacts: string[];
+  purpose: string;
+}
+
+export interface HarnessAuditResult {
+  context: ProjectContext;
+  generatedAt: string;
+  reportPath: string;
+  memoryPath: string;
+  score: number;
+  tokenRisk: "low" | "medium" | "high";
+  memoryReadiness: MemoryReadinessResult;
+  checks: HarnessAuditCheck[];
+  memoryLayers: HarnessAuditMemoryLayer[];
+  suggestedCommands: string[];
 }
 
 export interface EcosystemCodebaseMapRepositoryResult extends CodebaseMapArtifact {

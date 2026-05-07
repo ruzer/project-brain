@@ -141,6 +141,18 @@ describe("Ask intent routing", () => {
           exists: true,
           updatedAt: "2026-03-18T10:05:00.000Z"
         },
+        memoryReadiness: {
+          status: "ready",
+          memoryBriefPath: path.join(context.memoryDir, "MEMORY_BRIEF.md"),
+          memoryBriefJsonPath: path.join(context.runtimeMemoryDir, "memory_brief", "memory_brief.json"),
+          generatedAt: "2026-03-18T10:00:00.000Z",
+          ageHours: 0,
+          maxAgeHours: 72,
+          factsCount: 1,
+          evidenceCount: 1,
+          tokenGuidanceCount: 1,
+          reason: "test"
+        },
         artifacts: [
           {
             label: "Swarm",
@@ -230,6 +242,18 @@ describe("Ask intent routing", () => {
           path: planSummaryPath,
           exists: true,
           updatedAt: "2026-03-18T10:10:00.000Z"
+        },
+        memoryReadiness: {
+          status: "ready",
+          memoryBriefPath: path.join(context.memoryDir, "MEMORY_BRIEF.md"),
+          memoryBriefJsonPath: path.join(context.runtimeMemoryDir, "memory_brief", "memory_brief.json"),
+          generatedAt: "2026-03-18T10:00:00.000Z",
+          ageHours: 0,
+          maxAgeHours: 72,
+          factsCount: 1,
+          evidenceCount: 1,
+          tokenGuidanceCount: 1,
+          reason: "test"
         },
         artifacts: [
           {

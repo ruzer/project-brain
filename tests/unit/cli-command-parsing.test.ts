@@ -45,6 +45,8 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
     expect(helpText).toContain("map-codebase");
     expect(helpText).toContain("context-lite");
     expect(helpText).toContain("fact-query");
+    expect(helpText).toContain("runbook");
+    expect(helpText).toContain("harness-audit");
     expect(helpText).toContain("analyze");
     expect(helpText).toContain("agents");
     expect(helpText).toContain("weekly");
@@ -64,6 +66,7 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
     expect(helpText).toContain("feedback");
     expect(helpText).toContain("models");
     expect(helpText).toContain("doctor");
+    expect(helpText).toContain("start");
     expect(helpText).toContain("security-audit");
     expect(helpText).toContain("status");
     expect(helpText).toContain("resume");
@@ -98,6 +101,20 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
 
     expect(factQueryHelp).toContain("factual memory");
     expect(factQueryHelp).toContain("--output");
+  });
+
+  it("shows runbook options", () => {
+    const runbookHelp = runCliHelp(["runbook", "--help"]);
+
+    expect(runbookHelp).toContain("token-aware");
+    expect(runbookHelp).toContain("--output");
+  });
+
+  it("shows harness audit options", () => {
+    const auditHelp = runCliHelp(["harness-audit", "--help"]);
+
+    expect(auditHelp).toContain("progressive memory");
+    expect(auditHelp).toContain("--output");
   });
 
   it("shows annotation options", () => {
@@ -145,6 +162,7 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
     expect(swarmHelp).toContain("Delegated analysis request");
     expect(swarmHelp).toContain("--output");
     expect(swarmHelp).toContain("--engine");
+    expect(swarmHelp).toContain("--preset");
     expect(swarmHelp).toContain("--parallel");
     expect(swarmHelp).toContain("--chunk-size");
     expect(swarmHelp).toContain("--task-timeout-ms");
@@ -153,6 +171,14 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
     expect(swarmHelp).toContain("--run-timeout-ms");
     expect(swarmHelp).toContain("--max-queued-tasks");
     expect(swarmHelp).toContain("--max-retries");
+  });
+
+  it("shows start options", () => {
+    const startHelp = runCliHelp(["start", "--help"]);
+
+    expect(startHelp).toContain("guided path");
+    expect(startHelp).toContain("--with-swarm");
+    expect(startHelp).toContain("--output");
   });
 
   it("shows self-improve options", () => {

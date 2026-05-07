@@ -1,4 +1,6 @@
-# Project-Brain Product Blueprint
+# Project-Brain Future Commercial Vision
+
+> This document is future product vision, not current MVP scope. Do not use it to drive near-term CLI architecture, runtime complexity, multi-tenancy, RBAC, billing, dashboards, or marketplace work until the memory-first CLI is stable and validated by real users.
 
 ## Status
 

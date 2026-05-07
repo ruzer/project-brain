@@ -1403,6 +1403,7 @@ function buildPlannerPrompt(context: ProjectContext, intent: string): AIRouterRe
     context: buildRepoSummary(context),
     prompt: [
       "You are planning a bounded model swarm for project-brain.",
+      "MEMORY_BRIEF is the priority context. Use it before repository summary details and previous reports.",
       "Do not invent repository facts.",
       "Split the user request into at most 4 small analysis tasks.",
       "Each task must fit one profile: worker, reviewer, or reasoning.",
@@ -1422,6 +1423,7 @@ function buildWorkerPrompt(context: ProjectContext, intent: string, overview: st
     context: buildChunkContext(context, task.chunk.scopePaths),
     prompt: [
       "You are a bounded worker inside a project-brain swarm.",
+      "MEMORY_BRIEF is the priority context. Use it first, then scoped files and generated artifacts.",
       "Use only the scoped repository context provided.",
       "Do not assume facts that are not in the repository summary.",
       "Every factual claim must be backed by a file path, route, config, manifest, or generated artifact reference.",
@@ -1440,12 +1442,19 @@ function buildWorkerPrompt(context: ProjectContext, intent: string, overview: st
   };
 }
 
-function buildSynthesisPrompt(intent: string, overview: string, workerResults: SwarmWorkerResult[]): AIRouterRequest {
+function buildSynthesisPrompt(
+  context: ProjectContext,
+  intent: string,
+  overview: string,
+  workerResults: SwarmWorkerResult[]
+): AIRouterRequest {
   return {
     task: "report-synthesis",
     profile: "synthesizer",
+    context: buildMemoryBriefSummary(context, 24),
     prompt: [
       "You are the synthesizer for a project-brain swarm run.",
+      "MEMORY_BRIEF is the priority context. Use it to preserve decisions, corrections, unknowns, and token guidance.",
       "Merge the worker outputs into a concise, decision-oriented result.",
       "Keep facts separate from unknowns. Do not promote worker recommendations into facts unless evidence_refs support them.",
       "Return JSON only in this shape:",
@@ -1916,7 +1925,7 @@ export async function runSwarm(
 
   let synthesis: SynthesisPayload;
   const synthesisRequest: AIRouterRequest = {
-    ...buildSynthesisPrompt(intent, planner.overview, workerResults),
+    ...buildSynthesisPrompt(context, intent, planner.overview, workerResults),
     allowRemote: !resilience.localBudgetMode,
     timeoutMs: Math.min(resilience.synthesisTimeoutMs, Math.max(remainingBudgetMs(deadline), 1_000))
   };

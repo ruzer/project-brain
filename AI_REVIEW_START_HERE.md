@@ -43,7 +43,9 @@ Read these source files next:
 
 ```bash
 npm run build
+node dist/cli/project-brain.js start "optimize analysis and cost" . --output ./sample-output/self-optimization
 node dist/cli/project-brain.js status . --output ./sample-output/self-optimization
+node dist/cli/project-brain.js runbook "optimize analysis and cost" . --output ./sample-output/self-optimization
 node dist/cli/project-brain.js code-graph . --output ./sample-output/self-optimization
 node dist/cli/project-brain.js fact-query "swarm runtime token cache" . --output ./sample-output/self-optimization
 node dist/cli/project-brain.js resume . --output ./sample-output/self-optimization
@@ -54,7 +56,8 @@ node dist/cli/project-brain.js resume . --output ./sample-output/self-optimizati
 The highest-value optimization work is:
 
 1. make all agents consume `MEMORY_BRIEF`
-2. prefer factual graph and fact store context over long markdown reports
-3. add a query layer over memory and graph artifacts
-4. update decisions, learnings, corrections, and unknowns incrementally
-5. keep swarm prompts short, scoped, and cacheable
+2. keep `AI_CONTEXT/CONTEXT.md`, `LEARNINGS.md`, `ERRORS.md`, and `DECISIONS.md` alive instead of skeletal
+3. prefer factual graph and fact store context over long markdown reports
+4. add a query layer over memory and graph artifacts
+5. update decisions, learnings, corrections, and unknowns incrementally
+6. keep swarm prompts short, scoped, and cacheable

@@ -4,6 +4,7 @@ import { createInterface, type Interface } from "node:readline/promises";
 
 import type { AIRouter } from "../core/ai_router/router";
 import type { ProjectBrainOrchestrator } from "../core/orchestrator/main";
+import { getWorkflowDefinition, type WorkflowId } from "../core/workflow_registry";
 import { setLoggerOptions } from "../shared/logger";
 import type {
   AskResult,
@@ -11,19 +12,24 @@ import type {
   ContextLiteResult,
   DoctorResult,
   EcosystemAnalysisResult,
+  FactQueryResult,
   FirewallInspectionResult,
   GovernanceTrigger,
+  HarnessAuditResult,
   ImpactAnalysisResult,
   ImprovementPlanResult,
   OrchestrationResult,
   ResumeResult,
+  RunbookResult,
   SecurityAuditResult,
+  StartResult,
   StatusResult,
   SwarmEngine,
   SwarmRunResult
 } from "../shared/types";
 
 type WorkflowChoice =
+  | "start"
   | "doctor"
   | "status"
   | "resume"
@@ -32,6 +38,9 @@ type WorkflowChoice =
   | "weekly"
   | "context-lite"
   | "ask"
+  | "fact-query"
+  | "runbook"
+  | "harness-audit"
   | "swarm"
   | "self-improve"
   | "code-graph"
@@ -42,6 +51,7 @@ type WorkflowChoice =
   | "report";
 
 type MenuChoice = "config" | "paths" | "swarm" | "run" | "models" | "setup" | "exit";
+type SwarmPreset = "custom" | "cheap" | "balanced" | "thorough";
 
 interface ChoiceOption<T extends string> {
   value: T;
@@ -82,22 +92,31 @@ const MAIN_MENU: ChoiceOption<MenuChoice>[] = [
   { value: "exit", label: "Salir" }
 ];
 
+function workflowLabel(workflowId: WorkflowId, fallback: string): string {
+  const definition = getWorkflowDefinition(workflowId);
+  return `${fallback}: ${definition.humanLabel}`;
+}
+
 const WORKFLOW_MENU: ChoiceOption<WorkflowChoice>[] = [
-  { value: "doctor", label: "doctor" },
-  { value: "status", label: "status" },
-  { value: "resume", label: "resume" },
-  { value: "security-audit", label: "security-audit" },
-  { value: "analyze", label: "analyze" },
-  { value: "weekly", label: "weekly" },
-  { value: "context-lite", label: "context-lite" },
-  { value: "ask", label: "ask" },
-  { value: "swarm", label: "swarm" },
-  { value: "self-improve", label: "self-improve" },
-  { value: "code-graph", label: "code-graph" },
-  { value: "impact-radius", label: "impact-radius" },
-  { value: "review-delta", label: "review-delta" },
-  { value: "firewall", label: "firewall" },
-  { value: "plan-improvements", label: "plan-improvements" },
+  { value: "start", label: workflowLabel("start", "Inicio guiado") },
+  { value: "status", label: "Ver estado y siguiente paso" },
+  { value: "resume", label: workflowLabel("resume", "Continuar") },
+  { value: "runbook", label: workflowLabel("runbook", "Preparar ejecucion barata") },
+  { value: "harness-audit", label: workflowLabel("harness-audit", "Revisar memoria y costos") },
+  { value: "fact-query", label: workflowLabel("fact-query", "Buscar en memoria local") },
+  { value: "swarm", label: workflowLabel("swarm", "Analizar con agentes") },
+  { value: "plan-improvements", label: workflowLabel("plan-improvements", "Crear plan ejecutivo persistente") },
+  { value: "doctor", label: workflowLabel("doctor", "Revisar entorno local") },
+  { value: "code-graph", label: workflowLabel("code-graph", "Construir mapa factual") },
+  { value: "firewall", label: workflowLabel("firewall", "Revisar limites de agentes") },
+  { value: "ask", label: workflowLabel("ask", "Pedir algo en lenguaje natural") },
+  { value: "security-audit", label: "Auditoria de seguridad" },
+  { value: "analyze", label: "Analisis completo legacy" },
+  { value: "weekly", label: "Reporte semanal" },
+  { value: "context-lite", label: "Contexto ligero" },
+  { value: "self-improve", label: "Auto-mejora con swarm" },
+  { value: "impact-radius", label: "Impacto de cambios" },
+  { value: "review-delta", label: workflowLabel("review-delta", "Revisar delta git") },
   { value: "report", label: "report manifest" }
 ];
 
@@ -115,6 +134,13 @@ const TRIGGER_CHOICES: ChoiceOption<GovernanceTrigger>[] = [
 const SWARM_ENGINE_CHOICES: ChoiceOption<SwarmEngine>[] = [
   { value: "bounded", label: "bounded" },
   { value: "deepagents", label: "deepagents" }
+];
+
+const SWARM_PRESET_CHOICES: ChoiceOption<SwarmPreset>[] = [
+  { value: "cheap", label: "Barato: cola corta y presupuestos pequenos" },
+  { value: "balanced", label: "Balanceado: analisis practico" },
+  { value: "thorough", label: "Profundo: mas cola y mas tiempo" },
+  { value: "custom", label: "Avanzado: configurar manualmente" }
 ];
 
 export function createDefaultTerminalSession(cwd: string): TerminalSessionState {
@@ -241,6 +267,11 @@ async function configureSwarmDefaults(rl: Interface, session: TerminalSessionSta
   console.log("");
   console.log("Configuracion del swarm");
   session.swarmEngine = await promptChoice(rl, "Engine", SWARM_ENGINE_CHOICES, session.swarmEngine);
+  const preset = await promptChoice(rl, "Preset", SWARM_PRESET_CHOICES, "balanced");
+  if (preset !== "custom") {
+    applySwarmPreset(session, preset);
+    return;
+  }
   session.parallelism = await promptOptionalInteger(rl, "Parallel workers", session.parallelism);
   session.chunkSize = await promptOptionalInteger(rl, "Chunk size", session.chunkSize);
   session.taskTimeoutMs = await promptOptionalInteger(rl, "Task timeout ms", session.taskTimeoutMs);
@@ -251,15 +282,57 @@ async function configureSwarmDefaults(rl: Interface, session: TerminalSessionSta
   session.maxRetries = await promptOptionalInteger(rl, "Max retries", session.maxRetries);
 }
 
+function applySwarmPreset(session: TerminalSessionState, preset: Exclude<SwarmPreset, "custom">): void {
+  if (preset === "cheap") {
+    session.parallelism = 2;
+    session.chunkSize = 1;
+    session.taskTimeoutMs = 90_000;
+    session.plannerTimeoutMs = 60_000;
+    session.synthesisTimeoutMs = 60_000;
+    session.runTimeoutMs = 120_000;
+    session.maxQueuedTasks = 4;
+    session.maxRetries = 0;
+    return;
+  }
+
+  if (preset === "balanced") {
+    session.parallelism = undefined;
+    session.chunkSize = 1;
+    session.taskTimeoutMs = 120_000;
+    session.plannerTimeoutMs = 80_000;
+    session.synthesisTimeoutMs = 90_000;
+    session.runTimeoutMs = 180_000;
+    session.maxQueuedTasks = 6;
+    session.maxRetries = 1;
+    return;
+  }
+
+  session.parallelism = 4;
+  session.chunkSize = 2;
+  session.taskTimeoutMs = 180_000;
+  session.plannerTimeoutMs = 120_000;
+  session.synthesisTimeoutMs = 120_000;
+  session.runTimeoutMs = 360_000;
+  session.maxQueuedTasks = 12;
+  session.maxRetries = 1;
+}
+
 async function runWorkflow(
   rl: Interface,
   session: TerminalSessionState,
   orchestrator: ProjectBrainOrchestrator
 ): Promise<void> {
   applyRuntimeToggles(session);
-  const workflow = await promptChoice(rl, "Workflow", WORKFLOW_MENU, "doctor");
+  const workflow = await promptChoice(rl, "Workflow", WORKFLOW_MENU, "start");
 
   switch (workflow) {
+    case "start": {
+      const intent = await promptLine(rl, "Objetivo", "optimize analysis and cost");
+      const withSwarm = await promptYesNo(rl, "Ejecutar swarm tambien", false);
+      const result = await orchestrator.start(session.targetPath, session.outputPath, intent, { withSwarm });
+      printStartResult(result);
+      return;
+    }
     case "doctor": {
       const result = await orchestrator.doctor(session.targetPath, session.outputPath);
       printDoctorResult(result);
@@ -299,6 +372,23 @@ async function runWorkflow(
       const intent = await promptRequiredLine(rl, "Intent");
       const result = await orchestrator.ask(session.targetPath, session.outputPath, intent);
       printAskResult(result);
+      return;
+    }
+    case "fact-query": {
+      const query = await promptRequiredLine(rl, "Busqueda en memoria");
+      const result = await orchestrator.factQuery(session.targetPath, session.outputPath, query);
+      printFactQueryResult(result);
+      return;
+    }
+    case "runbook": {
+      const intent = await promptLine(rl, "Objetivo", "optimize analysis and cost");
+      const result = await orchestrator.runbook(session.targetPath, session.outputPath, intent);
+      printRunbookResult(result);
+      return;
+    }
+    case "harness-audit": {
+      const result = await orchestrator.harnessAudit(session.targetPath, session.outputPath);
+      printHarnessAuditResult(result);
       return;
     }
     case "swarm": {
@@ -552,6 +642,7 @@ function printStatusResult(result: StatusResult): void {
   console.log(`- Memory: ${result.memoryPath}`);
   console.log(`- Git: repo=${result.git.isGitRepo ? "yes" : "no"}, branch=${result.git.branch ?? "unknown"}`);
   console.log(`- Headline: ${result.summary.headline}`);
+  console.log(`- Memory: ${result.memoryReadiness.status} - ${result.memoryReadiness.reason}`);
   for (const artifact of result.artifacts) {
     console.log(`- ${artifact.label}: ${artifact.exists ? "present" : "missing"}`);
   }
@@ -564,11 +655,65 @@ function printResumeResult(result: ResumeResult): void {
   console.log(`- Memory: ${result.memoryPath}`);
   console.log(`- Stage: ${result.summary.stage}`);
   console.log(`- Headline: ${result.summary.headline}`);
+  console.log(`- Memory readiness: ${result.memoryReadiness.status} - ${result.memoryReadiness.reason}`);
   if (result.latestArtifact) {
     console.log(`- Latest artifact: ${result.latestArtifact.label}`);
   }
   for (const note of result.notes) {
     console.log(`- ${note}`);
+  }
+}
+
+function printStartResult(result: StartResult): void {
+  console.log("");
+  console.log("Inicio guiado");
+  console.log(`- Report: ${result.reportPath}`);
+  console.log(`- Memory: ${result.memoryPath}`);
+  console.log(`- Headline: ${result.headline}`);
+  console.log(`- Memory readiness: ${result.memoryReadiness.status} - ${result.memoryReadiness.reason}`);
+  for (const step of result.executedSteps) {
+    console.log(`- [${step.status}] ${step.label}: ${step.summary}`);
+  }
+  if (result.nextCommand) {
+    console.log(`- Siguiente: ${result.nextCommand}`);
+  }
+}
+
+function printFactQueryResult(result: FactQueryResult): void {
+  console.log("");
+  console.log("Busqueda en memoria local");
+  console.log(`- Report: ${result.reportPath}`);
+  console.log(`- Memory: ${result.memoryPath}`);
+  console.log(`- Answer: ${result.answer}`);
+  console.log(`- Evidence refs: ${result.evidenceRefs.join(", ") || "None"}`);
+  if (result.unknowns.length > 0) {
+    console.log(`- Unknowns: ${result.unknowns.join(" | ")}`);
+  }
+}
+
+function printRunbookResult(result: RunbookResult): void {
+  console.log("");
+  console.log("Ruta barata");
+  console.log(`- Report: ${result.reportPath}`);
+  console.log(`- Memory: ${result.memoryPath}`);
+  for (const step of result.steps) {
+    console.log(`- [${step.status}] ${step.id}. ${step.title}: ${step.command}`);
+  }
+}
+
+function printHarnessAuditResult(result: HarnessAuditResult): void {
+  console.log("");
+  console.log("Memoria y costos");
+  console.log(`- Report: ${result.reportPath}`);
+  console.log(`- Memory: ${result.memoryPath}`);
+  console.log(`- Score: ${result.score}`);
+  console.log(`- Token risk: ${result.tokenRisk}`);
+  console.log(`- Memory readiness: ${result.memoryReadiness.status} - ${result.memoryReadiness.reason}`);
+  for (const check of result.checks) {
+    console.log(`- [${check.status}] ${check.label}: ${check.summary}`);
+  }
+  if (result.suggestedCommands.length > 0) {
+    console.log(`- Siguiente: ${result.suggestedCommands[0]}`);
   }
 }
 

@@ -2,6 +2,8 @@ import path from "node:path";
 import { promises as fs } from "node:fs";
 
 import { deriveStatusSuggestions } from "../reaction_engine";
+import { buildWorkflowRuntimeDefinitions } from "../workflow_registry";
+import { assessMemoryReadiness } from "../../memory/readiness";
 import { fileExists, readJsonSafe, writeFileEnsured, writeJsonEnsured } from "../../shared/fs-utils";
 import type { DoctorCheckStatus, ProjectContext, StatusArtifactSummary, StatusResult, SuggestedAction } from "../../shared/types";
 
@@ -136,6 +138,19 @@ function buildHeadline(summary: StatusResult["summary"]): string {
   return `Status snapshot: ${parts.join(", ")}`;
 }
 
+function renderMemoryReadiness(result: StatusResult["memoryReadiness"]): string {
+  return `- Status: ${result.status}
+- Reason: ${result.reason}
+- Facts: ${result.factsCount}
+- Evidence refs: ${result.evidenceCount}
+- Token guidance items: ${result.tokenGuidanceCount}
+- Generated: ${result.generatedAt ?? "unknown"}
+- Age hours: ${result.ageHours ?? "unknown"}
+- Max age hours: ${result.maxAgeHours}
+- Markdown: ${result.memoryBriefPath}
+- JSON: ${result.memoryBriefJsonPath}`;
+}
+
 function renderStatusReport(
   context: ProjectContext,
   result: StatusResult
@@ -155,6 +170,10 @@ function renderStatusReport(
 
 ${renderArtifacts(result.artifacts)}
 
+## Memory Readiness
+
+${renderMemoryReadiness(result.memoryReadiness)}
+
 ## Suggested Actions
 
 ${renderSuggestions(result.suggestions)}
@@ -167,35 +186,20 @@ export async function buildStatus(
 ): Promise<StatusResult> {
   const runCommand = deps.runCommand ?? defaultRunCommand;
   const doctorMemoryPath = path.join(context.memoryDir, "doctor", "doctor.json");
-  const memoryBriefPath = path.join(context.memoryDir, "MEMORY_BRIEF.md");
-  const memoryBriefJsonPath = path.join(context.runtimeMemoryDir, "memory_brief", "memory_brief.json");
-  const swarmMemoryPath = path.join(context.memoryDir, "swarm", "swarm_run.json");
-  const planSummaryPath = path.join(context.docsDir, "improvement_plan", "SUMMARY.md");
-  const mapSummaryPath = path.join(context.docsDir, "codebase_map", "SUMMARY.md");
-  const firewallPath = path.join(context.reportsDir, "agent_firewall.md");
-  const impactPath = path.join(context.reportsDir, "impact_radius.md");
-  const askBriefPath = path.join(context.reportsDir, "ask_brief.md");
-  const factQueryPath = path.join(context.reportsDir, "fact_query.md");
-  const repositoryFactGraphPath = path.join(context.runtimeMemoryDir, "knowledge_graph", "repository_fact_graph.json");
-  const repositoryFactGraphReportPath = path.join(context.reportsDir, "repository_fact_graph.md");
-
-  const artifacts = await Promise.all([
-    artifactSummary("Doctor", doctorMemoryPath),
-    artifactSummary("Memory Brief", memoryBriefPath),
-    artifactSummary("Memory Brief JSON", memoryBriefJsonPath),
-    artifactSummary("Swarm", swarmMemoryPath),
-    artifactSummary("Improvement Plan", planSummaryPath),
-    artifactSummary("Codebase Map", mapSummaryPath),
-    artifactSummary("Repository Fact Graph", repositoryFactGraphPath),
-    artifactSummary("Repository Fact Graph Report", repositoryFactGraphReportPath),
-    artifactSummary("Firewall", firewallPath),
-    artifactSummary("Impact Radius", impactPath),
-    artifactSummary("Fact Query", factQueryPath),
-    artifactSummary("Ask Brief", askBriefPath)
-  ]);
+  const workflows = buildWorkflowRuntimeDefinitions(context);
+  const artifacts = (
+    await Promise.all(
+      workflows.flatMap((workflow) =>
+        workflow.artifactPaths.map((artifactPath, index) =>
+          artifactSummary(workflow.artifactLabels[index] ?? workflow.artifactLabels[0] ?? workflow.humanLabel, artifactPath)
+        )
+      )
+    )
+  ).filter((artifact, index, all) => all.findIndex((candidate) => candidate.label === artifact.label && candidate.path === artifact.path) === index);
 
   const doctorMemory = await readJsonSafe<{ summary?: { failed?: number; warnings?: number } }>(doctorMemoryPath);
   const doctorStatus = doctorStatusFromSummary(doctorMemory?.summary);
+  const memoryReadiness = await assessMemoryReadiness(context);
 
   const gitRepo = await runCommand("git", ["-C", context.targetPath, "rev-parse", "--is-inside-work-tree"], { timeoutMs: 5_000 });
   const branch = gitRepo.ok
@@ -227,6 +231,7 @@ export async function buildStatus(
       branch: branch?.stdout || undefined
     },
     summary,
+    memoryReadiness,
     artifacts,
     suggestions
   }));
@@ -239,6 +244,7 @@ export async function buildStatus(
       branch: branch?.stdout || undefined
     },
     summary,
+    memoryReadiness,
     artifacts,
     suggestions
   });
@@ -252,6 +258,7 @@ export async function buildStatus(
       branch: branch?.stdout || undefined
     },
     summary,
+    memoryReadiness,
     artifacts,
     suggestions
   };
