@@ -591,6 +591,55 @@ export interface MemoryReadinessResult {
   reason: string;
 }
 
+export interface ExecutiveSummaryScopeStatus {
+  scope: string;
+  freshness: "fresh" | "stale";
+  coverage: "complete" | "partial" | "failed" | "timed_out";
+  facts: number;
+  unknowns: number;
+  evidenceRefs: number;
+  hashTruncated: boolean;
+}
+
+export interface ExecutiveSummaryResult {
+  context: ProjectContext;
+  generatedAt: string;
+  reportPath: string;
+  memoryPath: string;
+  identity: {
+    repoName: string;
+    targetPath: string;
+    outputPath: string;
+    projectType: string;
+  };
+  stack: {
+    languages: string[];
+    frameworks: string[];
+    apis: string[];
+    infrastructure: string[];
+    testing: string[];
+  };
+  architecture: {
+    topLevelDirectories: string[];
+    sourceFileCount: number;
+    testFileCount: number;
+  };
+  status: {
+    scopeCount: number;
+    completeFreshScopes: number;
+    staleScopes: number;
+    partialScopes: number;
+    latestSwarmIntent?: string;
+    latestSwarmHeadline?: string;
+  };
+  decisions: string[];
+  learnings: string[];
+  risksAndUnknowns: string[];
+  scopeStatuses: ExecutiveSummaryScopeStatus[];
+  nextActions: string[];
+  evidenceRefs: string[];
+}
+
 export interface StatusResult {
   context: ProjectContext;
   reportPath: string;
@@ -607,6 +656,7 @@ export interface StatusResult {
     planStatus: "available" | "missing";
   };
   memoryReadiness: MemoryReadinessResult;
+  executiveSummary: ExecutiveSummaryResult;
   artifacts: StatusArtifactSummary[];
   suggestions: SuggestedAction[];
 }

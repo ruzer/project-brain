@@ -189,8 +189,12 @@ export async function writeMemoryBriefArtifacts(context: ProjectContext): Promis
   const factQueryPath = path.join(context.reportsDir, "fact_query.md");
   const startPath = path.join(context.reportsDir, "start.md");
   const scopeMemoryPath = path.join(context.runtimeMemoryDir, "scopes");
+  const executiveSummaryPath = path.join(context.memoryDir, "EXECUTIVE_SUMMARY.md");
+  const executiveSummaryJsonPath = path.join(context.runtimeMemoryDir, "executive_summary", "executive_summary.json");
   const canonicalInputs = [
     path.join(context.memoryDir, "MEMORY_BRIEF.md"),
+    executiveSummaryPath,
+    executiveSummaryJsonPath,
     path.join(context.memoryDir, "CONTEXT.md"),
     path.join(context.memoryDir, "PROJECT_MODEL.md"),
     path.join(context.memoryDir, "STACK_PROFILE.md"),

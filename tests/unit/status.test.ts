@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -54,11 +54,14 @@ describe("status", () => {
     expect(result.summary.doctorStatus).toBe("warn");
     expect(result.summary.swarmStatus).toBe("available");
     expect(result.summary.planStatus).toBe("available");
+    expect(result.executiveSummary.status.scopeCount).toBe(0);
     expect(result.artifacts.some((artifact) => artifact.label === "Doctor" && artifact.exists)).toBe(true);
     expect(result.artifacts.some((artifact) => artifact.label === "Swarm" && artifact.exists)).toBe(true);
     expect(result.suggestions.some((suggestion) => suggestion.label === "Re-run Doctor")).toBe(true);
     expect(result.suggestions.some((suggestion) => suggestion.label === "Generate Codebase Map")).toBe(true);
     expect(result.reportPath).toContain("status.md");
     expect(result.memoryPath).toContain("status.json");
+    await access(result.executiveSummary.reportPath);
+    await access(result.executiveSummary.memoryPath);
   });
 });

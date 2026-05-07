@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 
 import { deriveStatusSuggestions } from "../reaction_engine";
 import { buildWorkflowRuntimeDefinitions } from "../workflow_registry";
+import { writeExecutiveSummaryArtifacts } from "../../memory/executive_summary";
 import { assessMemoryReadiness } from "../../memory/readiness";
 import { fileExists, readJsonSafe, writeFileEnsured, writeJsonEnsured } from "../../shared/fs-utils";
 import type { DoctorCheckStatus, ProjectContext, StatusArtifactSummary, StatusResult, SuggestedAction } from "../../shared/types";
@@ -151,6 +152,16 @@ function renderMemoryReadiness(result: StatusResult["memoryReadiness"]): string 
 - JSON: ${result.memoryBriefJsonPath}`;
 }
 
+function renderExecutiveSummaryStatus(result: StatusResult["executiveSummary"]): string {
+  return `- Markdown: ${result.reportPath}
+- JSON: ${result.memoryPath}
+- Scopes: ${result.status.scopeCount}
+- Fresh complete scopes: ${result.status.completeFreshScopes}
+- Stale scopes: ${result.status.staleScopes}
+- Partial scopes: ${result.status.partialScopes}
+- Latest swarm intent: ${result.status.latestSwarmIntent ?? "None"}`;
+}
+
 function renderStatusReport(
   context: ProjectContext,
   result: StatusResult
@@ -173,6 +184,10 @@ ${renderArtifacts(result.artifacts)}
 ## Memory Readiness
 
 ${renderMemoryReadiness(result.memoryReadiness)}
+
+## Executive Summary
+
+${renderExecutiveSummaryStatus(result.executiveSummary)}
 
 ## Suggested Actions
 
@@ -199,6 +214,7 @@ export async function buildStatus(
 
   const doctorMemory = await readJsonSafe<{ summary?: { failed?: number; warnings?: number } }>(doctorMemoryPath);
   const doctorStatus = doctorStatusFromSummary(doctorMemory?.summary);
+  const executiveSummary = await writeExecutiveSummaryArtifacts(context);
   const memoryReadiness = await assessMemoryReadiness(context);
 
   const gitRepo = await runCommand("git", ["-C", context.targetPath, "rev-parse", "--is-inside-work-tree"], { timeoutMs: 5_000 });
@@ -232,6 +248,7 @@ export async function buildStatus(
     },
     summary,
     memoryReadiness,
+    executiveSummary,
     artifacts,
     suggestions
   }));
@@ -245,6 +262,7 @@ export async function buildStatus(
     },
     summary,
     memoryReadiness,
+    executiveSummary,
     artifacts,
     suggestions
   });
@@ -259,6 +277,7 @@ export async function buildStatus(
     },
     summary,
     memoryReadiness,
+    executiveSummary,
     artifacts,
     suggestions
   };
