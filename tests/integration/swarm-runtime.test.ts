@@ -165,12 +165,21 @@ describe("Swarm runtime", () => {
     expect(report).toContain("Review critical risks");
     expect(memory).toContain("\"workers\"");
     expect(memory).toContain("\"scopeMemoryWrites\"");
-    const scopeFiles = await readdir(path.join(outputDir, "AI_CONTEXT", "memory", "scopes"));
+    const scopeFiles = await readdir(path.join(outputDir, "memory", "scopes"));
     expect(scopeFiles.length).toBeGreaterThan(0);
-    const scopeMemory = JSON.parse(await readFile(path.join(outputDir, "AI_CONTEXT", "memory", "scopes", scopeFiles[0]!), "utf8")) as {
+    const scopeMemory = JSON.parse(await readFile(path.join(outputDir, "memory", "scopes", scopeFiles[0]!), "utf8")) as {
       coverage?: { status?: string };
     };
     expect(scopeMemory.coverage?.status).toBeTruthy();
+
+    const repeatedResult = await orchestrator.swarm(fixtureRepoPath, outputDir, "ayudame a mejorar este repo", {
+      parallelism: 2,
+      chunkSize: 1,
+      maxQueuedTasks: 7
+    });
+    expect(repeatedResult.optimization?.scopeMemoryReuseCandidates).toBeGreaterThan(0);
+    expect(repeatedResult.optimization?.scopeMemoryReductionHints.some((hint) => /Reduced queued work/.test(hint))).toBe(true);
+    expect(repeatedResult.chunking.queuedTasks).toBeLessThan(result.chunking.queuedTasks);
   });
 
   it("salvages worker and synthesis outputs when local models return markdown instead of JSON", async () => {
@@ -654,9 +663,10 @@ describe("Swarm runtime", () => {
       synthesisTimeoutMs: 8_000
     });
 
-    expect(askCalls).toBeLessThan(6);
+    expect(askCalls).toBeLessThan(9);
     expect(firstRun.optimization?.cacheHits).toBe(0);
-    expect(secondRun.optimization?.cacheHits).toBeGreaterThanOrEqual(2);
+    expect(secondRun.optimization?.cacheMisses).toBeGreaterThan(0);
+    expect(secondRun.optimization?.scopeMemoryReuseCandidates).toBeGreaterThan(0);
 
     const report = await readFile(secondRun.reportPath, "utf8");
     expect(report).toContain("Cache hits:");

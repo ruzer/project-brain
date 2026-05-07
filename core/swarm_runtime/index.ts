@@ -988,6 +988,22 @@ function scopeMemoryReductionHints(records: ScopeMemoryRecord[]): string[] {
   );
 }
 
+function isReducibleScopeMemory(record: ScopeMemoryRecord): boolean {
+  return record.freshness.status === "fresh" && record.coverage?.status === "complete" && !record.files?.hashTruncated;
+}
+
+function reducibleChunkIds(scopeChunks: ScopeChunk[], scopeMemoryByChunk: Map<string, ScopeMemoryRecord[]>): Set<string> {
+  return new Set(
+    scopeChunks
+      .filter((chunk) => {
+        const records = scopeMemoryByChunk.get(chunk.chunkId) ?? [];
+        const recordScopes = new Set(records.filter(isReducibleScopeMemory).map((record) => record.scope));
+        return chunk.scopePaths.length > 0 && chunk.scopePaths.every((scopePath) => recordScopes.has(scopePath));
+      })
+      .map((chunk) => chunk.chunkId)
+  );
+}
+
 function splitPlannerTasks(planner: PlannerPayload): {
   initialTasks: SwarmPlanTask[];
   deferredReasoningTasks: SwarmPlanTask[];
@@ -1264,7 +1280,8 @@ function createQueuedTasks(
   planner: PlannerPayload,
   scopeChunks: ScopeChunk[],
   parallelism: number,
-  queueBudget: number
+  queueBudget: number,
+  reducedChunkIds: Set<string> = new Set()
 ): QueuedSwarmTask[][] {
   const maxQueuedTasks = Math.max(Math.min(queueBudget, 64), planner.tasks.length, parallelism);
   const levels = createTaskLevels(planner.tasks);
@@ -1276,7 +1293,8 @@ function createQueuedTasks(
 
     for (let chunkIndex = 0; chunkIndex < scopeChunks.length; chunkIndex += 1) {
       const chunk = scopeChunks[chunkIndex]!;
-      for (const task of level) {
+      const tasksForChunk = reducedChunkIds.has(chunk.chunkId) ? level.slice(0, 1) : level;
+      for (const task of tasksForChunk) {
         queuedLevel.push({
           taskId: `${task.taskId}__${chunk.chunkId}`,
           parentTaskId: task.taskId,
@@ -1778,6 +1796,13 @@ export async function runSwarm(
       ...scopeMemoryReductionHints(lookup.records)
     ].slice(0, 12);
   }
+  const reducedChunkIds = reducibleChunkIds(scopeChunks, scopeMemoryByChunk);
+  if (reducedChunkIds.size > 0) {
+    optimization.scopeMemoryReductionHints = [
+      ...optimization.scopeMemoryReductionHints,
+      `Reduced queued work for ${reducedChunkIds.size} fresh complete scope chunk(s).`
+    ].slice(0, 12);
+  }
   const { initialTasks, deferredReasoningTasks } = splitPlannerTasks(planner);
   const reservedReasoningBudget =
     deferredReasoningTasks.length > 0 && resilience.queueBudget > initialTasks.length
@@ -1794,7 +1819,7 @@ export async function runSwarm(
     tasks: initialTasks.length > 0 ? initialTasks : planner.tasks
   };
   const initialQueueBudget = reservedReasoningBudget > 0 ? resilience.queueBudget - reservedReasoningBudget : resilience.queueBudget;
-  const queuedTaskLevels = createQueuedTasks(initialPlanner, scopeChunks, parallelism.selected, initialQueueBudget);
+  const queuedTaskLevels = createQueuedTasks(initialPlanner, scopeChunks, parallelism.selected, initialQueueBudget, reducedChunkIds);
   chunking.scopeChunks = scopeChunks.length;
   chunking.queuedTasks = queuedTaskLevels.reduce((total, level) => total + level.length, 0);
 
@@ -1957,9 +1982,10 @@ export async function runSwarm(
   );
 
   if (deferredReasoningTasks.length > 0) {
+    const derivedReasoningScopeChunks = scopeChunks.filter((chunk) => !reducedChunkIds.has(chunk.chunkId));
     const derivedReasoning = deriveReasoningTasks(
       deferredReasoningTasks,
-      scopeChunks,
+      derivedReasoningScopeChunks,
       workerResults,
       reservedReasoningBudget,
       chunking.scopeHints
