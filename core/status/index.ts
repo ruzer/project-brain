@@ -167,20 +167,30 @@ export async function buildStatus(
 ): Promise<StatusResult> {
   const runCommand = deps.runCommand ?? defaultRunCommand;
   const doctorMemoryPath = path.join(context.memoryDir, "doctor", "doctor.json");
+  const memoryBriefPath = path.join(context.memoryDir, "MEMORY_BRIEF.md");
+  const memoryBriefJsonPath = path.join(context.runtimeMemoryDir, "memory_brief", "memory_brief.json");
   const swarmMemoryPath = path.join(context.memoryDir, "swarm", "swarm_run.json");
   const planSummaryPath = path.join(context.docsDir, "improvement_plan", "SUMMARY.md");
   const mapSummaryPath = path.join(context.docsDir, "codebase_map", "SUMMARY.md");
   const firewallPath = path.join(context.reportsDir, "agent_firewall.md");
   const impactPath = path.join(context.reportsDir, "impact_radius.md");
   const askBriefPath = path.join(context.reportsDir, "ask_brief.md");
+  const factQueryPath = path.join(context.reportsDir, "fact_query.md");
+  const repositoryFactGraphPath = path.join(context.runtimeMemoryDir, "knowledge_graph", "repository_fact_graph.json");
+  const repositoryFactGraphReportPath = path.join(context.reportsDir, "repository_fact_graph.md");
 
   const artifacts = await Promise.all([
     artifactSummary("Doctor", doctorMemoryPath),
+    artifactSummary("Memory Brief", memoryBriefPath),
+    artifactSummary("Memory Brief JSON", memoryBriefJsonPath),
     artifactSummary("Swarm", swarmMemoryPath),
     artifactSummary("Improvement Plan", planSummaryPath),
     artifactSummary("Codebase Map", mapSummaryPath),
+    artifactSummary("Repository Fact Graph", repositoryFactGraphPath),
+    artifactSummary("Repository Fact Graph Report", repositoryFactGraphReportPath),
     artifactSummary("Firewall", firewallPath),
     artifactSummary("Impact Radius", impactPath),
+    artifactSummary("Fact Query", factQueryPath),
     artifactSummary("Ask Brief", askBriefPath)
   ]);
 

@@ -132,6 +132,27 @@ Build or refresh the code graph without running impact analysis:
 project-brain code-graph /path/to/repo --output /path/to/output
 ```
 
+This now writes:
+
+- `memory/code_graph/code_graph_v2.json`
+- `memory/knowledge_graph/repository_fact_graph.json`
+- `reports/repository_fact_graph.md`
+
+The repository fact graph is intentionally factual only. It reuses verified discovery and code-graph relations, and does not add inferred or ambiguous edges.
+
+Query compact factual memory without calling an AI model:
+
+```bash
+project-brain fact-query "swarm runtime token cache" /path/to/repo --output /path/to/output
+```
+
+This writes:
+
+- `reports/fact_query.md`
+- `AI_CONTEXT/fact_query/fact_query.json`
+
+Use this before giving another AI a broad task. It returns a short deterministic answer plus matching memory lines, graph nodes, graph edges, evidence refs, and unknowns.
+
 Review the latest git delta instead of naming files manually:
 
 ```bash

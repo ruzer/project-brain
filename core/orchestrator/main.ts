@@ -3,6 +3,7 @@ import path from "node:path";
 import { buildOrUpdateCodeGraphV2 } from "../../analysis/code_graph_v2";
 import { analyzeImpactRadius } from "../../analysis/impact_radius";
 import { MetricsCollector } from "../../analysis/metrics/metrics_collector";
+import { buildRepositoryFactGraph } from "../../analysis/repository_fact_graph";
 import { discoverRepositoryTargets, uniqueRepositoryNames } from "../../analysis/workspace_discovery";
 import { AIRouter, type AIRouterRequest, type ModelInventory, type ModelSelection } from "../ai_router/router";
 import { routeIntent } from "../intent_router";
@@ -20,6 +21,8 @@ import { runSwarm } from "../swarm_runtime";
 import { AgentSelfGovernanceSystem } from "../../governance/self-governance-system";
 import { buildKnowledgeGraphArtifacts } from "../../memory/knowledge_graph";
 import { recordLearningArtifacts } from "../../memory/learning_store";
+import { runFactQuery } from "../../memory/fact_query";
+import { writeMemoryBriefArtifacts } from "../../memory/memory_brief";
 import { clearContextAnnotation, listContextAnnotations, readContextAnnotation, writeContextAnnotation } from "../../memory/annotations";
 import { getContextRegistryEntry, listContextSources, searchContextRegistry } from "../../memory/context_registry";
 import { runEcosystemRadar } from "../../memory/context_registry/ecosystem_radar";
@@ -35,6 +38,7 @@ import type {
   CodeGraphBuildResult,
   CodebaseMapResult,
   ContextLiteResult,
+  FactQueryResult,
   ContextGetResult,
   ContextAnnotation,
   ContextSearchResult,
@@ -338,7 +342,9 @@ export class ProjectBrainOrchestrator {
     const discovery = await this.discoveryEngine.analyze(targetPath, {
       excludePaths: this.discoveryExclusions(targetPath, outputPath)
     });
-    return this.contextBuilder.build(discovery, outputPath);
+    const context = await this.contextBuilder.build(discovery, outputPath);
+    await writeMemoryBriefArtifacts(context);
+    return context;
   }
 
   async mapTarget(targetPath: string, outputPath = targetPath): Promise<CodebaseMapResult> {
@@ -366,12 +372,25 @@ export class ProjectBrainOrchestrator {
 
   async buildCodeGraph(targetPath: string, outputPath = targetPath): Promise<CodeGraphBuildResult> {
     const context = await this.initTarget(targetPath, outputPath);
-    return buildOrUpdateCodeGraphV2(context);
+    const codeGraph = await buildOrUpdateCodeGraphV2(context);
+    const factGraph = await buildRepositoryFactGraph(context, codeGraph.graph);
+
+    return {
+      ...codeGraph,
+      factGraphPath: factGraph.graphPath,
+      factReportPath: factGraph.reportPath,
+      factGraph: factGraph.graph
+    };
   }
 
   async contextLite(targetPath: string, outputPath = targetPath): Promise<ContextLiteResult> {
     const context = await this.initTarget(targetPath, outputPath);
     return writeContextLiteArtifacts(context);
+  }
+
+  async factQuery(targetPath: string, outputPath = targetPath, query: string): Promise<FactQueryResult> {
+    const context = await this.initTarget(targetPath, outputPath);
+    return runFactQuery(context, query);
   }
 
   async securityAudit(
@@ -779,15 +798,21 @@ export class ProjectBrainOrchestrator {
 
     if (route.workflow === "build-code-graph") {
       const result = await this.buildCodeGraph(primaryTargetPath, primaryOutputPath);
-      headline = `Built or refreshed the structural code graph.`;
+      headline = `Built or refreshed the structural code graph and factual repository graph.`;
       summary = [
         scopeNote ?? `Target path: ${primaryTargetPath}`,
         `Build mode: ${result.graph.build.mode}`,
         `Files: ${result.graph.stats.files}`,
         `Symbols: ${result.graph.stats.symbols}`,
-        `Edges: ${result.graph.stats.edges}`
-      ].filter(Boolean);
-      artifacts = [{ label: "Code graph", path: result.graphPath }];
+        `Edges: ${result.graph.stats.edges}`,
+        result.factGraph ? `Fact graph nodes: ${result.factGraph.stats.nodes}` : undefined,
+        result.factGraph ? `Fact graph edges: ${result.factGraph.stats.edges}` : undefined
+      ].filter((entry): entry is string => Boolean(entry));
+      artifacts = [
+        { label: "Code graph", path: result.graphPath },
+        ...(result.factGraphPath ? [{ label: "Repository fact graph", path: result.factGraphPath }] : []),
+        ...(result.factReportPath ? [{ label: "Repository fact graph report", path: result.factReportPath }] : [])
+      ];
     }
 
     if (aiEnhancement) {
@@ -1043,6 +1068,7 @@ ${renderList(route.followUps)}
 
       await updatePersistentMemory(context, effectiveReports);
       await recordLearningArtifacts(context.memoryDir, effectiveReports);
+      await writeMemoryBriefArtifacts(context);
 
       if (governanceRun.summary.proposals.length > 0) {
         this.logger.info("Improvement proposals generated", {

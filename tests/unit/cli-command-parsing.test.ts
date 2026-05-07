@@ -44,6 +44,7 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
     expect(helpText).toContain("init");
     expect(helpText).toContain("map-codebase");
     expect(helpText).toContain("context-lite");
+    expect(helpText).toContain("fact-query");
     expect(helpText).toContain("analyze");
     expect(helpText).toContain("agents");
     expect(helpText).toContain("weekly");
@@ -90,6 +91,13 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
 
     expect(contextLiteHelp).toContain("lightweight AI context");
     expect(contextLiteHelp).toContain("--output");
+  });
+
+  it("shows fact-query options", () => {
+    const factQueryHelp = runCliHelp(["fact-query", "--help"]);
+
+    expect(factQueryHelp).toContain("factual memory");
+    expect(factQueryHelp).toContain("--output");
   });
 
   it("shows annotation options", () => {

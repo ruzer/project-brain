@@ -1,24 +1,24 @@
 # PROJECT_MODEL
 
-Project: Agentes
+Project: project-brain
 
 Type:
-Backend API service
+Software project
 
 Languages:
 TypeScript
 
 Frameworks:
-Express
+Unknown
 
 APIs:
-GraphQL, OpenAPI, REST
+Not detected
 
 Testing:
 Vitest
 
 Infrastructure:
-Dockerfile
+Not detected
 
 Git:
-Not a git repository
+codex/swarm-runtime-console (c58fce4 docs: expand project run instructions and verification steps)

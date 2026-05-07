@@ -49,6 +49,26 @@ export type CodeGraphNodeKind =
   | "enum"
   | "test";
 export type CodeGraphEdgeKind = "imports" | "contains" | "calls";
+export type RepositoryFactGraphNodeKind =
+  | "repository"
+  | "directory"
+  | "file"
+  | "symbol"
+  | "language"
+  | "framework"
+  | "manifest"
+  | "api_surface"
+  | "infra_surface";
+export type RepositoryFactGraphEdgeKind =
+  | "contains"
+  | "uses_language"
+  | "uses_framework"
+  | "has_manifest"
+  | "exposes_api"
+  | "defines_infra"
+  | "declares"
+  | "imports"
+  | "calls";
 export type LearningOutcome =
   | "SUCCESSFUL_PROPOSAL"
   | "REJECTED_PROPOSAL"
@@ -359,6 +379,9 @@ export interface SwarmWorkerResult {
   summary: string;
   findings: string[];
   recommendations: string[];
+  verifiedFacts?: string[];
+  unknowns?: string[];
+  evidenceRefs?: string[];
   error?: string;
 }
 
@@ -436,6 +459,9 @@ export interface SwarmRunResult {
     summary: string;
     priorities: string[];
     nextSteps: string[];
+    verifiedFacts?: string[];
+    unknowns?: string[];
+    evidenceRefs?: string[];
   };
 }
 
@@ -823,6 +849,41 @@ export interface CodeGraphDocument {
 export interface CodeGraphBuildResult {
   graphPath: string;
   graph: CodeGraphDocument;
+  factGraphPath?: string;
+  factReportPath?: string;
+  factGraph?: RepositoryFactGraphDocument;
+}
+
+export interface RepositoryFactGraphNode {
+  id: string;
+  label: string;
+  kind: RepositoryFactGraphNodeKind;
+  attributes?: Record<string, string | number | boolean>;
+}
+
+export interface RepositoryFactGraphEdge {
+  kind: RepositoryFactGraphEdgeKind;
+  from: string;
+  to: string;
+  evidencePath?: string;
+  line?: number;
+}
+
+export interface RepositoryFactGraphDocument {
+  version: 1;
+  generatedAt: string;
+  targetPath: string;
+  repoName: string;
+  nodes: RepositoryFactGraphNode[];
+  edges: RepositoryFactGraphEdge[];
+  stats: {
+    nodes: number;
+    edges: number;
+    codeGraphFiles: number;
+    codeGraphSymbols: number;
+    nodeKinds: Partial<Record<RepositoryFactGraphNodeKind, number>>;
+    edgeKinds: Partial<Record<RepositoryFactGraphEdgeKind, number>>;
+  };
 }
 
 export interface ImpactAnalysisResult {
@@ -856,6 +917,41 @@ export interface ContextLiteResult {
   artifactPaths: string[];
   summary: string[];
   openQuestions: string[];
+}
+
+export interface FactQueryResult {
+  query: string;
+  answer: string;
+  tokens: string[];
+  reportPath: string;
+  memoryPath: string;
+  sources: {
+    memoryBriefPath: string;
+    memoryBriefJsonPath: string;
+    repositoryFactGraphPath: string;
+  };
+  memoryMatches: Array<{
+    kind: string;
+    text: string;
+    score: number;
+  }>;
+  nodeMatches: Array<{
+    id: string;
+    kind: RepositoryFactGraphNodeKind;
+    label: string;
+    score: number;
+    attributes?: Record<string, string | number | boolean>;
+  }>;
+  edgeMatches: Array<{
+    kind: RepositoryFactGraphEdgeKind;
+    from: string;
+    to: string;
+    evidencePath?: string;
+    line?: number;
+    score: number;
+  }>;
+  evidenceRefs: string[];
+  unknowns: string[];
 }
 
 export interface EcosystemCodebaseMapRepositoryResult extends CodebaseMapArtifact {

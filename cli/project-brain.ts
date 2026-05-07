@@ -441,6 +441,29 @@ program
   });
 
 program
+  .command("fact-query")
+  .alias("fq")
+  .argument("<query>", "Query over MEMORY_BRIEF and repository_fact_graph")
+  .argument("[target]", "Repository target", ".")
+  .option("-o, --output <dir>", "Output directory")
+  .description("Query compact factual memory without calling an AI model.")
+  .action(async (query: string, target: string, options: { output?: string }) => {
+    const targetPath = resolveTarget(target);
+    const outputPath = resolveOutput(targetPath, options.output);
+    const result = await orchestrator.factQuery(targetPath, outputPath, query);
+    console.log(`Fact query report: ${result.reportPath}`);
+    console.log(`Fact query memory: ${result.memoryPath}`);
+    console.log(`Answer: ${result.answer}`);
+    console.log(`Memory matches: ${result.memoryMatches.length}`);
+    console.log(`Node matches: ${result.nodeMatches.length}`);
+    console.log(`Edge matches: ${result.edgeMatches.length}`);
+    console.log(`Evidence refs: ${result.evidenceRefs.join(", ") || "None"}`);
+    if (result.unknowns.length > 0) {
+      console.log(`Unknowns: ${result.unknowns.join(" | ")}`);
+    }
+  });
+
+program
   .command("analyze")
   .argument("<target>", "Repository to analyze")
   .option("-o, --output <dir>", "Output directory")
@@ -568,11 +591,21 @@ program
     const outputPath = resolveOutput(targetPath, options.output);
     const result = await orchestrator.buildCodeGraph(targetPath, outputPath);
     console.log(`Code graph: ${result.graphPath}`);
+    if (result.factGraphPath) {
+      console.log(`Repository fact graph: ${result.factGraphPath}`);
+    }
+    if (result.factReportPath) {
+      console.log(`Repository fact report: ${result.factReportPath}`);
+    }
     console.log(`Build mode: ${result.graph.build.mode}`);
     console.log(`Files: ${result.graph.stats.files}`);
     console.log(`Symbols: ${result.graph.stats.symbols}`);
     console.log(`Nodes: ${result.graph.stats.nodes}`);
     console.log(`Edges: ${result.graph.stats.edges}`);
+    if (result.factGraph) {
+      console.log(`Fact graph nodes: ${result.factGraph.stats.nodes}`);
+      console.log(`Fact graph edges: ${result.factGraph.stats.edges}`);
+    }
     console.log(`Updated files: ${result.graph.build.updatedFiles.join(", ") || "None"}`);
   });
 

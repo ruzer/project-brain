@@ -2,10 +2,11 @@ import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 
-import { buildRepoSummary } from "../../agents/ai-support";
+import { buildMemoryBriefSummary, buildRepoSummary } from "../../agents/ai-support";
 import { readJsonSafe, writeFileEnsured, writeJsonEnsured } from "../../shared/fs-utils";
 import type { ProjectContext, SwarmPlanTask, SwarmRunResult, SwarmWorkerResult } from "../../shared/types";
 import type { AIRouterRequest, AIRouterTask, ModelProfile, ModelSelection } from "../ai_router/router";
+import { applyTokenPolicy } from "../token_policy";
 
 interface SwarmAssistant {
   ask(input: AIRouterRequest): Promise<string>;
@@ -33,6 +34,9 @@ interface WorkerPayload {
   summary: string;
   findings: string[];
   recommendations: string[];
+  verifiedFacts: string[];
+  unknowns: string[];
+  evidenceRefs: string[];
 }
 
 interface SynthesisPayload {
@@ -40,6 +44,9 @@ interface SynthesisPayload {
   summary: string;
   priorities: string[];
   next_steps: string[];
+  verified_facts: string[];
+  unknowns: string[];
+  evidence_refs: string[];
 }
 
 interface ScopeChunk {
@@ -175,7 +182,17 @@ function extractJsonObject(input: string): Record<string, unknown> | undefined {
   }
 }
 
-type StructuredSectionKey = "body" | "headline" | "summary" | "findings" | "recommendations" | "priorities" | "next_steps";
+type StructuredSectionKey =
+  | "body"
+  | "headline"
+  | "summary"
+  | "findings"
+  | "recommendations"
+  | "priorities"
+  | "next_steps"
+  | "verified_facts"
+  | "unknowns"
+  | "evidence_refs";
 
 function stripCodeFences(input: string): string {
   return input
@@ -205,6 +222,15 @@ function normalizeSectionKey(rawKey: string): StructuredSectionKey | undefined {
   }
   if (normalized === "next steps" || normalized === "next_steps" || normalized === "next-step" || normalized === "next step") {
     return "next_steps";
+  }
+  if (normalized === "verified facts" || normalized === "verified_facts" || normalized === "facts") {
+    return "verified_facts";
+  }
+  if (normalized === "unknowns" || normalized === "unknown" || normalized === "not verified" || normalized === "not_verified") {
+    return "unknowns";
+  }
+  if (normalized === "evidence refs" || normalized === "evidence_refs" || normalized === "evidence" || normalized === "sources") {
+    return "evidence_refs";
   }
 
   return undefined;
@@ -392,7 +418,10 @@ function normalizeWorkerPayload(raw: string, task: SwarmPlanTask): WorkerPayload
           ? parsed.summary.trim()
           : `The ${task.title} worker finished without a summary.`,
       findings: normalizeStringList(parsed.findings),
-      recommendations: normalizeStringList(parsed.recommendations)
+      recommendations: normalizeStringList(parsed.recommendations),
+      verifiedFacts: normalizeStringList(parsed.verified_facts ?? parsed.verifiedFacts),
+      unknowns: normalizeStringList(parsed.unknowns),
+      evidenceRefs: normalizeStringList(parsed.evidence_refs ?? parsed.evidenceRefs)
     };
   }
 
@@ -405,14 +434,20 @@ function normalizeWorkerPayload(raw: string, task: SwarmPlanTask): WorkerPayload
     return {
       summary: summary || `The ${task.title} worker returned partial structured text.`,
       findings,
-      recommendations
+      recommendations,
+      verifiedFacts: sectionToList(sections.verified_facts),
+      unknowns: sectionToList(sections.unknowns),
+      evidenceRefs: sectionToList(sections.evidence_refs)
     };
   }
 
   return {
     summary: `The ${task.title} worker could not return structured JSON.`,
     findings: [],
-    recommendations: []
+    recommendations: [],
+    verifiedFacts: [],
+    unknowns: [],
+    evidenceRefs: []
   };
 }
 
@@ -429,7 +464,10 @@ function normalizeSynthesisPayload(raw: string, intent: string): SynthesisPayloa
           ? parsed.summary.trim()
           : "The swarm synthesized the delegated outputs.",
       priorities: normalizeStringList(parsed.priorities),
-      next_steps: normalizeStringList(parsed.next_steps)
+      next_steps: normalizeStringList(parsed.next_steps),
+      verified_facts: normalizeStringList(parsed.verified_facts ?? parsed.verifiedFacts),
+      unknowns: normalizeStringList(parsed.unknowns),
+      evidence_refs: normalizeStringList(parsed.evidence_refs ?? parsed.evidenceRefs)
     };
   }
 
@@ -444,7 +482,10 @@ function normalizeSynthesisPayload(raw: string, intent: string): SynthesisPayloa
       headline: headline || `Completed a bounded swarm review for: ${intent}`,
       summary: summary || "The swarm synthesized the delegated outputs.",
       priorities,
-      next_steps: nextSteps
+      next_steps: nextSteps,
+      verified_facts: sectionToList(sections.verified_facts),
+      unknowns: sectionToList(sections.unknowns),
+      evidence_refs: sectionToList(sections.evidence_refs)
     };
   }
 
@@ -452,7 +493,10 @@ function normalizeSynthesisPayload(raw: string, intent: string): SynthesisPayloa
     headline: `Completed a bounded swarm review for: ${intent}`,
     summary: "The swarm finished, but synthesis did not return structured JSON.",
     priorities: [],
-    next_steps: []
+    next_steps: [],
+    verified_facts: [],
+    unknowns: [],
+    evidence_refs: []
   };
 }
 
@@ -1347,7 +1391,8 @@ function buildChunkContext(context: ProjectContext, scopePaths: string[]): strin
     `Sample files: ${sampleFiles.join(", ") || "None"}`,
     `Languages: ${context.discovery.languages.join(", ") || "Unknown"}`,
     `Frameworks: ${context.discovery.frameworks.join(", ") || "Unknown"}`,
-    `Testing: ${context.discovery.testing.join(", ") || "Not detected"}`
+    `Testing: ${context.discovery.testing.join(", ") || "Not detected"}`,
+    buildMemoryBriefSummary(context, 16)
   ].join("\n");
 }
 
@@ -1379,8 +1424,10 @@ function buildWorkerPrompt(context: ProjectContext, intent: string, overview: st
       "You are a bounded worker inside a project-brain swarm.",
       "Use only the scoped repository context provided.",
       "Do not assume facts that are not in the repository summary.",
+      "Every factual claim must be backed by a file path, route, config, manifest, or generated artifact reference.",
+      "Use unknowns for missing or unverified relationships.",
       "Return JSON only in this shape:",
-      '{ "summary": string, "findings": string[], "recommendations": string[] }',
+      '{ "summary": string, "findings": string[], "recommendations": string[], "verified_facts": string[], "unknowns": string[], "evidence_refs": string[] }',
       `User intent: ${intent}`,
       `Swarm overview: ${overview}`,
       `Task title: ${task.title}`,
@@ -1400,8 +1447,9 @@ function buildSynthesisPrompt(intent: string, overview: string, workerResults: S
     prompt: [
       "You are the synthesizer for a project-brain swarm run.",
       "Merge the worker outputs into a concise, decision-oriented result.",
+      "Keep facts separate from unknowns. Do not promote worker recommendations into facts unless evidence_refs support them.",
       "Return JSON only in this shape:",
-      '{ "headline": string, "summary": string, "priorities": string[], "next_steps": string[] }',
+      '{ "headline": string, "summary": string, "verified_facts": string[], "unknowns": string[], "evidence_refs": string[], "priorities": string[], "next_steps": string[] }',
       `User intent: ${intent}`,
       `Swarm overview: ${overview}`,
       "Worker outputs:",
@@ -1458,7 +1506,8 @@ async function askWithSwarmCache(
   cache: SwarmResponseCacheDocument,
   optimization: SwarmOptimizationStats
 ): Promise<string> {
-  const key = buildSwarmCacheKey(context, request, selectionIdentity(selection));
+  const policyRequest = applyTokenPolicy(request);
+  const key = buildSwarmCacheKey(context, policyRequest, selectionIdentity(selection));
   const cachedEntry = cache.entries[key];
 
   if (cachedEntry) {
@@ -1470,8 +1519,8 @@ async function askWithSwarmCache(
   }
 
   optimization.cacheMisses += 1;
-  const response = await assistant.ask(request);
-  recordSwarmCacheEntry(cache, key, context, request, selection, response);
+  const response = await assistant.ask(policyRequest);
+  recordSwarmCacheEntry(cache, key, context, policyRequest, selection, response);
   optimization.cacheWrites += 1;
   return response;
 }
@@ -1574,6 +1623,15 @@ ${result.error ? `- Error: ${result.error}\n` : ""}
 Findings:
 ${renderList(result.findings)}
 
+Verified facts:
+${renderList(result.verifiedFacts ?? [])}
+
+Unknowns:
+${renderList(result.unknowns ?? [])}
+
+Evidence refs:
+${renderList(result.evidenceRefs ?? [])}
+
 Recommendations:
 ${renderList(result.recommendations)}`
   )
@@ -1588,6 +1646,18 @@ ${renderList(result.recommendations)}`
 - Headline: ${synthesis.headline}
 
 ${synthesis.summary}
+
+### Verified facts
+
+${renderList(synthesis.verified_facts)}
+
+### Unknowns
+
+${renderList(synthesis.unknowns)}
+
+### Evidence refs
+
+${renderList(synthesis.evidence_refs)}
 
 ### Priorities
 
@@ -1689,6 +1759,9 @@ export async function runSwarm(
           summary: "The global swarm time budget was exhausted before this task could run.",
           findings: [],
           recommendations: ["Increase the run timeout or reduce the queue budget/chunk size."],
+          verifiedFacts: [],
+          unknowns: ["The task did not run because the global time budget was exhausted."],
+          evidenceRefs: [],
           error: "Run timeout exceeded before task execution."
         }
       };
@@ -1729,7 +1802,10 @@ export async function runSwarm(
           residency: selection.residency,
           summary: payload.summary,
           findings: payload.findings,
-          recommendations: payload.recommendations
+          recommendations: payload.recommendations,
+          verifiedFacts: payload.verifiedFacts,
+          unknowns: payload.unknowns,
+          evidenceRefs: payload.evidenceRefs
         }
       };
     } catch (error) {
@@ -1799,6 +1875,9 @@ export async function runSwarm(
           recommendations: timedOut
             ? ["Reduce chunk size or increase the worker timeout for this task."]
             : ["Retry the task or inspect the affected scope manually."],
+          verifiedFacts: [],
+          unknowns: [timedOut ? "The worker exceeded its time budget." : "The worker failed before producing structured output."],
+          evidenceRefs: [],
           error: message
         }
       };
@@ -1853,7 +1932,10 @@ export async function runSwarm(
       next_steps: [
         "Increase the run timeout for broader swarm runs.",
         "Reduce queue budget or chunk size to finish within the current budget."
-      ]
+      ],
+      verified_facts: workerResults.flatMap((result) => result.verifiedFacts ?? []).slice(0, 12),
+      unknowns: ["Synthesis did not run because the global time budget was exhausted."],
+      evidence_refs: workerResults.flatMap((result) => result.evidenceRefs ?? []).slice(0, 12)
     };
   } else {
     try {
@@ -1877,7 +1959,10 @@ export async function runSwarm(
           next_steps: [
             "Increase synthesis timeout for broader merges.",
             "Reduce queue budget or chunk size if the run must finish faster."
-          ]
+          ],
+          verified_facts: workerResults.flatMap((result) => result.verifiedFacts ?? []).slice(0, 12),
+          unknowns: ["Synthesis timed out before producing a full structured merge."],
+          evidence_refs: workerResults.flatMap((result) => result.evidenceRefs ?? []).slice(0, 12)
         };
       } else {
         throw error;
@@ -1952,7 +2037,10 @@ export async function runSwarm(
       headline: synthesis.headline,
       summary: synthesis.summary,
       priorities: synthesis.priorities,
-      nextSteps: synthesis.next_steps
+      nextSteps: synthesis.next_steps,
+      verifiedFacts: synthesis.verified_facts,
+      unknowns: synthesis.unknowns,
+      evidenceRefs: synthesis.evidence_refs
     }
   };
 }

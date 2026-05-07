@@ -15,14 +15,20 @@ function artifactPriority(label: string): number {
       return 7;
     case "Swarm":
       return 6;
-    case "Impact Radius":
+    case "Memory Brief":
+    case "Memory Brief JSON":
       return 5;
-    case "Firewall":
+    case "Repository Fact Graph":
+    case "Repository Fact Graph Report":
+      return 5;
+    case "Impact Radius":
       return 4;
-    case "Codebase Map":
+    case "Firewall":
       return 3;
-    case "Doctor":
+    case "Codebase Map":
       return 2;
+    case "Doctor":
+      return 1;
     case "Ask Brief":
       return 1;
     default:
@@ -50,6 +56,10 @@ function stageFromArtifactLabel(label: string | undefined): ResumeStage {
     case "Ask Brief":
       return "ask";
     case "Codebase Map":
+    case "Memory Brief":
+    case "Memory Brief JSON":
+    case "Repository Fact Graph":
+    case "Repository Fact Graph Report":
       return "map-codebase";
     case "Firewall":
       return "firewall";
@@ -126,11 +136,24 @@ async function buildStageNotes(
   }
 
   if (stage === "map-codebase") {
-    const lines = firstUsefulLines(await readTextSafe(path.join(context.docsDir, "codebase_map", "SUMMARY.md")));
+    const codebaseMap = status.artifacts.find((artifact) => artifact.label === "Codebase Map" && artifact.exists);
+    const lines = codebaseMap ? firstUsefulLines(await readTextSafe(path.join(context.docsDir, "codebase_map", "SUMMARY.md"))) : [];
     if (lines.length > 0) {
       notes.push(...lines);
-    } else {
+    } else if (codebaseMap) {
       notes.push("A codebase map is already present for this output path.");
+    } else {
+      notes.push("A codebase map is still missing for this output path.");
+    }
+
+    const factGraph = status.artifacts.find((artifact) => artifact.label === "Repository Fact Graph" && artifact.exists);
+    if (factGraph) {
+      notes.push("A repository fact graph is available and should be reused before running broad model analysis.");
+    }
+
+    const memoryBrief = status.artifacts.find((artifact) => artifact.label === "Memory Brief" && artifact.exists);
+    if (memoryBrief) {
+      notes.push("A compact memory brief is available for agents and future model handoffs.");
     }
   }
 

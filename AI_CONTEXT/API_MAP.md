@@ -2,15 +2,12 @@
 
 ## API styles
 
-- GraphQL
-- OpenAPI
-- REST
+- None detected
 
 ## API-related files
 
-- tests/fixtures/sample-repo/openapi.yaml
-- tests/fixtures/sample-repo/schema.graphql
+- None detected
 
 ## OpenAPI summaries
 
-- tests/fixtures/sample-repo/openapi.yaml | title: Sample Repo API | version: 1.0.0
+- No OpenAPI summaries available

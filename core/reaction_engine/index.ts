@@ -131,6 +131,33 @@ export function deriveStatusSuggestions(result: Pick<StatusResult, "context" | "
     });
   }
 
+  if (!hasArtifact(result.artifacts, "Memory Brief")) {
+    actions.push({
+      label: "Refresh Memory Brief",
+      command: `project-brain status . ${output}`,
+      rationale: "The compact memory handoff is missing; status refreshes project memory before deeper analysis.",
+      priority: "high"
+    });
+  }
+
+  if (!hasArtifact(result.artifacts, "Repository Fact Graph")) {
+    actions.push({
+      label: "Build Repository Fact Graph",
+      command: `project-brain code-graph . ${output}`,
+      rationale: "A factual graph gives later runs a compact structural index before spending tokens on broad model analysis.",
+      priority: hasArtifact(result.artifacts, "Codebase Map") ? "high" : "medium"
+    });
+  }
+
+  if (hasArtifact(result.artifacts, "Repository Fact Graph") && !hasArtifact(result.artifacts, "Fact Query")) {
+    actions.push({
+      label: "Query Factual Memory",
+      command: `project-brain fact-query "memory optimization" . ${output}`,
+      rationale: "A deterministic query gives agents a compact starting context before broad model analysis.",
+      priority: "medium"
+    });
+  }
+
   if (!hasArtifact(result.artifacts, "Swarm")) {
     actions.push({
       label: "Run Self Improve",
@@ -196,6 +223,15 @@ export function deriveResumeSuggestions(
   }
 
   if ((result.summary.stage === "map-codebase" || result.summary.stage === "ask") && !hasArtifact(result.artifacts, "Swarm")) {
+    if (!hasArtifact(result.artifacts, "Repository Fact Graph")) {
+      actions.push({
+        label: "Continue With Fact Graph",
+        command: `project-brain code-graph . ${output}`,
+        rationale: "Structural facts are available from deterministic analysis and should be captured before a bounded swarm run.",
+        priority: "high"
+      });
+    }
+
     actions.push({
       label: "Continue With Swarm",
       command: `project-brain self-improve . ${output}`,
