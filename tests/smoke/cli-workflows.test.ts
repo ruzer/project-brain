@@ -10,6 +10,7 @@ import { cleanupDir, createTempOutputDir, fixtureRepoPath, workspaceFixturePath 
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
+const CLI_SMOKE_WORKFLOW_TIMEOUT_MS = 45000;
 
 function runCli(args: string[], cwd: string): { stdout: string; stderr: string } {
   const tsNodeBin = require.resolve("ts-node/dist/bin.js");
@@ -64,7 +65,7 @@ describe("CLI smoke workflows", () => {
     expect(manifest.reportFiles.some((file) => file.startsWith("reports/telemetry/cycle_"))).toBe(true);
     expect(manifest.docFiles).toContain("docs/runbook.md");
     expect(manifest.proposalFiles.some((file) => file.startsWith("docs/proposals/proposal_"))).toBe(true);
-  }, 15000);
+  }, CLI_SMOKE_WORKFLOW_TIMEOUT_MS);
 
   it("prints structured JSON logs in verbose mode while preserving telemetry output", async () => {
     const outputDir = await createTempOutputDir("project-brain-verbose");

@@ -160,7 +160,54 @@ Large files observed under `.tmp/` and existing generated output paths are not p
 
 ## 6. GitHub remote gate
 
-Status: pending until push.
+Status: blocked by Node 20 timeout failure.
+
+Original failed run:
+
+- Workflow: `project-brain-ci`
+- Run: `25575315699`
+- SHA: `c27439f25a81663a67a91f8ca280ffd67840519f`
+- Failed job: `quality-gates (20)`
+- Passing job: `quality-gates (22)`
+
+Rerun status:
+
+- `gh run rerun 25575315699 --failed` was executed.
+- `quality-gates (20)` failed again.
+- This is not treated as a one-off flake.
+
+Observed failures:
+
+- `tests/integration/dev-agent-analysis.test.ts`: default `5000ms` timeout was too low on Node 20 CI; observed runtime was about `5171ms`.
+- `tests/smoke/cli-workflows.test.ts`: explicit `15000ms` timeout was too low on Node 20 CI; observed runtime was about `16976ms`.
+
+Cause:
+
+- Node 20 GitHub runner executes the full suite more slowly than local Node 25 and Node 22 CI. The failures are timeout budget issues in two integration/smoke tests, not assertion failures and not product behavior failures.
+
+Fix:
+
+- Add a specific `15000ms` timeout to `tests/integration/dev-agent-analysis.test.ts`.
+- Increase only the affected first CLI smoke workflow timeout to `45000ms`.
+- No product code, package version, CLI behavior, assertions, or workflow matrix were changed.
+
+Post-fix local validation:
+
+| Command | Result |
+|---|---|
+| `npm test -- tests/integration/dev-agent-analysis.test.ts` | pass |
+| `npm test -- tests/smoke/cli-workflows.test.ts` | pass |
+| `npm test` | pass, 44 files and 113 tests |
+| `npm run lint` | pass |
+| `npm run typecheck` | pass |
+| `npm run build` | pass |
+| `npm audit --audit-level=high` | pass, 0 vulnerabilities |
+
+Post-fix remote validation:
+
+- PR workflow result: pending.
+- Main workflow result after merge: pending.
+- Dependabot state after merge: pending.
 
 Post-push checklist:
 
