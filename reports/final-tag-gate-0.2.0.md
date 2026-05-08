@@ -160,7 +160,80 @@ Large files observed under `.tmp/` and existing generated output paths are not p
 
 ## 6. GitHub remote gate
 
-Status: pending until push.
+Status: blocked until this fix branch passes remotely and is merged.
+
+Original failed run:
+
+- Workflow: `project-brain-ci`
+- Run: `25575315699`
+- SHA: `c27439f25a81663a67a91f8ca280ffd67840519f`
+- Failed job: `quality-gates (20)`
+- Passing job: `quality-gates (22)`
+
+Rerun status:
+
+- `gh run rerun 25575315699 --failed` was executed.
+- `quality-gates (20)` failed again.
+- This is not treated as a one-off flake.
+
+Observed failures:
+
+- `tests/integration/dev-agent-analysis.test.ts`: default `5000ms` timeout was too low on Node 20 CI; observed runtime was about `5171ms`.
+- `tests/smoke/cli-workflows.test.ts`: explicit `15000ms` timeout was too low on Node 20 CI; observed runtime was about `16976ms`.
+
+Cause:
+
+- Node 20 GitHub runner executes the full suite more slowly than local Node 25 and Node 22 CI. The failures are timeout budget issues in two integration/smoke tests, not assertion failures and not product behavior failures.
+
+Fix:
+
+- Add a specific `15000ms` timeout to `tests/integration/dev-agent-analysis.test.ts`.
+- Increase only the affected first CLI smoke workflow timeout to `45000ms`.
+- No product code, package version, CLI behavior, assertions, or workflow matrix were changed.
+
+Post-fix local validation:
+
+| Command | Result |
+|---|---|
+| `npm ci` | pass |
+| `npm test -- tests/integration/dev-agent-analysis.test.ts` | pass |
+| `npm test -- tests/smoke/cli-workflows.test.ts` | pass |
+| `npm test` | pass |
+| `npm run lint` | pass |
+| `npm run typecheck` | pass |
+| `npm run build` | pass |
+| `npm audit --audit-level=high` | pass, 0 vulnerabilities |
+| `npm pack --dry-run --json` | pass |
+| `project-brain --help` | pass |
+| `project-brain go --help` | pass |
+| `project-brain status` | pass |
+| `project-brain resume` | pass |
+| `project-brain fact-query "qué versión tiene este paquete"` | pass |
+| `project-brain runbook` | pass |
+| `project-brain doctor` | pass |
+| `project-brain console --help` | pass |
+
+Dependabot gate:
+
+- `gh api /repos/<repo>/dependabot/alerts?state=open&severity=critical,high,medium`: returned no open alerts.
+- `gh api /repos/<repo>/dependabot/alerts?state=open`: returned no open alerts.
+- `npm audit --audit-level=moderate --json`: `0` critical, high, moderate, low, and total vulnerabilities.
+- Open Dependabot PRs exist, but they are not treated as release-blocking security alerts without a matching open alert or local audit finding. Several are stale/conflicting version update PRs.
+- Revalidation after this fix branch: no critical/high/medium Dependabot alerts were returned and `npm audit --audit-level=moderate --json` remained at `0` total vulnerabilities.
+
+Post-fix remote validation:
+
+- PR workflow result: pass on PR `#17`.
+- PR checks observed as passing:
+  - `dependency-review`
+  - `quality-gates (20)`
+  - `quality-gates (22)`
+  - `security-baseline (20)`
+  - `security-baseline (22)`
+- PR merge status: blocked by base branch policy, not by test failure.
+- Auto-merge was enabled with squash merge.
+- Main workflow result after merge: pending.
+- Dependabot state after merge: pending.
 
 Post-push checklist:
 
