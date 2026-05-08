@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import { buildWorkflowRuntimeDefinitions, type WorkflowRuntimeDefinition } from "../../core/workflow_registry";
+import { writeExecutiveSummaryArtifacts } from "../../memory/executive_summary";
 import { fileExists, writeFileEnsured, writeJsonEnsured } from "../../shared/fs-utils";
 import type { ProjectContext, RunbookResult, RunbookStep } from "../../shared/types";
 
@@ -41,6 +42,14 @@ function renderRunbook(result: RunbookResult): string {
 ## Principle
 
 Run deterministic memory and graph steps before model-heavy analysis.
+
+## Executive Summary
+
+- Markdown: ${result.executiveSummary.reportPath}
+- JSON: ${result.executiveSummary.memoryPath}
+- Scopes: ${result.executiveSummary.status.scopeCount}
+- Fresh complete scopes: ${result.executiveSummary.status.completeFreshScopes}
+- Stale scopes: ${result.executiveSummary.status.staleScopes}
 
 ## Steps
 
@@ -97,12 +106,14 @@ export async function buildRunbook(context: ProjectContext, intent: string): Pro
     return "pending";
   };
   const steps = workflows.map((workflow, index) => stepFromWorkflow(String(index + 1).padStart(2, "0"), workflow, statusFor(workflow)));
+  const executiveSummary = await writeExecutiveSummaryArtifacts(context);
   const result: RunbookResult = {
     context,
     intent,
     generatedAt: new Date().toISOString(),
     reportPath: path.join(context.reportsDir, "runbook.md"),
     memoryPath: path.join(context.memoryDir, "runbook", "runbook.json"),
+    executiveSummary,
     steps
   };
 
@@ -112,6 +123,11 @@ export async function buildRunbook(context: ProjectContext, intent: string): Pro
     outputPath: context.outputPath,
     intent,
     generatedAt: result.generatedAt,
+    executiveSummary: {
+      reportPath: executiveSummary.reportPath,
+      memoryPath: executiveSummary.memoryPath,
+      status: executiveSummary.status
+    },
     steps
   });
   await writeFileEnsured(result.reportPath, renderRunbook(result));

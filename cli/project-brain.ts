@@ -411,6 +411,7 @@ program
     const result = await orchestrator.resume(targetPath, outputPath);
     console.log(`Resume report: ${result.reportPath}`);
     console.log(`Resume memory: ${result.memoryPath}`);
+    console.log(`Executive summary: ${result.executiveSummary.reportPath}`);
     console.log(`Git: repo=${result.git.isGitRepo ? "yes" : "no"}, branch=${result.git.branch ?? "unknown"}`);
     console.log(`Stage: ${result.summary.stage}`);
     console.log(`Headline: ${result.summary.headline}`);
@@ -442,6 +443,7 @@ program
     });
     console.log(`Start report: ${result.reportPath}`);
     console.log(`Start memory: ${result.memoryPath}`);
+    console.log(`Executive summary: ${result.executiveSummary.reportPath}`);
     console.log(`Headline: ${result.headline}`);
     console.log(`Memory: ${result.memoryReadiness.status} - ${result.memoryReadiness.reason}`);
     for (const step of result.executedSteps) {
@@ -592,6 +594,7 @@ program
     const result = await orchestrator.runbook(targetPath, outputPath, intent);
     console.log(`Runbook report: ${result.reportPath}`);
     console.log(`Runbook memory: ${result.memoryPath}`);
+    console.log(`Executive summary: ${result.executiveSummary.reportPath}`);
     for (const item of result.steps) {
       console.log(`- [${item.status}] ${item.id}. ${item.title}: ${item.command}`);
     }

@@ -32,4 +32,22 @@ describe("walkDirectory", () => {
     expect(files).toContain("app/src/components/vendor/VendorSidebar.tsx");
     expect(files).not.toContain("vendor/library/index.php");
   });
+
+  it("ignores local agent and project-brain runtime directories", async () => {
+    const rootDir = await mkdtemp(path.join(os.tmpdir(), "project-brain-fs-utils-runtime-"));
+    cleanupTargets.push(rootDir);
+
+    await mkdir(path.join(rootDir, ".claude", "worktrees", "agent"), { recursive: true });
+    await mkdir(path.join(rootDir, ".project-brain", "runtime"), { recursive: true });
+    await mkdir(path.join(rootDir, "src"), { recursive: true });
+    await writeFile(path.join(rootDir, ".claude", "worktrees", "agent", "scratch.ts"), "export const scratch = true;", "utf8");
+    await writeFile(path.join(rootDir, ".project-brain", "runtime", "state.json"), "{}", "utf8");
+    await writeFile(path.join(rootDir, "src", "index.ts"), "export const source = true;", "utf8");
+
+    const files = await walkDirectory(rootDir);
+
+    expect(files).toContain("src/index.ts");
+    expect(files).not.toContain(".claude/worktrees/agent/scratch.ts");
+    expect(files).not.toContain(".project-brain/runtime/state.json");
+  });
 });

@@ -338,6 +338,7 @@ export interface AskResult {
   artifacts: AskArtifact[];
   followUps: string[];
   routingReason: string;
+  preflightFacts?: PreflightFactsResult;
   guidedExecution?: {
     label: string;
     command: string;
@@ -353,6 +354,46 @@ export interface AskResult {
     summary: string[];
     suggestedWorkflow?: AskWorkflow;
   };
+}
+
+export type PreflightFactsConfidence = "none" | "low" | "medium" | "high";
+export type PreflightFactsNextAction =
+  | "answer-from-memory"
+  | "run-code-graph"
+  | "run-fact-query"
+  | "run-swarm-delta"
+  | "continue-workflow";
+
+export interface PreflightFactsResult {
+  intent: string;
+  scope?: string;
+  query: string;
+  factsFound: boolean;
+  facts: string[];
+  evidence: string[];
+  freshness: {
+    freshScopes: string[];
+    staleScopes: string[];
+    missingScopes: string[];
+  };
+  staleIgnored: string[];
+  confidence: PreflightFactsConfidence;
+  recommendedNextAction: PreflightFactsNextAction;
+  readiness: {
+    hasMemoryBrief: boolean;
+    hasExecutiveSummary: boolean;
+    hasFactGraph: boolean;
+    hasFreshScopeMemory: boolean;
+  };
+  sources: {
+    memoryBriefPath: string;
+    memoryBriefJsonPath: string;
+    executiveSummaryPath: string;
+    executiveSummaryJsonPath: string;
+    repositoryFactGraphPath: string;
+    scopeMemoryDir: string;
+  };
+  unknowns: string[];
 }
 
 export interface SwarmPlanTask {
@@ -692,6 +733,7 @@ export interface ResumeResult {
   };
   latestArtifact?: StatusArtifactSummary;
   memoryReadiness: MemoryReadinessResult;
+  executiveSummary: ExecutiveSummaryResult;
   artifacts: StatusArtifactSummary[];
   notes: string[];
   suggestions: SuggestedAction[];
@@ -712,6 +754,7 @@ export interface StartResult {
   memoryPath: string;
   headline: string;
   memoryReadiness: MemoryReadinessResult;
+  executiveSummary: ExecutiveSummaryResult;
   executedSteps: StartStep[];
   nextCommand?: string;
   artifacts: StatusArtifactSummary[];
@@ -1130,6 +1173,7 @@ export interface RunbookResult {
   generatedAt: string;
   reportPath: string;
   memoryPath: string;
+  executiveSummary: ExecutiveSummaryResult;
   steps: RunbookStep[];
 }
 

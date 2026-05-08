@@ -155,6 +155,18 @@ npm run build
 
 ## Typical usage
 
+Recommended entry point for non-technical or day-to-day use:
+
+```bash
+project-brain go "understand this project and suggest the next safe step" /path/to/repo --output /path/to/output
+```
+
+Use the console when you want a guided menu:
+
+```bash
+project-brain console --target /path/to/repo --output /path/to/output
+```
+
 Map an existing repository before deeper analysis:
 
 ```bash
@@ -218,6 +230,35 @@ Compute blast radius for a file or a set of files:
 ```bash
 project-brain impact-radius /path/to/repo --files src/core/service.ts,src/api/router.ts --output /path/to/output
 ```
+
+## Progressive memory and token reduction
+
+`project-brain` reduces repeated analysis by reading generated memory before
+model-heavy work:
+
+- `AI_CONTEXT/MEMORY_BRIEF.md`: compact handoff for agents and humans.
+- `AI_CONTEXT/EXECUTIVE_SUMMARY.md`: current project state, risks, scopes, and next actions.
+- `memory/scopes/*.json`: per-scope facts, freshness, coverage, and evidence.
+- `memory/knowledge_graph/repository_fact_graph.json`: structural repository facts.
+- `preflightFacts`: read-only check used before ask/model flows to find existing evidence.
+
+Fresh and complete scope memory can reduce bounded swarm work. Stale or partial
+memory is treated as a delta target, not as current truth.
+
+## Review-only safety
+
+The default product posture is analysis and review. Generated patch proposals are
+not applied automatically. Runtime diagnostics, local model inventory, and
+machine-specific reports are ignored by git; stable templates live under
+`reports/templates/`.
+
+## Troubleshooting
+
+- Vulnerabilities: run `npm audit`, then `npm audit fix` when fixes stay within safe semver.
+- Ollama unavailable: `doctor` reports the missing local runtime and the CLI still runs deterministic memory/graph workflows.
+- Claude/API unavailable: model-assisted refinement degrades; factual memory and graph commands still work.
+- Memory stale: rerun `status`, `code-graph`, `fact-query`, or a targeted cheap swarm.
+- Missing executive summary: run `project-brain status /path/to/repo --output /path/to/output`.
 
 Build or refresh the persistent code graph directly:
 

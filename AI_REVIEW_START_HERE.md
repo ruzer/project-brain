@@ -12,7 +12,9 @@ Start here before reading large source files:
 4. `docs/reference-repo-analysis/claude-mem-comparison.md`
 5. `docs/reference-repo-analysis/graphify-comparison.md` if present
 6. `AI_CONTEXT/MEMORY_BRIEF.md` when analyzing a generated output directory
-7. `memory/knowledge_graph/repository_fact_graph.json` when available in an output directory
+7. `AI_CONTEXT/EXECUTIVE_SUMMARY.md` when available in an output directory
+8. `memory/scopes/*.json` for fresh/stale scoped memory
+9. `memory/knowledge_graph/repository_fact_graph.json` when available in an output directory
 
 ## Source Entry Points
 
@@ -26,15 +28,21 @@ Read these source files next:
 6. `core/ai_router/router.ts`
 7. `core/token_policy/index.ts`
 8. `memory/memory_brief/index.ts`
-9. `memory/context_store/index.ts`
-10. `governance/self-governance-system.ts`
+9. `memory/preflight_facts/index.ts`
+10. `memory/scope_store/index.ts`
+11. `memory/executive_summary/index.ts`
+12. `memory/context_store/index.ts`
+13. `governance/self-governance-system.ts`
 
 ## Operating Rules
 
 - Do not infer repository behavior from filenames alone.
 - Use generated memory before broad source reading.
 - Treat `AI_CONTEXT/MEMORY_BRIEF.md` as the compact handoff.
+- Treat `AI_CONTEXT/EXECUTIVE_SUMMARY.md` as the human-facing release/state summary.
+- Use `preflightFacts` before model-heavy ask or agent workflows when evidence may already exist.
 - Treat `memory/knowledge_graph/repository_fact_graph.json` as structural evidence.
+- Treat stale scope memory as a delta target, not truth.
 - Use `UNKNOWN` when evidence is missing.
 - Recommend narrow, staged changes before broad rewrites.
 - Preserve review-only behavior unless the user explicitly asks for implementation.
@@ -44,6 +52,7 @@ Read these source files next:
 ```bash
 npm run build
 node dist/cli/project-brain.js start "optimize analysis and cost" . --output ./sample-output/self-optimization
+node dist/cli/project-brain.js go "understand this project" . --output ./sample-output/self-optimization
 node dist/cli/project-brain.js status . --output ./sample-output/self-optimization
 node dist/cli/project-brain.js runbook "optimize analysis and cost" . --output ./sample-output/self-optimization
 node dist/cli/project-brain.js code-graph . --output ./sample-output/self-optimization
@@ -55,9 +64,9 @@ node dist/cli/project-brain.js resume . --output ./sample-output/self-optimizati
 
 The highest-value optimization work is:
 
-1. make all agents consume `MEMORY_BRIEF`
+1. keep `preflightFacts` and `fact-query` ahead of model-heavy work
 2. keep `AI_CONTEXT/CONTEXT.md`, `LEARNINGS.md`, `ERRORS.md`, and `DECISIONS.md` alive instead of skeletal
-3. prefer factual graph and fact store context over long markdown reports
-4. add a query layer over memory and graph artifacts
-5. update decisions, learnings, corrections, and unknowns incrementally
-6. keep swarm prompts short, scoped, and cacheable
+3. prefer factual graph, executive summary, and scope memory over long markdown reports
+4. update decisions, learnings, corrections, and unknowns incrementally
+5. keep swarm prompts short, scoped, and cacheable
+6. preserve review-only behavior and deterministic fallbacks when Ollama/Claude are unavailable

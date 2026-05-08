@@ -406,3 +406,71 @@ If a local model returns labeled Markdown or plain text instead of strict JSON, 
 
 `parallelism` and queue budget are left adaptive on purpose, so `self-improve` can shrink itself automatically when the machine is already under pressure. It also uses a `source-first` scope bias so the first queued chunks prefer product code areas over `tests/` and top-level config files.
 Use it when you want `project-brain` to inspect a repository, including itself, without hand-tuning the swarm flags first.
+
+## Recommended release workflows
+
+Use `go` as the main entry point when you do not want to remember individual
+commands:
+
+```bash
+project-brain go "understand this project and recommend the next step" /path/to/repo --output /path/to/output
+```
+
+Use these deterministic commands before model-heavy work:
+
+```bash
+project-brain status /path/to/repo --output /path/to/output
+project-brain runbook "what should I do next?" /path/to/repo --output /path/to/output
+project-brain fact-query "known fact or module name" /path/to/repo --output /path/to/output
+```
+
+Use swarm presets only when memory/fact checks are insufficient:
+
+```bash
+project-brain swarm --preset cheap "inspect this module" /path/to/repo --output /path/to/output
+project-brain swarm --preset balanced "review critical risks" /path/to/repo --output /path/to/output
+project-brain swarm --preset thorough "deep review" /path/to/repo --output /path/to/output
+```
+
+Preset meanings:
+
+- `cheap`: fast/economic, fewer tasks.
+- `balanced`: recommended default for better coverage.
+- `thorough`: slower/costlier, maximum coverage.
+
+## Progressive memory
+
+The current memory stack is:
+
+- `AI_CONTEXT/MEMORY_BRIEF.md`: compact agent/human handoff.
+- `AI_CONTEXT/EXECUTIVE_SUMMARY.md`: project status, risks, scopes, and next actions.
+- `memory/scopes/*.json`: per-scope facts, coverage, freshness, and evidence.
+- `memory/knowledge_graph/repository_fact_graph.json`: structural repository facts.
+- `preflightFacts`: read-only factual preflight before ask/model flows.
+
+Fresh and complete scope memory may reduce queued swarm work. Stale scope memory
+is reported as stale and is not used as current factual evidence.
+
+## Runtime artifact policy
+
+Project Brain versions source documentation, templates, contracts, and curated
+`AI_CONTEXT/*.md` memory files. Runtime diagnostics and local agent state are
+generated per machine/session and are ignored by git.
+
+Versioned examples:
+
+- `AI_CONTEXT/*.md` curated project memory
+- `reports/templates/*.md` report templates
+- `docs/**` source documentation
+
+Ignored runtime examples:
+
+- `.claude/`
+- `AI_CONTEXT/doctor/`
+- `reports/doctor.md`
+- `.project-brain/runtime/`
+
+Generated doctor output can include absolute local paths, local model inventory,
+runtime versions, and branch-specific diagnostics. Use
+`reports/templates/doctor.md` as the stable source contract instead of tracking
+the generated report.

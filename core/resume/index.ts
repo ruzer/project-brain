@@ -3,6 +3,7 @@ import path from "node:path";
 import { buildStatus } from "../status";
 import { deriveResumeSuggestions } from "../reaction_engine";
 import { workflowForArtifactLabel } from "../workflow_registry";
+import { writeExecutiveSummaryArtifacts } from "../../memory/executive_summary";
 import { readJsonSafe, readTextSafe, writeFileEnsured, writeJsonEnsured } from "../../shared/fs-utils";
 import type { ProjectContext, ResumeResult, ResumeStage, StatusArtifactSummary, StatusResult } from "../../shared/types";
 
@@ -264,6 +265,7 @@ function renderResumeReport(result: ResumeResult): string {
 - Branch: ${result.git.branch ?? "unknown"}
 - Stage: ${result.summary.stage}
 - Memory readiness: ${result.memoryReadiness.status} (${result.memoryReadiness.reason})
+- Executive summary: ${result.executiveSummary.reportPath}
 - Artifact count: ${result.summary.artifactCount}
 - Latest artifact: ${result.summary.latestArtifactLabel ?? "none"}${result.summary.latestArtifactUpdatedAt ? ` (${result.summary.latestArtifactUpdatedAt})` : ""}
 - Headline: ${result.summary.headline}
@@ -284,6 +286,7 @@ ${renderSuggestions(result)}
 
 export async function buildResume(context: ProjectContext, deps: ResumeDeps = {}): Promise<ResumeResult> {
   const status = deps.buildStatus ? await deps.buildStatus(context) : await buildStatus(context);
+  const executiveSummary = status.executiveSummary ?? await writeExecutiveSummaryArtifacts(context);
   const latest = latestArtifact(status.artifacts);
   const stage = stageFromArtifactLabel(latest?.label);
   const notes = await buildStageNotes(context, stage, latest, status);
@@ -314,6 +317,7 @@ export async function buildResume(context: ProjectContext, deps: ResumeDeps = {}
     summary,
     latestArtifact: latest,
     memoryReadiness: status.memoryReadiness,
+    executiveSummary,
     artifacts: status.artifacts,
     notes,
     suggestions
@@ -328,6 +332,11 @@ export async function buildResume(context: ProjectContext, deps: ResumeDeps = {}
     summary,
     latestArtifact: latest,
     memoryReadiness: status.memoryReadiness,
+    executiveSummary: {
+      reportPath: executiveSummary.reportPath,
+      memoryPath: executiveSummary.memoryPath,
+      status: executiveSummary.status
+    },
     artifacts: result.artifacts,
     notes,
     suggestions

@@ -89,14 +89,25 @@ export async function recordSwarmLearningArtifacts(memoryDir: string, result: Sw
   const decisionsPath = path.join(memoryDir, "DECISIONS.md");
   const errorsPath = path.join(memoryDir, "ERRORS.md");
   const learningsPath = path.join(memoryDir, "LEARNINGS.md");
-  const verifiedFacts = result.synthesis.verifiedFacts ?? [];
-  const unknowns = result.synthesis.unknowns ?? [];
-  const nextSteps = result.synthesis.nextSteps ?? [];
-  const priorities = result.synthesis.priorities ?? [];
+  const synthesis = result.synthesis;
+
+  if (!synthesis) {
+    logger.info("Skipped swarm learning artifacts because synthesis is missing", {
+      component: "memory",
+      action: "memory_write_skipped",
+      memoryDir
+    });
+    return;
+  }
+
+  const verifiedFacts = synthesis.verifiedFacts ?? [];
+  const unknowns = synthesis.unknowns ?? [];
+  const nextSteps = synthesis.nextSteps ?? [];
+  const priorities = synthesis.priorities ?? [];
 
   await appendUniqueMemorySection(decisionsPath, timestamp, [
     `Swarm analyzed intent: ${result.intent}`,
-    `Synthesis headline: ${result.synthesis.headline}`
+    `Synthesis headline: ${synthesis.headline}`
   ]);
 
   if (verifiedFacts.length > 0 || priorities.length > 0 || nextSteps.length > 0) {

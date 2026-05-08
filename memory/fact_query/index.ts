@@ -188,7 +188,7 @@ function buildAnswer(
   return `FOUND: ${parts.join(" | ")}`;
 }
 
-export async function runFactQuery(context: ProjectContext, query: string): Promise<FactQueryResult> {
+export async function collectFactQuery(context: ProjectContext, query: string): Promise<FactQueryResult> {
   const tokens = tokenize(query);
   const memoryBriefPath = path.join(context.memoryDir, "MEMORY_BRIEF.md");
   const memoryBriefJsonPath = path.join(context.runtimeMemoryDir, "memory_brief", "memory_brief.json");
@@ -272,7 +272,12 @@ export async function runFactQuery(context: ProjectContext, query: string): Prom
     unknowns: uniqueSorted(unknowns).slice(0, 12)
   };
 
-  await writeJsonEnsured(memoryPath, result);
-  await writeFileEnsured(reportPath, renderFactQueryReport(result));
+  return result;
+}
+
+export async function runFactQuery(context: ProjectContext, query: string): Promise<FactQueryResult> {
+  const result = await collectFactQuery(context, query);
+  await writeJsonEnsured(result.memoryPath, result);
+  await writeFileEnsured(result.reportPath, renderFactQueryReport(result));
   return result;
 }

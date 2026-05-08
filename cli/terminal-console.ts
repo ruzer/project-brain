@@ -50,7 +50,7 @@ type WorkflowChoice =
   | "plan-improvements"
   | "report";
 
-type MenuChoice = "config" | "paths" | "swarm" | "run" | "models" | "setup" | "exit";
+type MenuChoice = "config" | "paths" | "executive-summary" | "swarm" | "run" | "models" | "setup" | "exit";
 type SwarmPreset = "custom" | "cheap" | "balanced" | "thorough";
 
 interface ChoiceOption<T extends string> {
@@ -83,10 +83,11 @@ interface LaunchTerminalConsoleOptions {
 }
 
 const MAIN_MENU: ChoiceOption<MenuChoice>[] = [
+  { value: "run", label: "Inicio recomendado / ejecutar workflow" },
+  { value: "executive-summary", label: "Ver resumen ejecutivo" },
   { value: "config", label: "Ver configuracion actual" },
   { value: "paths", label: "Configurar target y output" },
-  { value: "swarm", label: "Configurar defaults del swarm" },
-  { value: "run", label: "Ejecutar workflow" },
+  { value: "swarm", label: "Configurar analisis con agentes" },
   { value: "models", label: "Ver modelos y routing" },
   { value: "setup", label: "Ver setup local y toolchains open source" },
   { value: "exit", label: "Salir" }
@@ -137,9 +138,9 @@ const SWARM_ENGINE_CHOICES: ChoiceOption<SwarmEngine>[] = [
 ];
 
 const SWARM_PRESET_CHOICES: ChoiceOption<SwarmPreset>[] = [
-  { value: "cheap", label: "Barato: cola corta y presupuestos pequenos" },
-  { value: "balanced", label: "Balanceado: analisis practico" },
-  { value: "thorough", label: "Profundo: mas cola y mas tiempo" },
+  { value: "cheap", label: "Barato: rapido/economico, pocas tareas" },
+  { value: "balanced", label: "Balanceado: recomendado, mejor cobertura" },
+  { value: "thorough", label: "Profundo: mas lento/caro, maxima cobertura" },
   { value: "custom", label: "Avanzado: configurar manualmente" }
 ];
 
@@ -194,7 +195,7 @@ export async function launchTerminalConsole(options: LaunchTerminalConsoleOption
   try {
     console.log("");
     console.log("project-brain terminal console");
-    console.log("Configura el target, ajusta defaults y ejecuta los workflows principales sin recordar flags.");
+    console.log("Entrada guiada para analizar, continuar, buscar hechos y revisar pendientes sin recordar comandos internos.");
 
     while (true) {
       console.log("");
@@ -218,6 +219,11 @@ export async function launchTerminalConsole(options: LaunchTerminalConsoleOption
           case "paths":
             await configurePaths(rl, session, cwd);
             break;
+          case "executive-summary": {
+            const result = await options.orchestrator.status(session.targetPath, session.outputPath);
+            printExecutiveSummaryShortcut(result);
+            break;
+          }
           case "swarm":
             await configureSwarmDefaults(rl, session);
             break;
@@ -265,21 +271,26 @@ async function configureGeneralDefaults(rl: Interface, session: TerminalSessionS
 
 async function configureSwarmDefaults(rl: Interface, session: TerminalSessionState): Promise<void> {
   console.log("");
-  console.log("Configuracion del swarm");
-  session.swarmEngine = await promptChoice(rl, "Engine", SWARM_ENGINE_CHOICES, session.swarmEngine);
+  console.log("Configuracion del analisis con agentes");
+  session.swarmEngine = await promptChoice(rl, "Motor", SWARM_ENGINE_CHOICES, session.swarmEngine);
   const preset = await promptChoice(rl, "Preset", SWARM_PRESET_CHOICES, "balanced");
   if (preset !== "custom") {
     applySwarmPreset(session, preset);
+    console.log(`Costo seleccionado: ${describeSwarmCost(session)}`);
     return;
   }
-  session.parallelism = await promptOptionalInteger(rl, "Parallel workers", session.parallelism);
-  session.chunkSize = await promptOptionalInteger(rl, "Chunk size", session.chunkSize);
-  session.taskTimeoutMs = await promptOptionalInteger(rl, "Task timeout ms", session.taskTimeoutMs);
-  session.plannerTimeoutMs = await promptOptionalInteger(rl, "Planner timeout ms", session.plannerTimeoutMs);
-  session.synthesisTimeoutMs = await promptOptionalInteger(rl, "Synthesis timeout ms", session.synthesisTimeoutMs);
-  session.runTimeoutMs = await promptOptionalInteger(rl, "Run timeout ms", session.runTimeoutMs);
-  session.maxQueuedTasks = await promptOptionalInteger(rl, "Max queued tasks", session.maxQueuedTasks);
-  session.maxRetries = await promptOptionalInteger(rl, "Max retries", session.maxRetries);
+  session.parallelism = await promptOptionalInteger(rl, "Trabajo en paralelo", session.parallelism);
+  session.chunkSize = await promptOptionalInteger(rl, "Alcance por tarea", session.chunkSize);
+  session.taskTimeoutMs = await promptOptionalInteger(rl, "Limite de tiempo por tarea ms", session.taskTimeoutMs);
+  session.plannerTimeoutMs = await promptOptionalInteger(rl, "Limite de planeacion ms", session.plannerTimeoutMs);
+  session.synthesisTimeoutMs = await promptOptionalInteger(rl, "Limite de sintesis ms", session.synthesisTimeoutMs);
+  session.runTimeoutMs = await promptOptionalInteger(rl, "Limite total ms", session.runTimeoutMs);
+  session.maxQueuedTasks = await promptOptionalInteger(rl, "Maximo de tareas", session.maxQueuedTasks);
+  session.maxRetries = await promptOptionalInteger(rl, "Reintentos", session.maxRetries);
+}
+
+function describeSwarmCost(session: TerminalSessionState): string {
+  return `tiempo max ${Math.round((session.runTimeoutMs ?? 0) / 60_000)} min, tareas ${session.maxQueuedTasks ?? "auto"}, reintentos ${session.maxRetries ?? "auto"}`;
 }
 
 function applySwarmPreset(session: TerminalSessionState, preset: Exclude<SwarmPreset, "custom">): void {
@@ -648,11 +659,23 @@ function printStatusResult(result: StatusResult): void {
   }
 }
 
+function printExecutiveSummaryShortcut(result: StatusResult): void {
+  console.log("");
+  console.log("Resumen ejecutivo");
+  console.log(`- Markdown: ${result.executiveSummary.reportPath}`);
+  console.log(`- JSON: ${result.executiveSummary.memoryPath}`);
+  console.log(`- Scopes: ${result.executiveSummary.status.scopeCount}`);
+  console.log(`- Scopes listos: ${result.executiveSummary.status.completeFreshScopes}`);
+  console.log(`- Scopes obsoletos: ${result.executiveSummary.status.staleScopes}`);
+  console.log(`- Ultimo analisis: ${result.executiveSummary.status.latestSwarmHeadline ?? "Sin swarm registrado"}`);
+}
+
 function printResumeResult(result: ResumeResult): void {
   console.log("");
   console.log("Resume");
   console.log(`- Report: ${result.reportPath}`);
   console.log(`- Memory: ${result.memoryPath}`);
+  console.log(`- Executive summary: ${result.executiveSummary.reportPath}`);
   console.log(`- Stage: ${result.summary.stage}`);
   console.log(`- Headline: ${result.summary.headline}`);
   console.log(`- Memory readiness: ${result.memoryReadiness.status} - ${result.memoryReadiness.reason}`);
@@ -669,6 +692,7 @@ function printStartResult(result: StartResult): void {
   console.log("Inicio guiado");
   console.log(`- Report: ${result.reportPath}`);
   console.log(`- Memory: ${result.memoryPath}`);
+  console.log(`- Executive summary: ${result.executiveSummary.reportPath}`);
   console.log(`- Headline: ${result.headline}`);
   console.log(`- Memory readiness: ${result.memoryReadiness.status} - ${result.memoryReadiness.reason}`);
   for (const step of result.executedSteps) {
@@ -696,6 +720,7 @@ function printRunbookResult(result: RunbookResult): void {
   console.log("Ruta barata");
   console.log(`- Report: ${result.reportPath}`);
   console.log(`- Memory: ${result.memoryPath}`);
+  console.log(`- Executive summary: ${result.executiveSummary.reportPath}`);
   for (const step of result.steps) {
     console.log(`- [${step.status}] ${step.id}. ${step.title}: ${step.command}`);
   }

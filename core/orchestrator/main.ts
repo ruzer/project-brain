@@ -22,6 +22,7 @@ import { AgentSelfGovernanceSystem } from "../../governance/self-governance-syst
 import { buildKnowledgeGraphArtifacts } from "../../memory/knowledge_graph";
 import { recordLearningArtifacts, recordSwarmLearningArtifacts } from "../../memory/learning_store";
 import { runFactQuery } from "../../memory/fact_query";
+import { preflightFacts } from "../../memory/preflight_facts";
 import { writeMemoryBriefArtifacts } from "../../memory/memory_brief";
 import { assessMemoryReadiness } from "../../memory/readiness";
 import { runHarnessAudit } from "../../operations/harness_audit";
@@ -516,8 +517,13 @@ export class ProjectBrainOrchestrator {
       await this.swarm(targetPath, outputPath, intent, {
         engine: "bounded",
         chunkSize: 1,
-        maxQueuedTasks: 6,
-        maxRetries: 1
+        parallelism: 2,
+        taskTimeoutMs: 90_000,
+        plannerTimeoutMs: 60_000,
+        synthesisTimeoutMs: 60_000,
+        runTimeoutMs: 120_000,
+        maxQueuedTasks: 4,
+        maxRetries: 0
       });
       addStep("swarm", "Analizar con agentes", "done", `project-brain swarm ${JSON.stringify(intent)} ${targetArg} ${outputFlag} --preset cheap`, "Se ejecuto swarm porque se pidio --with-swarm.");
       await refreshStatus();
@@ -538,6 +544,7 @@ export class ProjectBrainOrchestrator {
       memoryPath: path.join(context.memoryDir, "start", "start.json"),
       headline: nextCommand ? "Start complete: base context is ready; one next action remains." : "Start complete: project-brain context is ready.",
       memoryReadiness: await assessMemoryReadiness(context),
+      executiveSummary: status.executiveSummary,
       executedSteps,
       nextCommand,
       artifacts: status.artifacts,
@@ -554,6 +561,7 @@ export class ProjectBrainOrchestrator {
 - Intent: ${intent}
 - Headline: ${result.headline}
 - Memory readiness: ${result.memoryReadiness.status} (${result.memoryReadiness.reason})
+- Executive summary: ${result.executiveSummary.reportPath}
 - Next command: ${nextCommand ?? "None"}
 
 ## Steps
@@ -568,6 +576,11 @@ ${executedSteps.map((step) => `- [${step.status}] ${step.label}: \`${step.comman
       intent,
       headline: result.headline,
       memoryReadiness: result.memoryReadiness,
+      executiveSummary: {
+        reportPath: result.executiveSummary.reportPath,
+        memoryPath: result.executiveSummary.memoryPath,
+        status: result.executiveSummary.status
+      },
       executedSteps,
       nextCommand,
       suggestions: status.suggestions
@@ -809,6 +822,10 @@ ${executedSteps.map((step) => `- [${step.status}] ${step.label}: \`${step.comman
       scope.mode === "workspace" && firstRepository
         ? `The intent was run against the first repository in the workspace: ${firstRepository.repoName} (${firstRepository.relativePath}).`
         : undefined;
+    const preflightContext = await this.initTarget(primaryTargetPath, primaryOutputPath);
+    const preflight = await preflightFacts(preflightContext, intent, {
+      scope: scope.mode === "workspace" ? firstRepository?.relativePath : "."
+    });
     const aiEnhancement = await this.buildAskAIEnhancement(
       intent,
       route.workflow,
@@ -1029,6 +1046,23 @@ ${renderList(summary)}
 
 ${renderArtifactList(artifacts)}
 
+## Preflight Facts
+
+- Confidence: ${preflight.confidence}
+- Facts found: ${preflight.factsFound ? "yes" : "no"}
+- Recommended next action: ${preflight.recommendedNextAction}
+- Fresh scopes: ${preflight.freshness.freshScopes.join(", ") || "None"}
+- Stale scopes ignored: ${preflight.freshness.staleScopes.join(", ") || "None"}
+
+Facts:
+${renderList(preflight.facts)}
+
+Evidence:
+${renderList(preflight.evidence)}
+
+Unknowns:
+${renderList(preflight.unknowns)}
+
 ## Guided continuation
 
 ${guidedExecution
@@ -1070,6 +1104,7 @@ ${renderList(route.followUps)}
       artifacts,
       followUps: route.followUps,
       routingReason: route.reason,
+      preflightFacts: preflight,
       guidedExecution: guidedExecution
         ? {
             label: guidedExecution.label,

@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ProjectBrainOrchestrator } from "../../core/orchestrator/main";
+import { fileExists } from "../../shared/fs-utils";
 import type { ImprovementPlanResult, ResumeResult } from "../../shared/types";
 import { cleanupDir, createTempOutputDir, fixtureRepoPath, nextPrismaFixtureRepoPath } from "../helpers";
 
@@ -94,12 +95,15 @@ describe("Ask intent routing", () => {
     const result = await orchestrator.ask(fixtureRepoPath, outputDir, "quiero definir bien el stack y el alcance de este proyecto");
 
     expect(result.workflow).toBe("discover-project");
+    expect(result.preflightFacts?.recommendedNextAction).toBeTruthy();
     expect(result.aiAssistance?.model).toBe("kimi-k2.5:cloud");
     expect(result.aiAssistance?.profile).toBe("planner");
 
     const brief = await readFile(result.briefPath, "utf8");
     expect(brief).toContain("kimi-k2.5:cloud");
     expect(brief).toContain("AI Assist");
+    expect(brief).toContain("Preflight Facts");
+    expect(await fileExists(path.join(outputDir, "reports", "fact_query.md"))).toBe(false);
   });
 
   it("routes continuation prompts into resume-aware recovery", async () => {
