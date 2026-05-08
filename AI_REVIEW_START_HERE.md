@@ -2,6 +2,8 @@
 
 This repository is `project-brain`, a repository intelligence engine. Its goal is to analyze software projects, persist useful context, coordinate bounded agents, and produce review-only recommendations.
 
+Release context: `0.2.0` prioritizes guided `go`, progressive memory, deterministic preflight facts, bounded swarm presets, output contracts, and review-only safety for internal beta validation.
+
 ## Read Order
 
 Start here before reading large source files:
@@ -36,6 +38,7 @@ Read these source files next:
 
 ## Operating Rules
 
+- Prefer `go`, `status`, `resume`, `runbook`, and `fact-query` before broad `analyze` or model-heavy swarm work.
 - Do not infer repository behavior from filenames alone.
 - Use generated memory before broad source reading.
 - Treat `AI_CONTEXT/MEMORY_BRIEF.md` as the compact handoff.

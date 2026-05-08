@@ -1,5 +1,27 @@
 # usage
 
+## Recommended beta path
+
+Start here for normal use:
+
+```bash
+project-brain go "understand this project and suggest the next safe step" /path/to/repo --output /path/to/output
+```
+
+Use the guided console when the user should not remember command names:
+
+```bash
+project-brain console --target /path/to/repo --output /path/to/output
+```
+
+Read these docs for release-candidate operation:
+
+- `docs/installation.md`
+- `docs/first-analysis-5-min.md`
+- `docs/output-contract.md`
+- `docs/release-checklist.md`
+- `docs/user-test-script.md`
+
 ## Build
 
 ```bash
@@ -52,6 +74,8 @@ project-brain ask "revisa los cambios recientes" /path/to/repo --output /path/to
 ```
 
 `start` is the simple path for non-technical users. It runs cheap deterministic preflight first: doctor, codebase map, code graph, fact query, runbook, harness audit, and firewall. It does not run the model-heavy swarm unless you pass `--with-swarm`.
+
+`go` is the preferred alias for beta users. Use `status`, `resume`, `runbook`, and `fact-query` before broad swarm analysis.
 
 `ask` routes the request into the current best workflow and writes `reports/ask_brief.md` with artifacts and suggested next prompts.
 
@@ -236,6 +260,35 @@ Default runtime split:
 - `synthesizer`: `llama3.1:8b`
 
 Use that split to keep discovery, review, and day-to-day analysis cheap and local while reserving the planner for strategic or ambiguous asks.
+
+## Swarm presets
+
+Use bounded swarm only after deterministic memory and facts have been checked.
+
+```bash
+project-brain swarm "review risky areas without modifying files" /path/to/repo --output /path/to/output --preset cheap
+project-brain swarm "review architecture risks" /path/to/repo --output /path/to/output --preset balanced
+project-brain swarm "deep review of critical modules" /path/to/repo --output /path/to/output --preset thorough
+```
+
+- `cheap`: fastest and most economical, smaller queue and lower timeout budget.
+- `balanced`: recommended default for meaningful coverage.
+- `thorough`: slower and more expensive, use only when cost/time is justified.
+
+## Runtime artifact policy
+
+Version source docs, templates, contracts, and schemas.
+
+Release and validation reports under `reports/validation-*.md`, `reports/validation-results.json`, `reports/beta-readiness.md`, and `reports/release-candidate-*.md` are deliberate versioned evidence. Ad hoc runtime reports such as `reports/doctor.md` remain ignored.
+
+Do not version generated local runtime outputs:
+
+- `.claude/`
+- `.project-brain/runtime/`
+- `AI_CONTEXT/doctor/`
+- `reports/doctor.md`
+
+Use `--output` outside the target repository when validating real projects.
 
 ## Typical repository workflow
 

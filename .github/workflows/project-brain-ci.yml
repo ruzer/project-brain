@@ -17,6 +17,12 @@ jobs:
   quality-gates:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version:
+          - 20
+          - 22
 
     steps:
       - name: Checkout
@@ -25,7 +31,7 @@ jobs:
       - name: Install Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ matrix.node-version }}
           cache: npm
 
       - name: Install dependencies
@@ -45,6 +51,9 @@ jobs:
 
       - name: Run smoke tests
         run: npm run test:smoke
+
+      - name: High severity audit
+        run: npm audit --audit-level=high
 
       - name: Repository safety scan
         run: npm run security:repo
@@ -67,6 +76,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: project-brain-ci-reports
+          name: project-brain-ci-reports-node-${{ matrix.node-version }}
           path: ci-artifacts/
           if-no-files-found: ignore

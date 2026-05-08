@@ -1,6 +1,14 @@
 # project-brain
 
+Current release candidate: `0.2.0` internal beta.
+
 `project-brain` is a non-destructive repository analysis engine for software systems and AI-assisted engineering workflows. It analyzes target repositories, builds durable context, runs specialist agents, generates reports, and produces review-only patch proposals.
+
+Recommended beta entry point:
+
+```bash
+project-brain go "understand this project and suggest the next safe step" /path/to/repo --output /path/to/output
+```
 
 Typical use cases include:
 
@@ -71,9 +79,11 @@ project-brain/
 
 Requisitos:
 
-- Node.js 18+ (project-brain runtime)
+- Node.js 20+ (project-brain runtime)
 - `npm` (paquete, `build`, `lint`, etc.)
-- Ollama para runtime local de modelos.
+- `git`
+- Ollama opcional para runtime local de modelos.
+- Cloud/API provider opcional para planeacion o sintesis avanzada.
 - Toolchains abiertos según el lenguaje del repositorio analizado (por ejemplo `npm`, `python3`, `go`, `cargo`, `java`, `php`, `ruby`, `dotnet`).
 
 Instalación rápida:
@@ -82,6 +92,10 @@ Instalación rápida:
 npm install
 npm run build
 ```
+
+For a complete installation guide, see `docs/installation.md`.
+
+For a first analysis in five minutes, see `docs/first-analysis-5-min.md`.
 
 Si quieres validar la instalación completa localmente:
 
@@ -238,9 +252,21 @@ model-heavy work:
 
 - `AI_CONTEXT/MEMORY_BRIEF.md`: compact handoff for agents and humans.
 - `AI_CONTEXT/EXECUTIVE_SUMMARY.md`: current project state, risks, scopes, and next actions.
-- `memory/scopes/*.json`: per-scope facts, freshness, coverage, and evidence.
-- `memory/knowledge_graph/repository_fact_graph.json`: structural repository facts.
-- `preflightFacts`: read-only check used before ask/model flows to find existing evidence.
+- `memory/scopes/*.json`: scoped memory with freshness status.
+- `memory/knowledge_graph/repository_fact_graph.json`: factual repository graph.
+- `preflightFacts`: deterministic memory/fact gate before expensive model-heavy workflows.
+- `fact-query`: deterministic factual query before model-heavy work.
+
+## Release and beta docs
+
+- `docs/installation.md`: install and validate from source.
+- `docs/first-analysis-5-min.md`: first guided run for a new target repository.
+- `docs/output-contract.md`: stable and internal output contracts.
+- `docs/release-checklist.md`: local and remote gates before tagging.
+- `docs/releases/0.2.0.md`: release notes.
+- `docs/user-test-script.md`: non-technical user test.
+- `reports/validation-matrix.md`: beta validation targets and commands.
+- `reports/beta-readiness.md`: readiness assessment.
 
 Fresh and complete scope memory can reduce bounded swarm work. Stale or partial
 memory is treated as a delta target, not as current truth.
