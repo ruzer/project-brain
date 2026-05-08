@@ -205,7 +205,15 @@ Post-fix local validation:
 
 Post-fix remote validation:
 
-- PR workflow result: pending.
+- PR workflow result: pass on PR `#16` before this report update.
+- PR checks observed as passing:
+  - `dependency-review`
+  - `quality-gates (20)`
+  - `quality-gates (22)`
+  - `security-baseline (20)`
+  - `security-baseline (22)`
+- PR merge status: blocked by base branch policy, not by test failure.
+- Auto-merge was enabled with squash merge because merge commits are not allowed in this repository.
 - Main workflow result after merge: pending.
 - Dependabot state after merge: pending.
 
