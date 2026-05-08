@@ -7,6 +7,8 @@ import { ContextBuilder } from "../../core/context_builder";
 import { DiscoveryEngine } from "../../core/discovery_engine";
 import { cleanupDir, createTempOutputDir, devAgentFixtureRepoPath } from "../helpers";
 
+const DEV_AGENT_INTEGRATION_TIMEOUT_MS = 15000;
+
 describe("DevAgent integration", () => {
   const cleanupTargets: string[] = [];
 
@@ -28,5 +30,5 @@ describe("DevAgent integration", () => {
     expect(content).toContain("Top 10 Architecture Risks");
     expect(content).toContain("Architectural Observations");
     expect(content).toContain("Break circular module dependencies");
-  });
+  }, DEV_AGENT_INTEGRATION_TIMEOUT_MS);
 });
