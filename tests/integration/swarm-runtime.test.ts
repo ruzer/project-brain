@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -160,8 +160,26 @@ describe("Swarm runtime", () => {
     expect(report).toContain("Scope bias: balanced");
     expect(report).toContain("Parallel workers: 2");
     expect(report).toContain("Scope:");
+    expect(report).toContain("Scope memory writes:");
+    expect(report).toContain("Scope memory reuse candidates:");
     expect(report).toContain("Review critical risks");
     expect(memory).toContain("\"workers\"");
+    expect(memory).toContain("\"scopeMemoryWrites\"");
+    const scopeFiles = await readdir(path.join(outputDir, "memory", "scopes"));
+    expect(scopeFiles.length).toBeGreaterThan(0);
+    const scopeMemory = JSON.parse(await readFile(path.join(outputDir, "memory", "scopes", scopeFiles[0]!), "utf8")) as {
+      coverage?: { status?: string };
+    };
+    expect(scopeMemory.coverage?.status).toBeTruthy();
+
+    const repeatedResult = await orchestrator.swarm(fixtureRepoPath, outputDir, "ayudame a mejorar este repo", {
+      parallelism: 2,
+      chunkSize: 1,
+      maxQueuedTasks: 7
+    });
+    expect(repeatedResult.optimization?.scopeMemoryReuseCandidates).toBeGreaterThan(0);
+    expect(repeatedResult.optimization?.scopeMemoryReductionHints.some((hint) => /Reduced queued work/.test(hint))).toBe(true);
+    expect(repeatedResult.chunking.queuedTasks).toBeLessThan(result.chunking.queuedTasks);
   });
 
   it("salvages worker and synthesis outputs when local models return markdown instead of JSON", async () => {
@@ -320,7 +338,7 @@ describe("Swarm runtime", () => {
     expect(report).toContain("Split tasks:");
   });
 
-  it("samples multiple parent tasks first when the queue budget is tight", async () => {
+  it("samples multiple parent tasks first and defers reasoning when the queue budget is tight", async () => {
     const outputDir = await createTempOutputDir("project-brain-swarm-round-robin");
     cleanupTargets.push(outputDir);
 
@@ -395,10 +413,100 @@ describe("Swarm runtime", () => {
     });
 
     expect(result.chunking.queueStrategy).toBe("round-robin");
-    expect(result.workerResults.slice(0, 3).map((entry) => entry.parentTaskId)).toEqual(["scan", "risk", "next"]);
+    expect(result.workerResults.slice(0, 3).map((entry) => entry.parentTaskId)).toEqual(["scan", "risk", "scan"]);
+    expect(result.workerResults.some((entry) => entry.profile === "reasoning")).toBe(false);
 
     const report = await readFile(result.reportPath, "utf8");
     expect(report).toContain("Queue strategy: round-robin");
+    expect(report).toContain("Derived reasoning tasks skipped:");
+  });
+
+  it("honors planner dependency levels before running dependent tasks", async () => {
+    const repoDir = await createTempOutputDir("project-brain-swarm-dag-repo");
+    const outputDir = path.join(os.tmpdir(), `project-brain-swarm-dag-output-${Date.now()}`);
+    cleanupTargets.push(repoDir, outputDir);
+
+    await mkdir(path.join(repoDir, "src"), { recursive: true });
+    await mkdir(path.join(repoDir, "core"), { recursive: true });
+    await writeFile(path.join(repoDir, "src", "index.ts"), "export const app = true;\n", "utf8");
+    await writeFile(path.join(repoDir, "core", "service.ts"), "export const service = true;\n", "utf8");
+    await writeFile(path.join(repoDir, "package.json"), '{"name":"dag-test","version":"1.0.0"}\n', "utf8");
+
+    const orchestrator = new ProjectBrainOrchestrator({
+      aiRouter: {
+        async selectModel(input) {
+          const profile = input.profile ?? "worker";
+          return {
+            preferredRoute: profile === "planner" ? "cloud" : "local",
+            selectedRoute: "local",
+            provider: "ollama",
+            model: profile === "planner" ? "kimi-k2.5:cloud" : "llama3.1:8b",
+            profile,
+            residency: "local",
+            reason: "test",
+            offlineCapable: true
+          };
+        },
+        async ask(input) {
+          if (input.profile === "planner") {
+            return JSON.stringify({
+              overview: "Scan each scope before running risk review for the same scope.",
+              tasks: [
+                {
+                  taskId: "scan",
+                  title: "Scan the repository",
+                  goal: "Inspect the scoped code.",
+                  profile: "worker",
+                  deliverable: "Scan summary"
+                },
+                {
+                  taskId: "risk",
+                  title: "Review critical risks",
+                  goal: "Review the scoped code for risks.",
+                  profile: "reviewer",
+                  deliverable: "Risk review",
+                  dependsOn: ["scan"]
+                }
+              ]
+            });
+          }
+
+          if (input.profile === "synthesizer") {
+            return JSON.stringify({
+              headline: "Dependency-aware swarm completed.",
+              summary: "The swarm drained scan tasks before running their dependent reviews.",
+              priorities: ["Keep dependency-aware planner tasks explicit"],
+              next_steps: ["Extend DAG support if planners emit richer graphs"]
+            });
+          }
+
+          const titleLine = input.prompt.split("\n").find((line) => line.startsWith("Task title: ")) ?? "";
+          return JSON.stringify({
+            summary: titleLine.replace("Task title: ", ""),
+            findings: [],
+            recommendations: []
+          });
+        }
+      }
+    });
+
+    const result = await orchestrator.swarm(repoDir, outputDir, "aplica dependencias entre scan y review", {
+      parallelism: 4,
+      chunkSize: 1,
+      maxQueuedTasks: 4
+    });
+
+    expect(result.tasks[1]?.dependsOn).toEqual(["scan"]);
+    expect(result.workerResults.some((entry) => entry.parentTaskId === "risk")).toBe(true);
+    const firstRiskIndex = result.workerResults.findIndex((entry) => entry.parentTaskId === "risk");
+    const lastScanIndex = result.workerResults.reduce(
+      (lastIndex, entry, index) => (entry.parentTaskId === "scan" ? index : lastIndex),
+      -1
+    );
+    expect(firstRiskIndex).toBeGreaterThan(lastScanIndex);
+
+    const report = await readFile(result.reportPath, "utf8");
+    expect(report).toContain("Depends on: scan");
   });
 
   it("forces planner and synthesis onto local models when the run budget is short", async () => {
@@ -475,6 +583,93 @@ describe("Swarm runtime", () => {
 
     const report = await readFile(result.reportPath, "utf8");
     expect(report).toContain("Local budget mode: yes");
+  });
+
+  it("reuses cached planner, worker, and synthesis responses across repeated swarm runs", async () => {
+    const repoDir = await createTempOutputDir("project-brain-swarm-cache-repo");
+    const outputDir = path.join(os.tmpdir(), `project-brain-swarm-cache-output-${Date.now()}`);
+    cleanupTargets.push(repoDir, outputDir);
+
+    await mkdir(path.join(repoDir, "src"), { recursive: true });
+    await writeFile(path.join(repoDir, "src", "index.ts"), "export const cacheTest = true;\n", "utf8");
+    await writeFile(path.join(repoDir, "package.json"), '{"name":"cache-test","version":"1.0.0"}\n', "utf8");
+
+    let askCalls = 0;
+    const orchestrator = new ProjectBrainOrchestrator({
+      aiRouter: {
+        async selectModel(input) {
+          const profile = input.profile ?? "worker";
+          return {
+            preferredRoute: profile === "planner" ? "cloud" : "local",
+            selectedRoute: "local",
+            provider: "ollama",
+            model: profile === "planner" ? "kimi-k2.5:cloud" : "llama3.1:8b",
+            profile,
+            residency: "local",
+            reason: "test",
+            offlineCapable: true
+          };
+        },
+        async ask(input) {
+          askCalls += 1;
+
+          if (input.profile === "planner") {
+            return JSON.stringify({
+              overview: "Run a single worker over the repo.",
+              tasks: [
+                {
+                  taskId: "scan",
+                  title: "Scan the repository",
+                  goal: "Inspect the only source area.",
+                  profile: "worker",
+                  deliverable: "Scan summary"
+                }
+              ]
+            });
+          }
+
+          if (input.profile === "worker") {
+            return JSON.stringify({
+              summary: "Cached worker output.",
+              findings: ["The cache should avoid repeating equivalent worker prompts."],
+              recommendations: ["Persist successful swarm responses by prompt fingerprint."]
+            });
+          }
+
+          return JSON.stringify({
+            headline: "Cached swarm completed.",
+            summary: "The second run reused cached prompt responses.",
+            priorities: ["Reuse successful prompt outputs"],
+            next_steps: ["Keep cache keys tied to repo state and scoped context"]
+          });
+        }
+      }
+    });
+
+    const firstRun = await orchestrator.swarm(repoDir, outputDir, "cachea este swarm", {
+      parallelism: 1,
+      chunkSize: 1,
+      maxQueuedTasks: 2,
+      runTimeoutMs: 30_000,
+      plannerTimeoutMs: 8_000,
+      synthesisTimeoutMs: 8_000
+    });
+    const secondRun = await orchestrator.swarm(repoDir, outputDir, "cachea este swarm", {
+      parallelism: 1,
+      chunkSize: 1,
+      maxQueuedTasks: 2,
+      runTimeoutMs: 30_000,
+      plannerTimeoutMs: 8_000,
+      synthesisTimeoutMs: 8_000
+    });
+
+    expect(askCalls).toBeLessThan(9);
+    expect(firstRun.optimization?.cacheHits).toBe(0);
+    expect(secondRun.optimization?.cacheMisses).toBeGreaterThan(0);
+    expect(secondRun.optimization?.scopeMemoryReuseCandidates).toBeGreaterThan(0);
+
+    const report = await readFile(secondRun.reportPath, "utf8");
+    expect(report).toContain("Cache hits:");
   });
 
   it("prioritizes product code areas ahead of tests and dotfiles under source-first bias", async () => {
@@ -645,6 +840,95 @@ describe("Swarm runtime", () => {
     expect(report).toContain("Scope hints: core/swarm_runtime");
   });
 
+  it("learns which scope produces signal and boosts it in later balanced runs", async () => {
+    const repoDir = await createTempOutputDir("project-brain-swarm-learning-repo");
+    const outputDir = path.join(os.tmpdir(), `project-brain-swarm-learning-output-${Date.now()}`);
+    cleanupTargets.push(repoDir, outputDir);
+
+    await mkdir(path.join(repoDir, "domain-a"), { recursive: true });
+    await mkdir(path.join(repoDir, "domain-b"), { recursive: true });
+    await writeFile(path.join(repoDir, "domain-a", "index.ts"), "export const a = true;\n", "utf8");
+    await writeFile(path.join(repoDir, "domain-b", "index.ts"), "export const b = true;\n", "utf8");
+    await writeFile(path.join(repoDir, "package.json"), '{"name":"learning-test","version":"1.0.0"}\n', "utf8");
+
+    const orchestrator = new ProjectBrainOrchestrator({
+      aiRouter: {
+        async selectModel(input) {
+          const profile = input.profile ?? "worker";
+          return {
+            preferredRoute: "local",
+            selectedRoute: "local",
+            provider: "ollama",
+            model: "llama3.1:8b",
+            profile,
+            residency: "local",
+            reason: "test",
+            offlineCapable: true
+          };
+        },
+        async ask(input) {
+          if (input.profile === "planner") {
+            return JSON.stringify({
+              overview: "Inspect both domains and learn from the one that yields signal.",
+              tasks: [
+                {
+                  taskId: "scan",
+                  title: "Scan the repository",
+                  goal: "Inspect the available top-level domains.",
+                  profile: "worker",
+                  deliverable: "Scan summary"
+                }
+              ]
+            });
+          }
+
+          if (input.profile === "synthesizer") {
+            return JSON.stringify({
+              headline: "Learning-aware swarm completed.",
+              summary: "Past signal should shape future scope ordering.",
+              priorities: ["Boost scopes that previously produced useful findings"],
+              next_steps: ["Keep learning lightweight and queue-safe"]
+            });
+          }
+
+          const scopeLine = input.prompt.split("\n").find((line) => line.startsWith("Scope paths: ")) ?? "";
+          const scope = scopeLine.replace("Scope paths: ", "");
+          const hasSignal = scope === "domain-b";
+
+          return JSON.stringify({
+            summary: `Processed ${scope}.`,
+            findings: hasSignal ? [`${scope} yielded useful signal.`] : [],
+            recommendations: hasSignal ? [`Prioritize ${scope} earlier next run.`] : []
+          });
+        }
+      }
+    });
+
+    await orchestrator.swarm(repoDir, outputDir, "aprende del scope util", {
+      parallelism: 1,
+      chunkSize: 1,
+      maxQueuedTasks: 2,
+      runTimeoutMs: 30_000,
+      plannerTimeoutMs: 8_000,
+      synthesisTimeoutMs: 8_000
+    });
+
+    const result = await orchestrator.swarm(repoDir, outputDir, "aprende del scope util", {
+      parallelism: 1,
+      chunkSize: 1,
+      maxQueuedTasks: 1,
+      runTimeoutMs: 30_000,
+      plannerTimeoutMs: 8_000,
+      synthesisTimeoutMs: 8_000
+    });
+
+    expect(result.optimization?.learnedScopeBoosts).toContain("domain-b");
+    expect(result.workerResults[0]?.scopePaths[0]).toBe("domain-b");
+
+    const report = await readFile(result.reportPath, "utf8");
+    expect(report).toContain("Learned scope boosts: domain-b");
+  });
+
   it("splits a timed-out single directory scope into immediate child scopes before retrying", async () => {
     const repoDir = await createTempOutputDir("project-brain-swarm-subdir-split-repo");
     const outputDir = path.join(os.tmpdir(), `project-brain-swarm-subdir-split-output-${Date.now()}`);
@@ -791,9 +1075,12 @@ describe("Swarm runtime", () => {
     expect(result.resilience.plannerTimedOut).toBe(true);
     expect(result.tasks).toHaveLength(3);
     expect(result.tasks[0]?.taskId).toBe("scan-scope");
+    expect(result.tasks[1]?.dependsOn).toEqual(["scan-scope"]);
+    expect(result.tasks[2]?.dependsOn).toEqual(["scan-scope", "review-risks"]);
 
     const report = await readFile(result.reportPath, "utf8");
     expect(report).toContain("Planner timed out: yes");
     expect(report).toContain("Scan project scope");
+    expect(report).toContain("Depends on: scan-scope");
   });
 });

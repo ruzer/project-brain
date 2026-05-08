@@ -10,11 +10,13 @@ const IGNORED_DIRECTORIES = new Set([
   ".next",
   ".nuxt",
   ".turbo",
+  ".claude",
+  ".project-brain",
+  ".project-brain-local",
   ".idea",
   ".vscode",
   ".venv",
-  "venv",
-  "vendor"
+  "venv"
 ]);
 
 const IGNORED_PATH_PATTERNS = [
@@ -102,6 +104,10 @@ export async function walkDirectory(rootPath: string, maxFiles = 8000, excludedP
 
       if (entry.isDirectory()) {
         if (IGNORED_DIRECTORIES.has(entry.name)) {
+          continue;
+        }
+
+        if (entry.name === "vendor" && relativeDir === "") {
           continue;
         }
 

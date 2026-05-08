@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -123,8 +123,14 @@ describe("doctor", () => {
     expect(result.summary.warnings).toBe(0);
     expect(result.checks.some((check) => check.id === "swarm-local-readiness" && check.status === "pass")).toBe(true);
     expect(result.checks.some((check) => check.id === "model-profiles" && check.status === "pass")).toBe(true);
+    expect(result.setupItems.some((item) => item.id === "ollama-local-runtime" && item.status === "installed")).toBe(true);
+    expect(result.setupItems.some((item) => item.id === "node-open-source-toolchain" && item.tier === "recommended")).toBe(true);
     expect(result.suggestions.some((suggestion) => suggestion.label === "Inspect Operational Status")).toBe(true);
     expect(result.reportPath).toContain("doctor.md");
     expect(result.memoryPath).toContain("doctor.json");
+
+    const report = await readFile(result.reportPath, "utf8");
+    expect(report).toContain("## Runtime Setup");
+    expect(report).toContain("Ollama Local Runtime");
   });
 });

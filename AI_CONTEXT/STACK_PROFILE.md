@@ -6,17 +6,15 @@
 
 ## Frameworks
 
-- Express
+- None detected
 
 ## APIs
 
-- GraphQL
-- OpenAPI
-- REST
+- None detected
 
 ## Infrastructure
 
-- Dockerfile
+- None detected
 
 ## Testing
 
@@ -25,6 +23,6 @@
 ## Cross-cutting integrations
 
 - CI/CD: GitHub Actions
-- Structured logging: Yes
-- Metrics: prom-client
+- Structured logging: No
+- Metrics: Not detected
 - Alerts: Not detected

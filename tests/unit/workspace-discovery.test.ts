@@ -19,7 +19,7 @@ describe("workspace discovery", () => {
     expect(scope.repositories.map((repository) => repository.repoName)).toEqual([
       "CashCalculator",
       "ERP",
-      "OffRoadHub",
+      "FrontendPortal",
       "project-brain"
     ]);
   });

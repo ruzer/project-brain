@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://project-brain.local/schemas/repository_fact_graph.schema.json",
+  "title": "RepositoryFactGraphDocument",
+  "type": "object",
+  "required": ["version", "generatedAt", "targetPath", "repoName", "nodes", "edges", "stats"],
+  "additionalProperties": true,
+  "properties": {
+    "version": { "const": 1 },
+    "generatedAt": { "type": "string" },
+    "targetPath": { "type": "string" },
+    "repoName": { "type": "string" },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "label"],
+        "additionalProperties": true,
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "enum": ["repository", "directory", "file", "symbol", "language", "framework", "manifest", "api_surface", "infra_surface"] },
+          "label": { "type": "string" },
+          "path": { "type": "string" },
+          "attributes": { "type": "object", "additionalProperties": true }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from", "to", "kind"],
+        "additionalProperties": true,
+        "properties": {
+          "from": { "type": "string" },
+          "to": { "type": "string" },
+          "kind": { "enum": ["contains", "uses_language", "uses_framework", "has_manifest", "exposes_api", "defines_infra", "declares", "imports", "calls"] },
+          "evidence": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "stats": {
+      "type": "object",
+      "required": ["nodes", "edges", "codeGraphFiles", "codeGraphSymbols", "nodeKinds", "edgeKinds"],
+      "additionalProperties": true,
+      "properties": {
+        "nodes": { "type": "number" },
+        "edges": { "type": "number" },
+        "codeGraphFiles": { "type": "number" },
+        "codeGraphSymbols": { "type": "number" },
+        "nodeKinds": { "type": "object", "additionalProperties": { "type": "number" } },
+        "edgeKinds": { "type": "object", "additionalProperties": { "type": "number" } }
+      }
+    }
+  }
+}

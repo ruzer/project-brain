@@ -6,6 +6,7 @@ export type ContextTrustLevel = "official" | "maintainer" | "community";
 export type AskWorkflow =
   | "resume-project"
   | "discover-project"
+  | "security-audit"
   | "critical-gaps"
   | "review-latest-changes"
   | "inspect-firewall"
@@ -48,6 +49,26 @@ export type CodeGraphNodeKind =
   | "enum"
   | "test";
 export type CodeGraphEdgeKind = "imports" | "contains" | "calls";
+export type RepositoryFactGraphNodeKind =
+  | "repository"
+  | "directory"
+  | "file"
+  | "symbol"
+  | "language"
+  | "framework"
+  | "manifest"
+  | "api_surface"
+  | "infra_surface";
+export type RepositoryFactGraphEdgeKind =
+  | "contains"
+  | "uses_language"
+  | "uses_framework"
+  | "has_manifest"
+  | "exposes_api"
+  | "defines_infra"
+  | "declares"
+  | "imports"
+  | "calls";
 export type LearningOutcome =
   | "SUCCESSFUL_PROPOSAL"
   | "REJECTED_PROPOSAL"
@@ -57,6 +78,49 @@ export type LearningOutcome =
   | "REPEATED_BUG_PATTERN"
   | "PENDING_REVIEW";
 export type AgentPriority = "critical" | "high" | "normal" | "low";
+export type SecurityFindingSeverity = "critical" | "high" | "medium" | "low" | "info";
+export type SecurityFindingProblemType = "code" | "configuration" | "architecture" | "code+configuration";
+export type SecurityFixEffort = "low" | "medium" | "high";
+export type SecurityAuditArea =
+  | "auth_sessions"
+  | "authorization"
+  | "input_validation"
+  | "web_attacks"
+  | "http_headers"
+  | "infra_config"
+  | "abuse_protection"
+  | "sensitive_data"
+  | "observability";
+
+export interface SecurityFinding {
+  area: SecurityAuditArea;
+  severity: SecurityFindingSeverity;
+  title: string;
+  location: string;
+  evidence: string;
+  attackVector: string[];
+  impact: string;
+  fix: string;
+  references: string[];
+  effort: SecurityFixEffort;
+  problemType: SecurityFindingProblemType;
+  agentId: string;
+}
+
+export interface SecurityCoverageStatus {
+  area: SecurityAuditArea;
+  status: "finding" | "ok" | "not-reviewed";
+  note: string;
+  agentId?: string;
+}
+
+export interface VerifiedAppContext {
+  architectureSummary: string[];
+  attackSurface: string[];
+  criticalAssets: string[];
+  trustBoundaries: string[];
+  contextGaps: string[];
+}
 
 export interface RepoStructure {
   topLevelDirectories: string[];
@@ -178,6 +242,8 @@ export interface AgentReport {
   recommendations: string[];
   riskLevel: RiskLevel;
   outputPath: string;
+  securityFindings?: SecurityFinding[];
+  coverage?: SecurityCoverageStatus[];
 }
 
 export interface AgentDescriptor {
@@ -272,6 +338,7 @@ export interface AskResult {
   artifacts: AskArtifact[];
   followUps: string[];
   routingReason: string;
+  preflightFacts?: PreflightFactsResult;
   guidedExecution?: {
     label: string;
     command: string;
@@ -289,12 +356,53 @@ export interface AskResult {
   };
 }
 
+export type PreflightFactsConfidence = "none" | "low" | "medium" | "high";
+export type PreflightFactsNextAction =
+  | "answer-from-memory"
+  | "run-code-graph"
+  | "run-fact-query"
+  | "run-swarm-delta"
+  | "continue-workflow";
+
+export interface PreflightFactsResult {
+  intent: string;
+  scope?: string;
+  query: string;
+  factsFound: boolean;
+  facts: string[];
+  evidence: string[];
+  freshness: {
+    freshScopes: string[];
+    staleScopes: string[];
+    missingScopes: string[];
+  };
+  staleIgnored: string[];
+  confidence: PreflightFactsConfidence;
+  recommendedNextAction: PreflightFactsNextAction;
+  readiness: {
+    hasMemoryBrief: boolean;
+    hasExecutiveSummary: boolean;
+    hasFactGraph: boolean;
+    hasFreshScopeMemory: boolean;
+  };
+  sources: {
+    memoryBriefPath: string;
+    memoryBriefJsonPath: string;
+    executiveSummaryPath: string;
+    executiveSummaryJsonPath: string;
+    repositoryFactGraphPath: string;
+    scopeMemoryDir: string;
+  };
+  unknowns: string[];
+}
+
 export interface SwarmPlanTask {
   taskId: string;
   title: string;
   goal: string;
   profile: "worker" | "reviewer" | "reasoning" | "planner" | "synthesizer";
   deliverable: string;
+  dependsOn?: string[];
 }
 
 export interface SwarmWorkerResult {
@@ -312,10 +420,69 @@ export interface SwarmWorkerResult {
   summary: string;
   findings: string[];
   recommendations: string[];
+  verifiedFacts?: string[];
+  unknowns?: string[];
+  evidenceRefs?: string[];
   error?: string;
 }
 
+export interface ScopeMemoryFileHash {
+  path: string;
+  sha256?: string;
+  missing?: boolean;
+}
+
+export interface ScopeMemoryRecord {
+  version: 1;
+  repoName: string;
+  targetPath: string;
+  scope: string;
+  scopeKey: string;
+  updatedAt: string;
+  generatedBy: {
+    command: "swarm";
+    intent: string;
+    provider?: string;
+    model?: string;
+  };
+  files: {
+    count: number;
+    totalCount?: number;
+    hashTruncated?: boolean;
+    hashed: ScopeMemoryFileHash[];
+  };
+  coverage: {
+    status: "complete" | "partial" | "failed" | "timed_out";
+    workerTaskIds: string[];
+    completedWorkers: number;
+    failedWorkers: number;
+    timedOutWorkers: number;
+  };
+  freshness: {
+    status: "fresh" | "stale";
+    changedFiles: string[];
+    missingFiles: string[];
+    unchangedFiles: number;
+  };
+  decisions: string[];
+  verifiedFacts: string[];
+  unknowns: string[];
+  evidenceRefs: string[];
+  nextActions: string[];
+  sourceArtifacts: string[];
+}
+
+export interface ScopeMemoryLookupResult {
+  records: ScopeMemoryRecord[];
+  hits: number;
+  misses: number;
+  stale: number;
+}
+
+export type SwarmEngine = "bounded" | "deepagents";
+
 export interface SwarmRunResult {
+  engine: SwarmEngine;
   context: ProjectContext;
   intent: string;
   reportPath: string;
@@ -368,6 +535,20 @@ export interface SwarmRunResult {
     residency: string;
     overview: string;
   };
+  optimization?: {
+    cacheHits: number;
+    cacheMisses: number;
+    cacheWrites: number;
+    scopeMemoryHits?: number;
+    scopeMemoryMisses?: number;
+    scopeMemoryStale?: number;
+    scopeMemoryWrites?: number;
+    scopeMemoryReuseCandidates?: number;
+    scopeMemoryReductionHints?: string[];
+    derivedTasksQueued: number;
+    derivedTasksSkipped: number;
+    learnedScopeBoosts: string[];
+  };
   tasks: SwarmPlanTask[];
   workerResults: SwarmWorkerResult[];
   synthesis: {
@@ -378,17 +559,32 @@ export interface SwarmRunResult {
     summary: string;
     priorities: string[];
     nextSteps: string[];
+    verifiedFacts?: string[];
+    unknowns?: string[];
+    evidenceRefs?: string[];
   };
 }
 
 export type DoctorCheckStatus = "pass" | "warn" | "fail";
 export type SuggestedActionPriority = "high" | "medium" | "low";
+export type DoctorSetupTier = "required" | "recommended" | "optional";
+export type DoctorSetupStatus = "installed" | "missing";
 
 export interface DoctorCheck {
   id: string;
   label: string;
   status: DoctorCheckStatus;
   summary: string;
+  details: string[];
+}
+
+export interface DoctorSetupItem {
+  id: string;
+  label: string;
+  tier: DoctorSetupTier;
+  status: DoctorSetupStatus;
+  summary: string;
+  installHint: string;
   details: string[];
 }
 
@@ -410,6 +606,7 @@ export interface DoctorResult {
     headline: string;
   };
   checks: DoctorCheck[];
+  setupItems: DoctorSetupItem[];
   suggestions: SuggestedAction[];
 }
 
@@ -418,6 +615,70 @@ export interface StatusArtifactSummary {
   path: string;
   exists: boolean;
   updatedAt?: string;
+}
+
+export type MemoryReadinessStatus = "ready" | "missing" | "stale" | "invalid";
+
+export interface MemoryReadinessResult {
+  status: MemoryReadinessStatus;
+  memoryBriefPath: string;
+  memoryBriefJsonPath: string;
+  generatedAt?: string;
+  ageHours?: number;
+  maxAgeHours: number;
+  factsCount: number;
+  evidenceCount: number;
+  tokenGuidanceCount: number;
+  reason: string;
+}
+
+export interface ExecutiveSummaryScopeStatus {
+  scope: string;
+  freshness: "fresh" | "stale";
+  coverage: "complete" | "partial" | "failed" | "timed_out";
+  facts: number;
+  unknowns: number;
+  evidenceRefs: number;
+  hashTruncated: boolean;
+}
+
+export interface ExecutiveSummaryResult {
+  context: ProjectContext;
+  generatedAt: string;
+  reportPath: string;
+  memoryPath: string;
+  identity: {
+    repoName: string;
+    targetPath: string;
+    outputPath: string;
+    projectType: string;
+  };
+  stack: {
+    languages: string[];
+    frameworks: string[];
+    apis: string[];
+    infrastructure: string[];
+    testing: string[];
+  };
+  architecture: {
+    topLevelDirectories: string[];
+    sourceFileCount: number;
+    testFileCount: number;
+  };
+  status: {
+    scopeCount: number;
+    completeFreshScopes: number;
+    staleScopes: number;
+    partialScopes: number;
+    latestSwarmIntent?: string;
+    latestSwarmHeadline?: string;
+  };
+  decisions: string[];
+  learnings: string[];
+  risksAndUnknowns: string[];
+  scopeStatuses: ExecutiveSummaryScopeStatus[];
+  nextActions: string[];
+  evidenceRefs: string[];
 }
 
 export interface StatusResult {
@@ -435,15 +696,21 @@ export interface StatusResult {
     swarmStatus: "available" | "missing";
     planStatus: "available" | "missing";
   };
+  memoryReadiness: MemoryReadinessResult;
+  executiveSummary: ExecutiveSummaryResult;
   artifacts: StatusArtifactSummary[];
   suggestions: SuggestedAction[];
 }
 
 export type ResumeStage =
   | "bootstrap"
+  | "start"
   | "doctor"
   | "ask"
   | "map-codebase"
+  | "fact-query"
+  | "runbook"
+  | "harness-audit"
   | "firewall"
   | "review-delta"
   | "swarm"
@@ -465,8 +732,32 @@ export interface ResumeResult {
     latestArtifactUpdatedAt?: string;
   };
   latestArtifact?: StatusArtifactSummary;
+  memoryReadiness: MemoryReadinessResult;
+  executiveSummary: ExecutiveSummaryResult;
   artifacts: StatusArtifactSummary[];
   notes: string[];
+  suggestions: SuggestedAction[];
+}
+
+export interface StartStep {
+  id: string;
+  label: string;
+  status: "done" | "skipped" | "suggested";
+  command: string;
+  summary: string;
+}
+
+export interface StartResult {
+  context: ProjectContext;
+  intent: string;
+  reportPath: string;
+  memoryPath: string;
+  headline: string;
+  memoryReadiness: MemoryReadinessResult;
+  executiveSummary: ExecutiveSummaryResult;
+  executedSteps: StartStep[];
+  nextCommand?: string;
+  artifacts: StatusArtifactSummary[];
   suggestions: SuggestedAction[];
 }
 
@@ -478,6 +769,22 @@ export interface ImprovementPlanResult {
   risksPath: string;
   roadmapPath: string;
   tracksPath: string;
+}
+
+export interface SecurityAuditResult {
+  context: ProjectContext;
+  trigger: GovernanceTrigger;
+  reportPath: string;
+  memoryPath: string;
+  contextLiteReportPath?: string;
+  verifiedContext: VerifiedAppContext;
+  findings: SecurityFinding[];
+  coverage: SecurityCoverageStatus[];
+  checklist: string[];
+  securityDebt: string[];
+  sourceReports: string[];
+  verdict: "No apta para producción" | "Apta con remediaciones obligatorias" | "Apta con hardening recomendado";
+  headline: string;
 }
 
 export interface ContextRegistryEntry {
@@ -522,6 +829,26 @@ export interface ContextSourcesResult {
     trustLevel: ContextTrustLevel;
     entries: number;
   }>;
+}
+
+export interface EcosystemRadarCandidate {
+  entry: ContextRegistryEntry;
+  repoFullName: string;
+  bucketId: string;
+  score: number;
+  stars: number;
+  forks: number;
+  primaryLanguage?: string;
+  pushedAt?: string;
+  reasons: string[];
+}
+
+export interface EcosystemRadarResult {
+  context: ProjectContext;
+  reportPath: string;
+  cachePath: string;
+  candidates: EcosystemRadarCandidate[];
+  notes: string[];
 }
 
 export interface AgentMessage {
@@ -626,6 +953,8 @@ export interface AgentEvaluation {
   aiInsights?: string[];
   combinedRecommendations?: string[];
   content?: string;
+  securityFindings?: SecurityFinding[];
+  coverage?: SecurityCoverageStatus[];
 }
 
 export interface ReportManifest {
@@ -636,6 +965,7 @@ export interface ReportManifest {
   taskFiles: string[];
   swarmFiles?: string[];
   firewallFiles?: string[];
+  securityFiles?: string[];
   contextRegistryFiles?: string[];
   proposalFiles: string[];
   knowledgeFiles?: string[];
@@ -713,6 +1043,41 @@ export interface CodeGraphDocument {
 export interface CodeGraphBuildResult {
   graphPath: string;
   graph: CodeGraphDocument;
+  factGraphPath?: string;
+  factReportPath?: string;
+  factGraph?: RepositoryFactGraphDocument;
+}
+
+export interface RepositoryFactGraphNode {
+  id: string;
+  label: string;
+  kind: RepositoryFactGraphNodeKind;
+  attributes?: Record<string, string | number | boolean>;
+}
+
+export interface RepositoryFactGraphEdge {
+  kind: RepositoryFactGraphEdgeKind;
+  from: string;
+  to: string;
+  evidencePath?: string;
+  line?: number;
+}
+
+export interface RepositoryFactGraphDocument {
+  version: 1;
+  generatedAt: string;
+  targetPath: string;
+  repoName: string;
+  nodes: RepositoryFactGraphNode[];
+  edges: RepositoryFactGraphEdge[];
+  stats: {
+    nodes: number;
+    edges: number;
+    codeGraphFiles: number;
+    codeGraphSymbols: number;
+    nodeKinds: Partial<Record<RepositoryFactGraphNodeKind, number>>;
+    edgeKinds: Partial<Record<RepositoryFactGraphEdgeKind, number>>;
+  };
 }
 
 export interface ImpactAnalysisResult {
@@ -740,6 +1105,109 @@ export interface CodebaseMapResult extends CodebaseMapArtifact {
   context: ProjectContext;
 }
 
+export interface ContextLiteResult {
+  context: ProjectContext;
+  reportPath: string;
+  artifactPaths: string[];
+  summary: string[];
+  openQuestions: string[];
+}
+
+export interface FactQueryResult {
+  query: string;
+  answer: string;
+  tokens: string[];
+  reportPath: string;
+  memoryPath: string;
+  sources: {
+    memoryBriefPath: string;
+    memoryBriefJsonPath: string;
+    repositoryFactGraphPath: string;
+    scopeMemoryDir?: string;
+  };
+  scopeMemoryMatches?: Array<{
+    scope: string;
+    kind: string;
+    text: string;
+    score: number;
+    evidenceRefs: string[];
+  }>;
+  memoryMatches: Array<{
+    kind: string;
+    text: string;
+    score: number;
+  }>;
+  nodeMatches: Array<{
+    id: string;
+    kind: RepositoryFactGraphNodeKind;
+    label: string;
+    score: number;
+    attributes?: Record<string, string | number | boolean>;
+  }>;
+  edgeMatches: Array<{
+    kind: RepositoryFactGraphEdgeKind;
+    from: string;
+    to: string;
+    evidencePath?: string;
+    line?: number;
+    score: number;
+  }>;
+  evidenceRefs: string[];
+  unknowns: string[];
+}
+
+export interface RunbookStep {
+  id: string;
+  title: string;
+  status: "pending" | "ready" | "blocked" | "done";
+  command: string;
+  rationale: string;
+  cheap: boolean;
+  usesModel: boolean;
+  evidence: string[];
+}
+
+export interface RunbookResult {
+  context: ProjectContext;
+  intent: string;
+  generatedAt: string;
+  reportPath: string;
+  memoryPath: string;
+  executiveSummary: ExecutiveSummaryResult;
+  steps: RunbookStep[];
+}
+
+export interface HarnessAuditCheck {
+  id: string;
+  label: string;
+  status: "pass" | "warn" | "fail";
+  summary: string;
+  evidence: string[];
+  recommendation?: string;
+}
+
+export interface HarnessAuditMemoryLayer {
+  id: string;
+  label: string;
+  status: "ready" | "partial" | "missing";
+  tokenCost: "low" | "medium" | "high";
+  artifacts: string[];
+  purpose: string;
+}
+
+export interface HarnessAuditResult {
+  context: ProjectContext;
+  generatedAt: string;
+  reportPath: string;
+  memoryPath: string;
+  score: number;
+  tokenRisk: "low" | "medium" | "high";
+  memoryReadiness: MemoryReadinessResult;
+  checks: HarnessAuditCheck[];
+  memoryLayers: HarnessAuditMemoryLayer[];
+  suggestedCommands: string[];
+}
+
 export interface EcosystemCodebaseMapRepositoryResult extends CodebaseMapArtifact {
   relativePath: string;
   targetPath: string;
@@ -757,6 +1225,7 @@ export interface OrchestrationResult {
   agentReports: AgentReport[];
   weeklyReportPath: string;
   riskReportPath: string;
+  reportQualityPath?: string;
   governanceSummary?: GovernanceSummary;
 }
 

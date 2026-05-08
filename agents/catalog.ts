@@ -1,8 +1,10 @@
 import { ArchitectureAgent } from "./architecture_agent";
+import { AuthAgent } from "./auth_agent";
 import { BaseAgent } from "./base-agent";
 import { DependencyAgent } from "./dependency_agent";
 import { DevAgent } from "./dev_agent";
 import { DocumentationAgent } from "./documentation_agent";
+import { InfraAgent } from "./infra_agent";
 import { LegalAgent } from "./legal_agent";
 import { ObservabilityAgent } from "./observability_agent";
 import { OptimizationAgent } from "./optimization_agent";
@@ -74,13 +76,29 @@ export function buildAgentCatalog(): AgentCatalogEntry[] {
       triggers: ["manual", "security-audit", "security-advisory", "dependency-update", "weekly-review"],
       requiresHumanApprovalFor: ["security-sensitive proposals", "authentication changes"]
     }),
+    define(new AuthAgent(), {
+      displayName: "AuthAgent",
+      version: "1.0.0",
+      capabilities: ["session-review", "authorization-analysis", "identity-boundary-review"],
+      allowedActions: ["analyze", "propose", "report"],
+      triggers: ["manual", "security-audit", "security-advisory"],
+      requiresHumanApprovalFor: ["authentication changes", "authorization model changes"]
+    }),
     define(new DependencyAgent(), {
       displayName: "DependencyAgent",
       version: "1.0.0",
       capabilities: ["dependency-governance", "manifest-analysis", "update-risk-review"],
       allowedActions: ["analyze", "propose", "report"],
-      triggers: ["manual", "security-audit", "dependency-update", "weekly-review"],
+      triggers: ["manual", "security-audit", "security-advisory", "dependency-update", "weekly-review"],
       requiresHumanApprovalFor: ["dependency policy changes"]
+    }),
+    define(new InfraAgent(), {
+      displayName: "InfraAgent",
+      version: "1.0.0",
+      capabilities: ["container-hardening", "deployment-surface-review", "headers-and-proxy-audit"],
+      allowedActions: ["analyze", "propose", "report"],
+      triggers: ["manual", "security-audit", "security-advisory", "architecture-review"],
+      requiresHumanApprovalFor: ["infra changes", "header policy changes"]
     }),
     define(new ArchitectureAgent(), {
       displayName: "ArchitectureAgent",

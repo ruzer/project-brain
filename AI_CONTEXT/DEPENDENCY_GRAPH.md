@@ -3,29 +3,17 @@
 ## package.json
 
 - Ecosystem: node
-- Dependencies tracked: 9
+- Dependencies tracked: 13
+- @langchain/ollama
 - @types/node
 - @typescript-eslint/parser
 - commander
+- deepagents
 - dependency-cruiser
 - eslint
+- langchain
 - ts-node
 - ts-prune
 - typescript
 - vitest
-
-## tests/fixtures/dev-agent-repo/package.json
-
-- Ecosystem: node
-- Dependencies tracked: 0
-- None detected
-
-## tests/fixtures/sample-repo/package.json
-
-- Ecosystem: node
-- Dependencies tracked: 5
-- express
-- graphql
-- pino
-- prom-client
-- vitest
+- zod

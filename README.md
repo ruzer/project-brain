@@ -1,6 +1,14 @@
 # project-brain
 
+Current release candidate: `0.2.0` internal beta.
+
 `project-brain` is a non-destructive repository analysis engine for software systems and AI-assisted engineering workflows. It analyzes target repositories, builds durable context, runs specialist agents, generates reports, and produces review-only patch proposals.
+
+Recommended beta entry point:
+
+```bash
+project-brain go "understand this project and suggest the next safe step" /path/to/repo --output /path/to/output
+```
 
 Typical use cases include:
 
@@ -69,9 +77,78 @@ project-brain/
 
 ## Installation
 
+Requisitos:
+
+- Node.js 20+ (project-brain runtime)
+- `npm` (paquete, `build`, `lint`, etc.)
+- `git`
+- Ollama opcional para runtime local de modelos.
+- Cloud/API provider opcional para planeacion o sintesis avanzada.
+- Toolchains abiertos según el lenguaje del repositorio analizado (por ejemplo `npm`, `python3`, `go`, `cargo`, `java`, `php`, `ruby`, `dotnet`).
+
+Instalación rápida:
+
 ```bash
 npm install
 npm run build
+```
+
+For a complete installation guide, see `docs/installation.md`.
+
+For a first analysis in five minutes, see `docs/first-analysis-5-min.md`.
+
+Si quieres validar la instalación completa localmente:
+
+```bash
+project-brain doctor .
+project-brain models
+project-brain console --target /ruta/al/repo --output /tmp/project-brain-run
+```
+
+Instalación recomendada de Ollama (si aún no lo tienes):
+
+```bash
+# Linux
+curl -fsSL https://ollama.com/install.sh | sh
+
+# macOS
+brew install ollama
+
+# Descarga un modelo por defecto
+ollama pull qwen2.5-coder:7b
+ollama pull deepseek-coder:6.7b
+ollama pull llama3.1:8b
+```
+
+Para entornos sin `brew`, usa la guía oficial de Ollama para tu sistema para completar la instalación.
+
+## Run project-brain from source
+
+1. Install dependencies and build once:
+
+```bash
+npm install
+npm run build
+```
+
+2. Ejecuta el CLI directamente desde `dist`:
+
+```bash
+node dist/cli/project-brain.js --help
+```
+
+3. Prueba rápida de compilación en tu máquina:
+
+```bash
+npm run typecheck
+npm run build
+```
+
+If you changed CLI behavior, run this sequence before running a repo:
+
+```bash
+npm run build
+node dist/cli/project-brain.js doctor .
 ```
 
 ## Validation
@@ -83,7 +160,26 @@ npm run typecheck
 npm run verify
 ```
 
+The minimal compilation validation is:
+
+```bash
+npm run typecheck
+npm run build
+```
+
 ## Typical usage
+
+Recommended entry point for non-technical or day-to-day use:
+
+```bash
+project-brain go "understand this project and suggest the next safe step" /path/to/repo --output /path/to/output
+```
+
+Use the console when you want a guided menu:
+
+```bash
+project-brain console --target /path/to/repo --output /path/to/output
+```
 
 Map an existing repository before deeper analysis:
 
@@ -91,11 +187,31 @@ Map an existing repository before deeper analysis:
 project-brain map-codebase /path/to/repo --output /path/to/output
 ```
 
+Generate a lightweight `AI_CONTEXT/` pack for a smaller app without running the full governed pipeline:
+
+```bash
+project-brain context-lite /path/to/repo --output /path/to/output
+```
+
 Use plain language and let `project-brain` route the workflow:
 
 ```bash
 project-brain ask "identifica este proyecto" /path/to/repo --output /path/to/output
 ```
+
+Run a structured, evidence-based security audit with verified architecture and a coordinated agent team:
+
+```bash
+project-brain security-audit /path/to/repo --output /path/to/output
+```
+
+Open an interactive terminal console when you want one place to configure target paths, swarm defaults, and the main workflows:
+
+```bash
+project-brain console --target /path/to/repo --output /path/to/output
+```
+
+Inside the console, the setup panel now shows whether Ollama is installed and which open-source language toolchains are missing or available so `project-brain` can expand beyond static analysis and run stack-specific commands on free/local runtimes.
 
 Persist a project-level improvement roadmap from the current analysis state:
 
@@ -110,6 +226,13 @@ project-brain context-search "express observability" /path/to/repo --output /pat
 project-brain context-get node-express-api /path/to/repo --output /path/to/output
 ```
 
+Scan GitHub for repos that can improve `project-brain` and materialize them into the local context registry:
+
+```bash
+project-brain ecosystem-radar /path/to/repo --output /path/to/output
+project-brain ecosystem-radar /path/to/repo --bucket memory --limit 4 --output /path/to/output
+```
+
 Attach persistent local context for future runs:
 
 ```bash
@@ -121,6 +244,47 @@ Compute blast radius for a file or a set of files:
 ```bash
 project-brain impact-radius /path/to/repo --files src/core/service.ts,src/api/router.ts --output /path/to/output
 ```
+
+## Progressive memory and token reduction
+
+`project-brain` reduces repeated analysis by reading generated memory before
+model-heavy work:
+
+- `AI_CONTEXT/MEMORY_BRIEF.md`: compact handoff for agents and humans.
+- `AI_CONTEXT/EXECUTIVE_SUMMARY.md`: current project state, risks, scopes, and next actions.
+- `memory/scopes/*.json`: scoped memory with freshness status.
+- `memory/knowledge_graph/repository_fact_graph.json`: factual repository graph.
+- `preflightFacts`: deterministic memory/fact gate before expensive model-heavy workflows.
+- `fact-query`: deterministic factual query before model-heavy work.
+
+## Release and beta docs
+
+- `docs/installation.md`: install and validate from source.
+- `docs/first-analysis-5-min.md`: first guided run for a new target repository.
+- `docs/output-contract.md`: stable and internal output contracts.
+- `docs/release-checklist.md`: local and remote gates before tagging.
+- `docs/releases/0.2.0.md`: release notes.
+- `docs/user-test-script.md`: non-technical user test.
+- `reports/validation-matrix.md`: beta validation targets and commands.
+- `reports/beta-readiness.md`: readiness assessment.
+
+Fresh and complete scope memory can reduce bounded swarm work. Stale or partial
+memory is treated as a delta target, not as current truth.
+
+## Review-only safety
+
+The default product posture is analysis and review. Generated patch proposals are
+not applied automatically. Runtime diagnostics, local model inventory, and
+machine-specific reports are ignored by git; stable templates live under
+`reports/templates/`.
+
+## Troubleshooting
+
+- Vulnerabilities: run `npm audit`, then `npm audit fix` when fixes stay within safe semver.
+- Ollama unavailable: `doctor` reports the missing local runtime and the CLI still runs deterministic memory/graph workflows.
+- Claude/API unavailable: model-assisted refinement degrades; factual memory and graph commands still work.
+- Memory stale: rerun `status`, `code-graph`, `fact-query`, or a targeted cheap swarm.
+- Missing executive summary: run `project-brain status /path/to/repo --output /path/to/output`.
 
 Build or refresh the persistent code graph directly:
 
@@ -226,6 +390,7 @@ project-brain swarm "revisa core/swarm_runtime y prioriza mejoras reales" /path/
 project-brain swarm "ayudame a mejorar este repo" /path/to/repo --parallel 3 --chunk-size 1
 project-brain swarm "ayudame a mejorar este repo" /path/to/repo --parallel 3 --chunk-size 1 --task-timeout-ms 12000 --max-retries 1
 project-brain swarm "ayudame a mejorar este repo" /path/to/repo --parallel 2 --chunk-size 1 --planner-timeout-ms 8000 --synthesis-timeout-ms 8000 --run-timeout-ms 30000 --max-queued-tasks 8
+project-brain swarm "ayudame a mejorar este repo" /path/to/repo --engine deepagents --output /path/to/output
 project-brain self-improve /path/to/repo --output /path/to/output
 ```
 
@@ -234,12 +399,15 @@ Swarm runs now salvage labeled Markdown/text responses from local models when JS
 `swarm` uses the planner to split the request into small tasks, then further shards those tasks into small repo-area chunks for local workers. It writes the merged result to `reports/swarm_run.md`.
 By default it adapts parallel workers and queue budget to the local CPU/load/memory profile, uses a round-robin queue so small budgets touch multiple task types first, and can force planner/synthesis onto local models when the run budget is short. In that short-budget mode it also clamps auto-selected concurrency so local workers do not oversubscribe the machine. When a large scoped area times out, the swarm now splits that area into immediate child scopes before retrying instead of re-running the same broad directory. You can override worker count with `--parallel <n>`, force smaller repo slices with `--chunk-size <n>`, set a per-worker budget with `--task-timeout-ms`, cap planner/synthesis/global runtime with `--planner-timeout-ms`, `--synthesis-timeout-ms`, and `--run-timeout-ms`, limit queue growth with `--max-queued-tasks`, and allow bounded retries with `--max-retries`.
 
+`swarm --engine deepagents` keeps the repo read-only, gives the agent an isolated scratch filesystem under `memory/swarm/deepagents_workspace`, and exposes only controlled repository inspection tools. It is intended as an experimental evolution path for more autonomous planning and subagent delegation without replacing the governed `project-brain` pipeline.
+
 `self-improve` is the simplest way to point that swarm back at a repository, including `project-brain` itself, with bounded defaults for local runs while still letting the runtime shrink queue pressure automatically on a busy machine. It also switches the swarm to a `source-first` scope bias so the first chunks prefer product code over `tests/` and dotfiles.
 
 ## Prompt-first workflow
 
 The repository now includes reusable templates in `prompts/context_templates/` for:
 
+- context bootstrap / AI_CONTEXT refresh
 - frontend analysis
 - UX improvement planning
 - architecture review
@@ -288,8 +456,13 @@ The last mile still lives in GitHub settings, because branch protection and secr
 
 ## Documentation
 
+- [Documentation Index](docs/README.md)
 - [Architecture](docs/architecture.md)
 - [Agents](docs/agents.md)
 - [Usage](docs/usage.md)
 - [External Repository Integration](docs/external-repository-integration.md)
+- [Production Architecture Spec](docs/production-architecture-spec.md)
+- [Self-Governance](docs/agent-self-governance.md)
+- [Roadmap](docs/roadmap/evolution-plan.md)
+- [Architecture Assessments](docs/assessments/system-architecture-audit.md)
 - [Acknowledgements](ACKNOWLEDGEMENTS.md)

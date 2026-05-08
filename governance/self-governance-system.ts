@@ -67,6 +67,12 @@ function defaultAffectedFiles(agentId: string, context: ProjectContext): string[
   if (agentId === "security-agent") {
     return [...manifests.slice(0, 2), ...infraFiles.slice(0, 2)];
   }
+  if (agentId === "auth-agent") {
+    return ["src/lib/auth/", "app/api/auth/", ...apiFiles.slice(0, 2)];
+  }
+  if (agentId === "infra-agent") {
+    return [...infraFiles.slice(0, 3), ".github/", "config/"];
+  }
   if (agentId === "documentation-agent") {
     return ["docs/", ...apiFiles.slice(0, 2)];
   }

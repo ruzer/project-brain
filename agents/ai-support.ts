@@ -51,7 +51,10 @@ export async function loadAgentSystemPrompt(fileName: string): Promise<string> {
 
 export function buildRepoSummary(context: ProjectContext): string {
   const { discovery } = context;
+  const memoryBrief = buildMemoryBriefSummary(context);
   return [
+    "Memory contract: read this MEMORY_BRIEF before using repository details. Treat missing evidence as UNKNOWN.",
+    memoryBrief,
     `Repository: ${context.repoName}`,
     `Languages: ${discovery.languages.join(", ") || "Unknown"}`,
     `Frameworks: ${discovery.frameworks.join(", ") || "Unknown"}`,
@@ -64,6 +67,23 @@ export function buildRepoSummary(context: ProjectContext): string {
     `Test files: ${discovery.structure.testFileCount}`,
     `Recommendations: ${discovery.recommendations.join(" | ") || "None"}`
   ].join("\n");
+}
+
+export function buildMemoryBriefSummary(context: ProjectContext, maxLines = 28): string {
+  try {
+    const briefPath = path.join(context.memoryDir, "MEMORY_BRIEF.md");
+    const content = readFileSync(briefPath, "utf8");
+    const lines = content
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !/^#/.test(line))
+      .filter((line) => !/^- Generated:/i.test(line))
+      .slice(0, maxLines);
+
+    return lines.length > 0 ? `Memory brief:\n${lines.join("\n")}` : "Memory brief: Not available";
+  } catch {
+    return "Memory brief: Not available";
+  }
 }
 
 function stripMarkdownFences(raw: string): string {

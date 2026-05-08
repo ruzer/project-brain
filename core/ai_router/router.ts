@@ -9,6 +9,7 @@ import {
   type OllamaModelResidency
 } from "../../integrations/ollama_adapter";
 import { StructuredLogger } from "../../shared/logger";
+import { applyTokenPolicy } from "../token_policy";
 
 export type ModelRoute = "local" | "cloud";
 export type LocalProvider = "ollama";
@@ -650,7 +651,7 @@ export class AIRouter {
   }
 
   async ask(input: string | AIRouterRequest): Promise<string> {
-    const request = normalizeRequest(input);
+    const request = applyTokenPolicy(normalizeRequest(input));
     const selection = await this.selectModel(request);
     this.logger.info("AI route selected", {
       component: "ai-router",

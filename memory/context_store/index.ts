@@ -118,6 +118,44 @@ ${listOrNone(discovery.structure.topLevelDirectories)}
 `;
 }
 
+function buildContextSnapshot(discovery: DiscoveryResult): string {
+  return `# CONTEXT
+
+## Repository Snapshot
+
+- Repository: ${discovery.repoName}
+- Target: ${discovery.targetPath}
+- Scanned: ${discovery.scannedAt}
+- Languages: ${discovery.languages.join(", ") || "Unknown"}
+- Frameworks: ${discovery.frameworks.join(", ") || "Unknown"}
+- APIs: ${discovery.apis.join(", ") || "Not detected"}
+- Infrastructure: ${discovery.infrastructure.join(", ") || "Not detected"}
+- Testing: ${discovery.testing.join(", ") || "Not detected"}
+- Source files: ${discovery.structure.sourceFileCount}
+- Test files: ${discovery.structure.testFileCount}
+
+## Top-level Directories
+
+${listOrNone(discovery.structure.topLevelDirectories.slice(0, 24))}
+
+## Recommendations
+
+${listOrNone(discovery.recommendations)}
+`;
+}
+
+async function writeIfSkeletal(filePath: string, content: string): Promise<void> {
+  const existing = await readTextSafe(filePath);
+  const meaningfulLines = existing
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !/^#/.test(line));
+
+  if (meaningfulLines.length === 0) {
+    await writeFileEnsured(filePath, content);
+  }
+}
+
 function buildApiMap(
   discovery: DiscoveryResult,
   openApiSummaries: Array<{ path: string; title?: string; version?: string }>
@@ -320,10 +358,25 @@ export async function writeDiscoveryArtifacts(
   openApiSummaries: Array<{ path: string; title?: string; version?: string }>
 ): Promise<void> {
   await writeFileEnsured(path.join(memoryDir, "PROJECT_MODEL.md"), buildProjectModel(discovery));
+  await writeFileEnsured(path.join(memoryDir, "CONTEXT.md"), buildContextSnapshot(discovery));
   await writeFileEnsured(path.join(memoryDir, "ARCHITECTURE_MAP.md"), buildArchitectureMap(discovery));
   await writeFileEnsured(path.join(memoryDir, "API_MAP.md"), buildApiMap(discovery, openApiSummaries));
   await writeFileEnsured(path.join(memoryDir, "DEPENDENCY_GRAPH.md"), buildDependencyGraph(discovery));
   await writeFileEnsured(path.join(memoryDir, "STACK_PROFILE.md"), buildStackProfile(discovery));
+  await writeIfSkeletal(
+    path.join(memoryDir, "LEARNINGS.md"),
+    `# LEARNINGS
+
+- Discovery completed for ${discovery.repoName}; use MEMORY_BRIEF before broad source reading.
+`
+  );
+  await writeIfSkeletal(
+    path.join(memoryDir, "ERRORS.md"),
+    `# ERRORS
+
+- No corrections recorded yet.
+`
+  );
   logger.info("Wrote discovery artifacts", {
     component: "memory",
     action: "memory_write",

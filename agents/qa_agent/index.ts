@@ -1,6 +1,6 @@
 import { BaseAgent } from "../base-agent";
 
-import type { AgentEvaluation, ProjectContext } from "../../shared/types";
+import type { AgentEvaluation, ProjectContext, SecurityCoverageStatus } from "../../shared/types";
 
 export class QAAgent extends BaseAgent {
   constructor() {
@@ -10,6 +10,7 @@ export class QAAgent extends BaseAgent {
   protected async evaluate(context: ProjectContext): Promise<AgentEvaluation> {
     const deterministicFindings: string[] = [];
     const recommendations: string[] = [];
+    const coverage: SecurityCoverageStatus[] = [];
     const { discovery } = context;
     const testFiles = discovery.structure.testFileCount;
     const sourceFiles = discovery.structure.sourceFileCount;
@@ -47,13 +48,24 @@ export class QAAgent extends BaseAgent {
       ].join("\n")
     });
 
+    coverage.push({
+      area: "abuse_protection",
+      status: testFiles === 0 ? "not-reviewed" : "ok",
+      note:
+        testFiles === 0
+          ? "No se confirmaron tests suficientes para validar rate limiting, brute force o anti-abuso en rutas sensibles."
+          : `Se detectaron ${testFiles} archivos de test, pero la cobertura específica contra abuso debe confirmarse por suite o naming.`,
+      agentId: this.agentId
+    });
+
     return this.buildAIEnhancedEvaluation(
       {
         title: "QA Report",
         summary: `QAAgent reviewed ${sourceFiles} source files and ${testFiles} test files.`,
         deterministicFindings,
         recommendations,
-        riskLevel: deterministicFindings.length >= 2 ? "high" : deterministicFindings.length === 1 ? "medium" : "low"
+        riskLevel: deterministicFindings.length >= 2 ? "high" : deterministicFindings.length === 1 ? "medium" : "low",
+        coverage
       },
       aiResponse
     );

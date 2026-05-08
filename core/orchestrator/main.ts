@@ -3,6 +3,7 @@ import path from "node:path";
 import { buildOrUpdateCodeGraphV2 } from "../../analysis/code_graph_v2";
 import { analyzeImpactRadius } from "../../analysis/impact_radius";
 import { MetricsCollector } from "../../analysis/metrics/metrics_collector";
+import { buildRepositoryFactGraph } from "../../analysis/repository_fact_graph";
 import { discoverRepositoryTargets, uniqueRepositoryNames } from "../../analysis/workspace_discovery";
 import { AIRouter, type AIRouterRequest, type ModelInventory, type ModelSelection } from "../ai_router/router";
 import { routeIntent } from "../intent_router";
@@ -11,18 +12,28 @@ import { runDoctor } from "../doctor";
 import { buildResume } from "../resume";
 import { buildStatus } from "../status";
 import { ContextBuilder } from "../context_builder";
+import { writeContextLiteArtifacts } from "../context_lite";
 import { WeeklyScheduler } from "../scheduler";
 import { DiscoveryEngine } from "../discovery_engine";
+import { runDeepAgentsSwarm } from "../deepagents_swarm";
+import { runSecurityAudit } from "../security_audit";
 import { runSwarm } from "../swarm_runtime";
 import { AgentSelfGovernanceSystem } from "../../governance/self-governance-system";
 import { buildKnowledgeGraphArtifacts } from "../../memory/knowledge_graph";
-import { recordLearningArtifacts } from "../../memory/learning_store";
+import { recordLearningArtifacts, recordSwarmLearningArtifacts } from "../../memory/learning_store";
+import { runFactQuery } from "../../memory/fact_query";
+import { preflightFacts } from "../../memory/preflight_facts";
+import { writeMemoryBriefArtifacts } from "../../memory/memory_brief";
+import { assessMemoryReadiness } from "../../memory/readiness";
+import { runHarnessAudit } from "../../operations/harness_audit";
 import { clearContextAnnotation, listContextAnnotations, readContextAnnotation, writeContextAnnotation } from "../../memory/annotations";
 import { getContextRegistryEntry, listContextSources, searchContextRegistry } from "../../memory/context_registry";
+import { runEcosystemRadar } from "../../memory/context_registry/ecosystem_radar";
 import { updatePersistentMemory } from "../../memory/context_store";
 import { writeImprovementPlanArtifacts } from "../../planning/improvement_plan";
+import { buildRunbook } from "../../planning/runbook";
 import { createCycleId, StructuredLogger, withLogContext } from "../../shared/logger";
-import { ensureDir, readJsonSafe, toPosixPath, walkDirectory, writeFileEnsured } from "../../shared/fs-utils";
+import { ensureDir, readJsonSafe, readTextSafe, toPosixPath, uniqueSorted, walkDirectory, writeFileEnsured, writeJsonEnsured } from "../../shared/fs-utils";
 import type {
   AgentReport,
   AskArtifact,
@@ -30,10 +41,14 @@ import type {
   AskWorkflow,
   CodeGraphBuildResult,
   CodebaseMapResult,
+  ContextLiteResult,
+  FactQueryResult,
+  HarnessAuditResult,
   ContextGetResult,
   ContextAnnotation,
   ContextSearchResult,
   ContextSourcesResult,
+  EcosystemRadarResult,
   ImpactAnalysisResult,
   EcosystemCodebaseMapResult,
   EcosystemAnalysisResult,
@@ -47,7 +62,11 @@ import type {
   RepositoryTarget,
   DoctorResult,
   ResumeResult,
+  SecurityAuditResult,
+  StartResult,
+  StartStep,
   StatusResult,
+  RunbookResult,
   SwarmRunResult
 } from "../../shared/types";
 
@@ -59,6 +78,111 @@ function highestRisk(agentReports: AgentReport[]): "low" | "medium" | "high" {
     return "medium";
   }
   return "low";
+}
+
+function clampScore(value: number): number {
+  return Math.max(0, Math.min(1, Number(value.toFixed(2))));
+}
+
+function containsPathLikeEvidence(value: string): boolean {
+  return /`[^`]+\.[a-z0-9]+`|(?:^|[\s(])(?:src|app|lib|components|pages|routes|controllers|tests|docs|config)\/[^\s,;:()]+/i.test(value);
+}
+
+function collectGroundedFiles(context: ProjectContext, text: string): string[] {
+  return context.discovery.files.filter((filePath) => text.includes(filePath)).slice(0, 8);
+}
+
+function detectGenericSignals(entries: string[]): string[] {
+  return uniqueSorted(
+    entries.filter(
+      (entry) =>
+        GENERIC_REPORT_PATTERNS.some((pattern) => pattern.test(entry)) &&
+        !containsPathLikeEvidence(entry)
+    )
+  ).slice(0, 4);
+}
+
+async function assessAgentReportQuality(
+  context: ProjectContext,
+  report: AgentReport
+): Promise<AgentReportQualityAssessment> {
+  const reportContent = await readTextSafe(report.outputPath);
+  const evidenceText = [report.summary, ...report.findings, ...report.recommendations, reportContent].join("\n");
+  const groundedFiles = collectGroundedFiles(context, evidenceText);
+  const genericSignals = detectGenericSignals([...report.findings, ...report.recommendations]);
+  const notes: string[] = [];
+  let score = 1;
+
+  if (report.findings.length === 0 && report.recommendations.length === 0) {
+    score -= 0.4;
+    notes.push("No contiene findings ni recomendaciones accionables.");
+  }
+
+  if (!reportContent.trim()) {
+    score -= 0.15;
+    notes.push("El artefacto escrito del agente quedó vacío o no se pudo leer.");
+  }
+
+  if (groundedFiles.length === 0 && !containsPathLikeEvidence(evidenceText)) {
+    score -= 0.45;
+    notes.push("No cita archivos o superficies confirmadas del repositorio.");
+  }
+
+  if (genericSignals.length > 0 && groundedFiles.length === 0) {
+    score -= 0.2;
+    notes.push(`Las recomendaciones parecen genéricas: ${genericSignals.join(" | ")}`);
+  }
+
+  if (report.riskLevel !== "low" && report.findings.length === 0) {
+    score -= 0.1;
+    notes.push("Marca riesgo medio/alto sin findings concretos.");
+  }
+
+  return {
+    report,
+    score: clampScore(score),
+    status: score >= 0.65 ? "accepted" : "review-required",
+    notes: notes.length > 0 ? notes : ["El reporte cita evidencia suficiente para entrar al resumen operativo."],
+    groundedFiles,
+    genericSignals
+  };
+}
+
+function buildReportQualityContent(
+  context: ProjectContext,
+  assessments: AgentReportQualityAssessment[],
+  effectiveReports: AgentReport[],
+  fellBackToRawReports: boolean
+): string {
+  const accepted = assessments.filter((assessment) => assessment.status === "accepted");
+  const reviewRequired = assessments.filter((assessment) => assessment.status === "review-required");
+
+  return `# Report Quality
+
+## Summary
+
+- Repository: ${context.repoName}
+- Accepted reports: ${accepted.length}
+- Review-required reports: ${reviewRequired.length}
+- Effective reports used downstream: ${effectiveReports.length}
+- Fallback to raw reports: ${fellBackToRawReports ? "yes" : "no"}
+
+## Assessments
+
+${assessments
+  .map(
+    (assessment) => `### ${assessment.report.title}
+
+- Agent: ${assessment.report.agentId}
+- Status: ${assessment.status}
+- Score: ${assessment.score}
+- Grounded files: ${assessment.groundedFiles.join(", ") || "None"}
+- Notes:
+${renderList(assessment.notes)}
+`
+  )
+  .join("\n")}
+`;
 }
 
 function renderList(items: string[]): string {
@@ -97,6 +221,23 @@ interface AskGuidedExecution {
 interface ProjectBrainOrchestratorOptions {
   aiRouter?: AskAssistant;
 }
+
+interface AgentReportQualityAssessment {
+  report: AgentReport;
+  score: number;
+  status: "accepted" | "review-required";
+  notes: string[];
+  groundedFiles: string[];
+  genericSignals: string[];
+}
+
+const GENERIC_REPORT_PATTERNS = [
+  /\bimprove (?:the )?(?:ux|ui|architecture|performance|security|reliability)\b/i,
+  /\badd (?:more )?(?:tests|logging|monitoring|documentation)\b/i,
+  /\brefactor (?:the )?(?:codebase|workflow|module|architecture)\b/i,
+  /\benhance (?:the )?(?:workflow|platform|experience|quality)\b/i,
+  /\boptimi[sz]e (?:the )?(?:app|application|system|performance)\b/i
+];
 
 function extractJsonObject(input: string): Record<string, unknown> | undefined {
   const trimmed = input.trim();
@@ -139,6 +280,7 @@ function normalizeSuggestedWorkflow(value: unknown): AskWorkflow | undefined {
   const allowed: AskWorkflow[] = [
     "resume-project",
     "discover-project",
+    "security-audit",
     "critical-gaps",
     "review-latest-changes",
     "inspect-firewall",
@@ -149,6 +291,10 @@ function normalizeSuggestedWorkflow(value: unknown): AskWorkflow | undefined {
 }
 
 function shouldUseAIAskAssist(intent: string, workflow: AskWorkflow): boolean {
+  if (workflow === "security-audit") {
+    return false;
+  }
+
   const strategic = /estrateg|strategy|roadmap|stack|tecnolog|deploy|alcance|scope|arquitect|architecture|producto|product|idea|greenfield/i.test(
     intent
   );
@@ -204,12 +350,15 @@ export class ProjectBrainOrchestrator {
     const discovery = await this.discoveryEngine.analyze(targetPath, {
       excludePaths: this.discoveryExclusions(targetPath, outputPath)
     });
-    return this.contextBuilder.build(discovery, outputPath);
+    const context = await this.contextBuilder.build(discovery, outputPath);
+    await writeMemoryBriefArtifacts(context);
+    return context;
   }
 
   async mapTarget(targetPath: string, outputPath = targetPath): Promise<CodebaseMapResult> {
     const context = await this.initTarget(targetPath, outputPath);
     const artifact = await writeCodebaseMapArtifacts(context);
+    await writeMemoryBriefArtifacts(context);
 
     return {
       context,
@@ -232,7 +381,239 @@ export class ProjectBrainOrchestrator {
 
   async buildCodeGraph(targetPath: string, outputPath = targetPath): Promise<CodeGraphBuildResult> {
     const context = await this.initTarget(targetPath, outputPath);
-    return buildOrUpdateCodeGraphV2(context);
+    const codeGraph = await buildOrUpdateCodeGraphV2(context);
+    const factGraph = await buildRepositoryFactGraph(context, codeGraph.graph);
+    await writeMemoryBriefArtifacts(context);
+
+    return {
+      ...codeGraph,
+      factGraphPath: factGraph.graphPath,
+      factReportPath: factGraph.reportPath,
+      factGraph: factGraph.graph
+    };
+  }
+
+  async contextLite(targetPath: string, outputPath = targetPath): Promise<ContextLiteResult> {
+    const context = await this.initTarget(targetPath, outputPath);
+    const result = await writeContextLiteArtifacts(context);
+    await writeMemoryBriefArtifacts(context);
+    return result;
+  }
+
+  async factQuery(targetPath: string, outputPath = targetPath, query: string): Promise<FactQueryResult> {
+    const context = await this.initTarget(targetPath, outputPath);
+    const result = await runFactQuery(context, query);
+    await writeMemoryBriefArtifacts(context);
+    return result;
+  }
+
+  async runbook(targetPath: string, outputPath = targetPath, intent: string): Promise<RunbookResult> {
+    const context = await this.initTarget(targetPath, outputPath);
+    const result = await buildRunbook(context, intent);
+    await writeMemoryBriefArtifacts(context);
+    return result;
+  }
+
+  async harnessAudit(targetPath: string, outputPath = targetPath): Promise<HarnessAuditResult> {
+    const context = await this.initTarget(targetPath, outputPath);
+    const result = await runHarnessAudit(context);
+    await writeMemoryBriefArtifacts(context);
+    return result;
+  }
+
+  async start(
+    targetPath: string,
+    outputPath = targetPath,
+    intent = "optimize analysis and cost",
+    options: { withSwarm?: boolean } = {}
+  ): Promise<StartResult> {
+    const context = await this.initTarget(targetPath, outputPath);
+    const outputFlag = `--output ${JSON.stringify(outputPath)}`;
+    const targetArg = JSON.stringify(targetPath);
+    const executedSteps: StartStep[] = [];
+    let status = await buildStatus(context);
+    const hasArtifact = (label: string): boolean => status.artifacts.some((artifact) => artifact.label === label && artifact.exists);
+    const refreshStatus = async (): Promise<void> => {
+      status = await buildStatus(context);
+    };
+    const addStep = (
+      id: string,
+      label: string,
+      stepStatus: StartStep["status"],
+      command: string,
+      summary: string
+    ): void => {
+      executedSteps.push({
+        id,
+        label,
+        status: stepStatus,
+        command,
+        summary
+      });
+    };
+
+    if (status.summary.doctorStatus === "unknown" || status.summary.doctorStatus === "fail") {
+      await this.doctor(targetPath, outputPath);
+      addStep("doctor", "Revisar entorno local", "done", `project-brain doctor ${targetArg} ${outputFlag}`, "Se actualizo el diagnostico local.");
+      await refreshStatus();
+    } else {
+      addStep("doctor", "Revisar entorno local", "skipped", `project-brain doctor ${targetArg} ${outputFlag}`, "Ya existe un diagnostico utilizable.");
+    }
+
+    if (!hasArtifact("Codebase Map")) {
+      await writeCodebaseMapArtifacts(context);
+      addStep("map-codebase", "Crear mapa del proyecto", "done", `project-brain map-codebase ${targetArg} ${outputFlag}`, "Se genero el mapa estructural.");
+      await refreshStatus();
+    } else {
+      addStep("map-codebase", "Crear mapa del proyecto", "skipped", `project-brain map-codebase ${targetArg} ${outputFlag}`, "Ya existe mapa estructural.");
+    }
+
+    if (!hasArtifact("Repository Fact Graph")) {
+      await this.buildCodeGraph(targetPath, outputPath);
+      addStep("code-graph", "Crear hechos estructurales", "done", `project-brain code-graph ${targetArg} ${outputFlag}`, "Se genero el grafo factual.");
+      await refreshStatus();
+    } else {
+      addStep("code-graph", "Crear hechos estructurales", "skipped", `project-brain code-graph ${targetArg} ${outputFlag}`, "Ya existe grafo factual.");
+    }
+
+    const factQuery = `${context.repoName} ${intent}`;
+    if (!hasArtifact("Fact Query")) {
+      await this.factQuery(targetPath, outputPath, factQuery);
+      addStep("fact-query", "Buscar memoria factual", "done", `project-brain fact-query ${JSON.stringify(factQuery)} ${targetArg} ${outputFlag}`, "Se filtro memoria relevante sin usar modelo.");
+      await refreshStatus();
+    } else {
+      addStep("fact-query", "Buscar memoria factual", "skipped", `project-brain fact-query ${JSON.stringify(factQuery)} ${targetArg} ${outputFlag}`, "Ya existe consulta factual reutilizable.");
+    }
+
+    if (!hasArtifact("Runbook")) {
+      await this.runbook(targetPath, outputPath, intent);
+      addStep("runbook", "Preparar ruta barata", "done", `project-brain runbook ${JSON.stringify(intent)} ${targetArg} ${outputFlag}`, "Se genero un runbook token-aware.");
+      await refreshStatus();
+    } else {
+      addStep("runbook", "Preparar ruta barata", "skipped", `project-brain runbook ${JSON.stringify(intent)} ${targetArg} ${outputFlag}`, "Ya existe runbook.");
+    }
+
+    if (!hasArtifact("Harness Audit")) {
+      await this.harnessAudit(targetPath, outputPath);
+      addStep("harness-audit", "Auditar memoria y costos", "done", `project-brain harness-audit ${targetArg} ${outputFlag}`, "Se audito preparacion de memoria/costos.");
+      await refreshStatus();
+    } else {
+      addStep("harness-audit", "Auditar memoria y costos", "skipped", `project-brain harness-audit ${targetArg} ${outputFlag}`, "Ya existe harness audit.");
+    }
+
+    if (!hasArtifact("Firewall")) {
+      await this.inspectFirewall(targetPath, outputPath, "repository-change");
+      addStep("firewall", "Revisar limites de agentes", "done", `project-brain firewall ${targetArg} --trigger repository-change ${outputFlag}`, "Se genero snapshot de firewall.");
+      await refreshStatus();
+    } else {
+      addStep("firewall", "Revisar limites de agentes", "skipped", `project-brain firewall ${targetArg} --trigger repository-change ${outputFlag}`, "Ya existe firewall.");
+    }
+
+    if (hasArtifact("Swarm") && !hasArtifact("Improvement Plan")) {
+      await this.planImprovements(targetPath, outputPath, "repository-change");
+      addStep("plan-improvements", "Consolidar plan", "done", `project-brain plan-improvements ${targetArg} ${outputFlag}`, "Se convirtieron findings existentes en plan persistente.");
+      await refreshStatus();
+    } else if (!hasArtifact("Swarm") && options.withSwarm) {
+      await this.swarm(targetPath, outputPath, intent, {
+        engine: "bounded",
+        chunkSize: 1,
+        parallelism: 2,
+        taskTimeoutMs: 90_000,
+        plannerTimeoutMs: 60_000,
+        synthesisTimeoutMs: 60_000,
+        runTimeoutMs: 120_000,
+        maxQueuedTasks: 4,
+        maxRetries: 0
+      });
+      addStep("swarm", "Analizar con agentes", "done", `project-brain swarm ${JSON.stringify(intent)} ${targetArg} ${outputFlag} --preset cheap`, "Se ejecuto swarm porque se pidio --with-swarm.");
+      await refreshStatus();
+      if (!hasArtifact("Improvement Plan")) {
+        await this.planImprovements(targetPath, outputPath, "repository-change");
+        addStep("plan-improvements", "Consolidar plan", "done", `project-brain plan-improvements ${targetArg} ${outputFlag}`, "Se convirtieron findings del swarm en plan persistente.");
+        await refreshStatus();
+      }
+    } else if (!hasArtifact("Swarm")) {
+      addStep("swarm", "Analizar con agentes", "suggested", `project-brain swarm ${JSON.stringify(intent)} ${targetArg} ${outputFlag} --preset cheap`, "Listo para swarm, pero no se ejecuto para evitar gasto de tokens/modelos.");
+    }
+
+    const nextCommand = executedSteps.find((step) => step.status === "suggested")?.command ?? status.suggestions[0]?.command;
+    const result: StartResult = {
+      context,
+      intent,
+      reportPath: path.join(context.reportsDir, "start.md"),
+      memoryPath: path.join(context.memoryDir, "start", "start.json"),
+      headline: nextCommand ? "Start complete: base context is ready; one next action remains." : "Start complete: project-brain context is ready.",
+      memoryReadiness: await assessMemoryReadiness(context),
+      executiveSummary: status.executiveSummary,
+      executedSteps,
+      nextCommand,
+      artifacts: status.artifacts,
+      suggestions: status.suggestions
+    };
+
+    await writeFileEnsured(
+      result.reportPath,
+      `# Start
+
+## Summary
+
+- Repository: ${context.repoName}
+- Intent: ${intent}
+- Headline: ${result.headline}
+- Memory readiness: ${result.memoryReadiness.status} (${result.memoryReadiness.reason})
+- Executive summary: ${result.executiveSummary.reportPath}
+- Next command: ${nextCommand ?? "None"}
+
+## Steps
+
+${executedSteps.map((step) => `- [${step.status}] ${step.label}: \`${step.command}\` - ${step.summary}`).join("\n")}
+`
+    );
+    await writeJsonEnsured(result.memoryPath, {
+      repoName: context.repoName,
+      targetPath,
+      outputPath,
+      intent,
+      headline: result.headline,
+      memoryReadiness: result.memoryReadiness,
+      executiveSummary: {
+        reportPath: result.executiveSummary.reportPath,
+        memoryPath: result.executiveSummary.memoryPath,
+        status: result.executiveSummary.status
+      },
+      executedSteps,
+      nextCommand,
+      suggestions: status.suggestions
+    });
+    await writeMemoryBriefArtifacts(context);
+
+    return result;
+  }
+
+  async securityAudit(
+    targetPath: string,
+    outputPath = targetPath,
+    trigger: GovernanceTrigger = "security-audit"
+  ): Promise<SecurityAuditResult> {
+    const scope = await discoverRepositoryTargets(targetPath, outputPath);
+    const firstRepository = scope.repositories[0];
+    const primaryTargetPath = firstRepository?.targetPath ?? targetPath;
+    const primaryOutputPath =
+      scope.mode === "workspace" && firstRepository
+        ? this.workspaceRepoOutputPath(outputPath, firstRepository)
+        : outputPath;
+    const scopeNote =
+      scope.mode === "workspace" && firstRepository
+        ? `Workspace detectado; la auditoría se ejecutó sobre el primer repositorio materializado: ${firstRepository.repoName} (${firstRepository.relativePath}).`
+        : undefined;
+    const context = await this.initTarget(primaryTargetPath, primaryOutputPath);
+    const contextLite = await writeContextLiteArtifacts(context);
+    const governanceRun = await this.selfGovernance.run(context, trigger);
+
+    return runSecurityAudit(context, governanceRun, contextLite, {
+      trigger,
+      scopeNote
+    });
   }
 
   async doctor(targetPath: string, outputPath = targetPath): Promise<DoctorResult> {
@@ -441,6 +822,10 @@ export class ProjectBrainOrchestrator {
       scope.mode === "workspace" && firstRepository
         ? `The intent was run against the first repository in the workspace: ${firstRepository.repoName} (${firstRepository.relativePath}).`
         : undefined;
+    const preflightContext = await this.initTarget(primaryTargetPath, primaryOutputPath);
+    const preflight = await preflightFacts(preflightContext, intent, {
+      scope: scope.mode === "workspace" ? firstRepository?.relativePath : "."
+    });
     const aiEnhancement = await this.buildAskAIEnhancement(
       intent,
       route.workflow,
@@ -558,6 +943,26 @@ export class ProjectBrainOrchestrator {
       }
     }
 
+    if (route.workflow === "security-audit") {
+      const result = await this.securityAudit(primaryTargetPath, primaryOutputPath, route.trigger);
+      const severityCounts = result.findings.reduce<Record<string, number>>((accumulator, finding) => {
+        accumulator[finding.severity] = (accumulator[finding.severity] ?? 0) + 1;
+        return accumulator;
+      }, {});
+      headline = result.headline;
+      summary = [
+        scopeNote ?? `Target path: ${primaryTargetPath}`,
+        `Verdict: ${result.verdict}`,
+        `Findings: critical=${severityCounts.critical ?? 0}, high=${severityCounts.high ?? 0}, medium=${severityCounts.medium ?? 0}, low=${severityCounts.low ?? 0}, info=${severityCounts.info ?? 0}`,
+        `Context gaps: ${result.verifiedContext.contextGaps.slice(0, 3).join(" | ") || "None"}`
+      ].filter(Boolean);
+      artifacts = [
+        { label: "Security audit report", path: result.reportPath },
+        { label: "Security audit memory", path: result.memoryPath },
+        ...(result.contextLiteReportPath ? [{ label: "Context-lite report", path: result.contextLiteReportPath }] : [])
+      ];
+    }
+
     if (route.workflow === "review-latest-changes") {
       const result = await this.reviewDelta(primaryTargetPath, primaryOutputPath, {
         baseRef: "HEAD~1",
@@ -594,15 +999,21 @@ export class ProjectBrainOrchestrator {
 
     if (route.workflow === "build-code-graph") {
       const result = await this.buildCodeGraph(primaryTargetPath, primaryOutputPath);
-      headline = `Built or refreshed the structural code graph.`;
+      headline = `Built or refreshed the structural code graph and factual repository graph.`;
       summary = [
         scopeNote ?? `Target path: ${primaryTargetPath}`,
         `Build mode: ${result.graph.build.mode}`,
         `Files: ${result.graph.stats.files}`,
         `Symbols: ${result.graph.stats.symbols}`,
-        `Edges: ${result.graph.stats.edges}`
-      ].filter(Boolean);
-      artifacts = [{ label: "Code graph", path: result.graphPath }];
+        `Edges: ${result.graph.stats.edges}`,
+        result.factGraph ? `Fact graph nodes: ${result.factGraph.stats.nodes}` : undefined,
+        result.factGraph ? `Fact graph edges: ${result.factGraph.stats.edges}` : undefined
+      ].filter((entry): entry is string => Boolean(entry));
+      artifacts = [
+        { label: "Code graph", path: result.graphPath },
+        ...(result.factGraphPath ? [{ label: "Repository fact graph", path: result.factGraphPath }] : []),
+        ...(result.factReportPath ? [{ label: "Repository fact graph report", path: result.factReportPath }] : [])
+      ];
     }
 
     if (aiEnhancement) {
@@ -634,6 +1045,23 @@ ${renderList(summary)}
 ## Artifacts
 
 ${renderArtifactList(artifacts)}
+
+## Preflight Facts
+
+- Confidence: ${preflight.confidence}
+- Facts found: ${preflight.factsFound ? "yes" : "no"}
+- Recommended next action: ${preflight.recommendedNextAction}
+- Fresh scopes: ${preflight.freshness.freshScopes.join(", ") || "None"}
+- Stale scopes ignored: ${preflight.freshness.staleScopes.join(", ") || "None"}
+
+Facts:
+${renderList(preflight.facts)}
+
+Evidence:
+${renderList(preflight.evidence)}
+
+Unknowns:
+${renderList(preflight.unknowns)}
 
 ## Guided continuation
 
@@ -676,6 +1104,7 @@ ${renderList(route.followUps)}
       artifacts,
       followUps: route.followUps,
       routingReason: route.reason,
+      preflightFacts: preflight,
       guidedExecution: guidedExecution
         ? {
             label: guidedExecution.label,
@@ -703,6 +1132,7 @@ ${renderList(route.followUps)}
     outputPath = targetPath,
     intent: string,
     options?: {
+      engine?: "bounded" | "deepagents";
       parallelism?: number;
       chunkSize?: number;
       taskTimeoutMs?: number;
@@ -715,7 +1145,20 @@ ${renderList(route.followUps)}
     }
   ): Promise<SwarmRunResult> {
     const context = await this.initTarget(targetPath, outputPath);
-    return runSwarm(context, intent, this.aiRouter, options);
+    await writeMemoryBriefArtifacts(context);
+    const memoryReadiness = await assessMemoryReadiness(context);
+    if (memoryReadiness.status !== "ready") {
+      throw new Error(`MEMORY_BRIEF is not ready (${memoryReadiness.status}): ${memoryReadiness.reason}`);
+    }
+    let result: SwarmRunResult;
+    if (options?.engine === "deepagents") {
+      result = await runDeepAgentsSwarm(context, intent, this.aiRouter, options);
+    } else {
+      result = await runSwarm(context, intent, this.aiRouter, options);
+    }
+    await recordSwarmLearningArtifacts(context.memoryDir, result);
+    await writeMemoryBriefArtifacts(context);
+    return result;
   }
 
   async selfImprove(
@@ -749,12 +1192,14 @@ ${renderList(route.followUps)}
     const analysis = await this.analyzeTarget(primaryTargetPath, primaryOutputPath, trigger);
     const annotations = await listContextAnnotations(primaryOutputPath);
 
-    return writeImprovementPlanArtifacts(
+    const result = await writeImprovementPlanArtifacts(
       analysis.context,
       analysis.agentReports,
       analysis.governanceSummary!,
       annotations
     );
+    await writeMemoryBriefArtifacts(analysis.context);
+    return result;
   }
 
   async contextSearch(
@@ -775,6 +1220,19 @@ ${renderList(route.followUps)}
   async contextSources(targetPath: string, outputPath = targetPath): Promise<ContextSourcesResult> {
     const context = await this.initTarget(targetPath, outputPath);
     return listContextSources(context);
+  }
+
+  async ecosystemRadar(
+    targetPath: string,
+    outputPath = targetPath,
+    options: {
+      limit?: number;
+      bucketId?: string;
+      seedOnly?: boolean;
+    } = {}
+  ): Promise<EcosystemRadarResult> {
+    const context = await this.initTarget(targetPath, outputPath);
+    return runEcosystemRadar(context, options);
   }
 
   async analyzeTarget(
@@ -799,6 +1257,18 @@ ${renderList(route.followUps)}
       const context = await this.contextBuilder.build(discovery, outputPath);
       const governanceRun = await this.selfGovernance.run(context, trigger);
       const agentReports = governanceRun.agentReports;
+      const reportAssessments = await Promise.all(agentReports.map((report) => assessAgentReportQuality(context, report)));
+      const acceptedReports = reportAssessments
+        .filter((assessment) => assessment.status === "accepted")
+        .map((assessment) => assessment.report);
+      const effectiveReports = acceptedReports.length > 0 ? acceptedReports : agentReports;
+      const fellBackToRawReports = acceptedReports.length === 0 && agentReports.length > 0;
+      const reportQualityPath = path.join(context.reportsDir, "report_quality.md");
+
+      await writeFileEnsured(
+        reportQualityPath,
+        buildReportQualityContent(context, reportAssessments, effectiveReports, fellBackToRawReports)
+      );
 
       for (const record of governanceRun.summary.executionRecords) {
         this.logger.info("Agent execution observed", {
@@ -816,8 +1286,19 @@ ${renderList(route.followUps)}
         });
       }
 
-      await updatePersistentMemory(context, agentReports);
-      await recordLearningArtifacts(context.memoryDir, agentReports);
+      for (const assessment of reportAssessments.filter((entry) => entry.status === "review-required")) {
+        this.logger.warn("Agent report marked for manual review", {
+          action: "report_quality_review_required",
+          agent: assessment.report.agentId,
+          score: assessment.score,
+          notes: assessment.notes,
+          reportPath: assessment.report.outputPath
+        });
+      }
+
+      await updatePersistentMemory(context, effectiveReports);
+      await recordLearningArtifacts(context.memoryDir, effectiveReports);
+      await writeMemoryBriefArtifacts(context);
 
       if (governanceRun.summary.proposals.length > 0) {
         this.logger.info("Improvement proposals generated", {
@@ -829,20 +1310,20 @@ ${renderList(route.followUps)}
         });
       }
 
-      const weeklyReportPath = await this.writeWeeklySystemReport(context, agentReports);
+      const weeklyReportPath = await this.writeWeeklySystemReport(context, effectiveReports);
       this.logger.info("Weekly report generated", {
         action: "report_generated",
         report: "weekly_system_report",
         reportPath: weeklyReportPath
       });
-      const riskReportPath = await this.writeRiskReport(context, agentReports);
+      const riskReportPath = await this.writeRiskReport(context, effectiveReports);
       this.logger.info("Risk report generated", {
         action: "report_generated",
         report: "risk_report",
         reportPath: riskReportPath
       });
 
-      const telemetry = this.metricsCollector.completeCycle(span, context.repoName, agentReports, governanceRun.summary);
+      const telemetry = this.metricsCollector.completeCycle(span, context.repoName, effectiveReports, governanceRun.summary);
       const telemetryPath = await this.metricsCollector.persistCycleTelemetry(context, telemetry);
       const runtimeObservabilityPath = await this.metricsCollector.writeRuntimeObservabilityReport(context.reportsDir);
 
@@ -857,7 +1338,7 @@ ${renderList(route.followUps)}
         action: "cycle_complete",
         repoName: context.repoName,
         outputPath,
-        highestRisk: highestRisk(agentReports),
+        highestRisk: highestRisk(effectiveReports),
         cycleDuration: telemetry.cycleDuration,
         agentsExecuted: telemetry.agentsExecuted,
         risksDetected: telemetry.risksDetected
@@ -868,6 +1349,7 @@ ${renderList(route.followUps)}
         agentReports,
         weeklyReportPath,
         riskReportPath,
+        reportQualityPath,
         governanceSummary: governanceRun.summary
       };
     });
@@ -962,6 +1444,7 @@ ${renderList(route.followUps)}
       learningFiles: files.filter((file) => file.startsWith("memory/learnings/")),
       swarmFiles: files.filter((file) => file.startsWith("memory/swarm/") || file === "reports/swarm_run.md"),
       firewallFiles: files.filter((file) => file.startsWith("memory/firewall/")),
+      securityFiles: files.filter((file) => file.startsWith("memory/security/") || file === "reports/security_audit.md"),
       knowledgeFiles: files.filter((file) => file.startsWith("memory/knowledge_graph/")),
       contextRegistryFiles: files.filter((file) => file.startsWith("memory/context_registry/") || file.startsWith("AI_CONTEXT/EXTERNAL_CONTEXT/")),
       taskFiles: files.filter((file) => file.startsWith("tasks/")),

@@ -39,7 +39,7 @@ describe("Workspace analysis integration", () => {
     expect(result.repositories.map((repository) => repository.repoName)).toEqual([
       "CashCalculator",
       "ERP",
-      "OffRoadHub",
+      "FrontendPortal",
       "project-brain"
     ]);
     await access(result.knowledgeGraphPath);
@@ -59,7 +59,7 @@ describe("Workspace analysis integration", () => {
         (pattern) =>
           pattern.pattern === "missing automated test baseline" &&
           pattern.repositories.includes("ERP") &&
-          pattern.repositories.includes("OffRoadHub")
+          pattern.repositories.includes("FrontendPortal")
       )
     ).toBe(true);
     expect(ecosystemReport).toContain("Repository Health");

@@ -1,6 +1,6 @@
 {
   "name": "project-brain",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Autonomous project analysis engine that builds context, memory, and agent-driven reports for any software repository.",
   "bin": {
     "project-brain": "dist/cli/project-brain.js"
@@ -20,7 +20,8 @@
     "test:smoke": "vitest run tests/smoke",
     "analyze": "npm run build && node dist/cli/project-brain.js analyze . --output ./sample-output/self-analysis",
     "weekly": "npm run build && node dist/cli/project-brain.js weekly . --output ./sample-output/self-analysis",
-    "report": "npm run build && node dist/cli/project-brain.js report . --output ./sample-output/self-analysis"
+    "report": "npm run build && node dist/cli/project-brain.js report . --output ./sample-output/self-analysis",
+    "prepack": "npm run build"
   },
   "keywords": [
     "agents",
@@ -32,16 +33,33 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@langchain/ollama": "^1.2.6",
     "commander": "^14.0.1",
-    "typescript": "^5.9.3"
+    "deepagents": "^1.8.4",
+    "langchain": "^1.2.35",
+    "typescript": "^5.9.3",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/node": "^24.7.2",
+    "@types/node": "^20.19.0",
     "@typescript-eslint/parser": "^8.57.0",
     "dependency-cruiser": "^17.3.8",
     "eslint": "^10.0.3",
     "ts-node": "^10.9.2",
     "ts-prune": "^0.10.3",
     "vitest": "^4.0.18"
-  }
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "docs",
+    "prompts",
+    "reports/templates",
+    "AI_REVIEW_START_HERE.md",
+    "schemas",
+    "CHANGELOG.md"
+  ]
 }

@@ -626,7 +626,7 @@ Learning extracted:
 ```json
 {
   "eventId": "evt_002",
-  "projectId": "offroadhub",
+  "projectId": "sample-platform",
   "jobId": "job_221",
   "findingId": "find_dev_31",
   "recommendationId": "rec_dev_09",

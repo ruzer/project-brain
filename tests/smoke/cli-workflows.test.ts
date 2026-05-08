@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -107,10 +107,22 @@ describe("CLI smoke workflows", () => {
     const result = runCli(["analyze", workspaceFixturePath, "--output", outputDir, "--trigger", "repository-change"], cwd);
 
     expect(result.stdout).toContain("Analyzed ecosystem");
-    expect(result.stdout).toContain("CashCalculator, ERP, OffRoadHub, project-brain");
+    expect(result.stdout).toContain("CashCalculator, ERP, FrontendPortal, project-brain");
     expect(existsSync(path.join(outputDir, "memory", "knowledge_graph", "knowledge_graph.json"))).toBe(true);
     expect(existsSync(path.join(outputDir, "reports", "ecosystem_health.md"))).toBe(true);
     expect(existsSync(path.join(outputDir, "reports", "telemetry"))).toBe(true);
     expect(existsSync(path.join(outputDir, "docs", "proposals"))).toBe(true);
   }, 15000);
+
+  it("preserves the dedicated security-advisory trigger through the CLI firewall flow", async () => {
+    const outputDir = await createTempOutputDir("project-brain-advisory-smoke");
+    cleanupTargets.push(outputDir);
+    const cwd = path.resolve(currentDir, "..", "..");
+
+    runCli(["firewall", fixtureRepoPath, "--output", outputDir, "--trigger", "security-advisory"], cwd);
+
+    const firewallReport = readFileSync(path.join(outputDir, "reports", "agent_firewall.md"), "utf8");
+
+    expect(firewallReport).toContain("Trigger: security-advisory");
+  }, 10000);
 });

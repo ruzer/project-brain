@@ -55,6 +55,14 @@ function detectScopePaths(agentId: string, context: ProjectContext): string[] {
     return [...manifests, ...infraFiles];
   }
 
+  if (agentId === "auth-agent") {
+    return ["src/lib/auth/", "app/api/auth/", "middleware.", ...apiFiles];
+  }
+
+  if (agentId === "infra-agent") {
+    return [...infraFiles, ".github/", "config/"];
+  }
+
   if (agentId === "documentation-agent" || agentId === "product-owner-agent") {
     return ["docs/", "README.md", ...apiFiles];
   }
@@ -150,7 +158,12 @@ function selectPolicyPack(
     };
   }
 
-  if (riskLevel === "high" || task.trigger === "incident-detection" || task.trigger === "security-audit") {
+  if (
+    riskLevel === "high" ||
+    task.trigger === "incident-detection" ||
+    task.trigger === "security-audit" ||
+    task.trigger === "security-advisory"
+  ) {
     return {
       policyPack: "review",
       rationale: "High-risk or incident/security-triggered tasks stay in review mode."

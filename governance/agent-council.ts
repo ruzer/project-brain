@@ -18,12 +18,18 @@ function priorityFor(trigger: GovernanceTrigger, agentId: string): AgentTask["pr
   const matrix: Partial<Record<GovernanceTrigger, Partial<Record<string, AgentTask["priority"]>>>> = {
     "security-advisory": {
       "security-agent": "critical",
-      "dependency-agent": "high"
+      "auth-agent": "high",
+      "infra-agent": "high",
+      "dependency-agent": "high",
+      "observability-agent": "normal"
     },
     "security-audit": {
       "security-agent": "critical",
+      "auth-agent": "critical",
+      "infra-agent": "high",
       "dependency-agent": "high",
       "qa-agent": "high",
+      "observability-agent": "high",
       "dev-agent": "normal"
     },
     "architecture-review": {

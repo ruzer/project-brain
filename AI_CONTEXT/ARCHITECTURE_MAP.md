@@ -2,14 +2,22 @@
 
 ## Top-level directories
 
+- .agents
 - .eslint.devagent.config.mjs
 - .github
 - .gitignore
+- ACKNOWLEDGEMENTS.md
 - agents
+- AI_CONTEXT
 - analysis
+- CITATION.cff
 - cli
+- CODE_OF_CONDUCT.md
+- config
+- CONTRIBUTING.md
 - core
 - docs
+- eslint.config.mjs
 - governance
 - integrations
 - LICENSE
@@ -17,10 +25,14 @@
 - orchestrator
 - package-lock.json
 - package.json
+- planning
+- prompts
 - README.md
 - reports
-- sample-output
+- scripts
+- SECURITY.md
 - shared
+- SUPPORT.md
 - tests
 - tools
 - tsconfig.json
@@ -28,15 +40,15 @@
 
 ## Structure signals
 
-- Source files: 69
-- Test files: 24
-- Nested subrepos: 2
+- Source files: 125
+- Test files: 40
+- Nested subrepos: 0
 - Git submodules: 0
 
 ## Runtime hints
 
-- Frameworks: Express
-- Infrastructure: Dockerfile
+- Frameworks: Unknown
+- Infrastructure: Not detected
 - CI providers: GitHub Actions
-- Logging: pino
-- Metrics: prom-client
+- Logging: Not detected
+- Metrics: Not detected

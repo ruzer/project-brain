@@ -1,8 +1,8 @@
 import path from "node:path";
 
-import { appendFileEnsured } from "../../shared/fs-utils";
+import { appendFileEnsured, readTextSafe } from "../../shared/fs-utils";
 import { StructuredLogger } from "../../shared/logger";
-import type { AgentReport } from "../../shared/types";
+import type { AgentReport, SwarmRunResult } from "../../shared/types";
 
 const logger = new StructuredLogger("learning-store");
 
@@ -18,6 +18,48 @@ function formatLearnings(agentReports: AgentReport[]): string[] {
   );
 }
 
+function normalizeMemoryItem(item: string): string {
+  return item
+    .replace(/^[-*]\s+/, "")
+    .replace(/^UNKNOWN:\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+async function appendUniqueMemorySection(filePath: string, timestamp: string, items: string[]): Promise<number> {
+  const existing = await readTextSafe(filePath);
+  const existingItems = new Set(
+    existing
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => /^[-*]\s+/.test(line))
+      .map(normalizeMemoryItem)
+      .filter(Boolean)
+  );
+  const uniqueItems = items
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item) => {
+      const normalized = normalizeMemoryItem(item);
+      if (!normalized || existingItems.has(normalized)) {
+        return false;
+      }
+      existingItems.add(normalized);
+      return true;
+    });
+
+  if (uniqueItems.length === 0) {
+    return 0;
+  }
+
+  await appendFileEnsured(
+    filePath,
+    `\n## ${timestamp}\n\n${uniqueItems.map((item) => `- ${item}`).join("\n")}\n`
+  );
+  return uniqueItems.length;
+}
+
 export async function recordLearningArtifacts(memoryDir: string, agentReports: AgentReport[]): Promise<void> {
   const errorsPath = path.join(memoryDir, "ERRORS.md");
   const learningsPath = path.join(memoryDir, "LEARNINGS.md");
@@ -26,17 +68,11 @@ export async function recordLearningArtifacts(memoryDir: string, agentReports: A
   const learnings = formatLearnings(agentReports);
 
   if (findings.length > 0) {
-    await appendFileEnsured(
-      errorsPath,
-      `\n## ${timestamp}\n\n${findings.map((finding) => `- ${finding}`).join("\n")}\n`
-    );
+    await appendUniqueMemorySection(errorsPath, timestamp, findings);
   }
 
   if (learnings.length > 0) {
-    await appendFileEnsured(
-      learningsPath,
-      `\n## ${timestamp}\n\n${learnings.map((learning) => `- ${learning}`).join("\n")}\n`
-    );
+    await appendUniqueMemorySection(learningsPath, timestamp, learnings);
   }
 
   logger.info("Recorded learning artifacts", {
@@ -44,6 +80,50 @@ export async function recordLearningArtifacts(memoryDir: string, agentReports: A
     action: "memory_write",
     findings: findings.length,
     learnings: learnings.length,
+    memoryDir
+  });
+}
+
+export async function recordSwarmLearningArtifacts(memoryDir: string, result: SwarmRunResult): Promise<void> {
+  const timestamp = new Date().toISOString();
+  const decisionsPath = path.join(memoryDir, "DECISIONS.md");
+  const errorsPath = path.join(memoryDir, "ERRORS.md");
+  const learningsPath = path.join(memoryDir, "LEARNINGS.md");
+  const synthesis = result.synthesis;
+
+  if (!synthesis) {
+    logger.info("Skipped swarm learning artifacts because synthesis is missing", {
+      component: "memory",
+      action: "memory_write_skipped",
+      memoryDir
+    });
+    return;
+  }
+
+  const verifiedFacts = synthesis.verifiedFacts ?? [];
+  const unknowns = synthesis.unknowns ?? [];
+  const nextSteps = synthesis.nextSteps ?? [];
+  const priorities = synthesis.priorities ?? [];
+
+  await appendUniqueMemorySection(decisionsPath, timestamp, [
+    `Swarm analyzed intent: ${result.intent}`,
+    `Synthesis headline: ${synthesis.headline}`
+  ]);
+
+  if (verifiedFacts.length > 0 || priorities.length > 0 || nextSteps.length > 0) {
+    await appendUniqueMemorySection(learningsPath, timestamp, [...verifiedFacts, ...priorities, ...nextSteps]);
+  }
+
+  if (unknowns.length > 0) {
+    await appendUniqueMemorySection(errorsPath, timestamp, unknowns.map((item) => `UNKNOWN: ${item}`));
+  }
+
+  logger.info("Recorded swarm learning artifacts", {
+    component: "memory",
+    action: "memory_write",
+    verifiedFacts: verifiedFacts.length,
+    unknowns: unknowns.length,
+    nextSteps: nextSteps.length,
     memoryDir
   });
 }

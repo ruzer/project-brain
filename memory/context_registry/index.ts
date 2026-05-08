@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { ensureDir, writeFileEnsured, writeJsonEnsured } from "../../shared/fs-utils";
+import { ensureDir, readJsonSafe, walkDirectory, writeFileEnsured, writeJsonEnsured } from "../../shared/fs-utils";
 import type {
   ContextGetResult,
   ContextRegistryEntry,
@@ -238,23 +238,91 @@ const BUILTIN_REGISTRY: ContextRegistryEntry[] = [
   }
 ];
 
-interface RegistryPaths {
+export interface RegistryPaths {
   baseDir: string;
+  entriesDir: string;
   cacheDir: string;
   externalContextDir: string;
   searchReportPath: string;
   sourcesReportPath: string;
 }
 
-function registryPaths(outputPath: string): RegistryPaths {
+export function contextRegistryPaths(outputPath: string): RegistryPaths {
   const baseDir = path.join(outputPath, "memory", "context_registry");
   return {
     baseDir,
+    entriesDir: path.join(baseDir, "entries"),
     cacheDir: path.join(baseDir, "cache"),
     externalContextDir: path.join(outputPath, "AI_CONTEXT", "EXTERNAL_CONTEXT"),
     searchReportPath: path.join(outputPath, "reports", "context_search.md"),
     sourcesReportPath: path.join(outputPath, "reports", "context_sources.md")
   };
+}
+
+function isContextRegistryEntry(value: unknown): value is ContextRegistryEntry {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Partial<ContextRegistryEntry>;
+  return typeof candidate.id === "string" &&
+    typeof candidate.title === "string" &&
+    typeof candidate.category === "string" &&
+    typeof candidate.trustLevel === "string" &&
+    typeof candidate.source === "string" &&
+    typeof candidate.sourceUrl === "string" &&
+    typeof candidate.summary === "string" &&
+    Array.isArray(candidate.tags) &&
+    Array.isArray(candidate.guidance) &&
+    Array.isArray(candidate.relatedIds);
+}
+
+async function loadDynamicRegistryEntries(outputPath: string): Promise<ContextRegistryEntry[]> {
+  const paths = contextRegistryPaths(outputPath);
+  await ensureDir(paths.entriesDir);
+  const files = (await walkDirectory(paths.entriesDir, 500)).filter((filePath) => filePath.endsWith(".json"));
+  const entries: ContextRegistryEntry[] = [];
+
+  for (const relativeFile of files) {
+    const entry = await readJsonSafe<ContextRegistryEntry>(path.join(paths.entriesDir, relativeFile));
+    if (isContextRegistryEntry(entry)) {
+      entries.push(entry);
+    }
+  }
+
+  return entries;
+}
+
+export async function loadContextRegistryEntries(outputPath: string): Promise<ContextRegistryEntry[]> {
+  const dynamicEntries = await loadDynamicRegistryEntries(outputPath);
+  const merged = new Map<string, ContextRegistryEntry>();
+
+  for (const entry of BUILTIN_REGISTRY) {
+    merged.set(entry.id, entry);
+  }
+
+  for (const entry of dynamicEntries) {
+    merged.set(entry.id, entry);
+  }
+
+  return [...merged.values()].sort((left, right) => left.title.localeCompare(right.title));
+}
+
+export async function writeDynamicContextRegistryEntries(
+  outputPath: string,
+  entries: ContextRegistryEntry[]
+): Promise<string[]> {
+  const paths = contextRegistryPaths(outputPath);
+  await ensureDir(paths.entriesDir);
+  const writtenPaths: string[] = [];
+
+  for (const entry of entries) {
+    const filePath = path.join(paths.entriesDir, `${entry.id}.json`);
+    await writeJsonEnsured(filePath, entry);
+    writtenPaths.push(filePath);
+  }
+
+  return writtenPaths;
 }
 
 function normalizeTokens(input: string): string[] {
@@ -348,13 +416,15 @@ export async function searchContextRegistry(
   query: string,
   trust?: ContextTrustLevel
 ): Promise<ContextSearchResult> {
-  const paths = registryPaths(context.outputPath);
+  const paths = contextRegistryPaths(context.outputPath);
   await ensureDir(paths.baseDir);
+  await ensureDir(paths.entriesDir);
   await ensureDir(paths.cacheDir);
   await ensureDir(paths.externalContextDir);
 
   const queryTokens = normalizeTokens(query);
-  const hits = BUILTIN_REGISTRY
+  const entries = await loadContextRegistryEntries(context.outputPath);
+  const hits = entries
     .filter((entry) => !trust || entry.trustLevel === trust)
     .map((entry) => scoreEntry(entry, queryTokens))
     .filter(Boolean)
@@ -409,13 +479,15 @@ ${hit.entry.summary}
 }
 
 export async function getContextRegistryEntry(context: ProjectContext, id: string): Promise<ContextGetResult> {
-  const entry = BUILTIN_REGISTRY.find((candidate) => candidate.id === id);
+  const entries = await loadContextRegistryEntries(context.outputPath);
+  const entry = entries.find((candidate) => candidate.id === id);
   if (!entry) {
     throw new Error(`Unknown context entry: ${id}`);
   }
 
-  const paths = registryPaths(context.outputPath);
+  const paths = contextRegistryPaths(context.outputPath);
   await ensureDir(paths.baseDir);
+  await ensureDir(paths.entriesDir);
   await ensureDir(paths.cacheDir);
   await ensureDir(paths.externalContextDir);
 
@@ -434,13 +506,15 @@ export async function getContextRegistryEntry(context: ProjectContext, id: strin
 }
 
 export async function listContextSources(context: ProjectContext): Promise<ContextSourcesResult> {
-  const paths = registryPaths(context.outputPath);
+  const paths = contextRegistryPaths(context.outputPath);
   await ensureDir(paths.baseDir);
+  await ensureDir(paths.entriesDir);
   await ensureDir(paths.cacheDir);
   await ensureDir(paths.externalContextDir);
 
+  const entries = await loadContextRegistryEntries(context.outputPath);
   const grouped = new Map<string, { source: string; trustLevel: ContextTrustLevel; entries: number }>();
-  for (const entry of BUILTIN_REGISTRY) {
+  for (const entry of entries) {
     const key = `${entry.source}:${entry.trustLevel}`;
     const current = grouped.get(key);
     if (current) {

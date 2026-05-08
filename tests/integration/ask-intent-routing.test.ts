@@ -4,8 +4,9 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ProjectBrainOrchestrator } from "../../core/orchestrator/main";
+import { fileExists } from "../../shared/fs-utils";
 import type { ImprovementPlanResult, ResumeResult } from "../../shared/types";
-import { cleanupDir, createTempOutputDir, fixtureRepoPath } from "../helpers";
+import { cleanupDir, createTempOutputDir, fixtureRepoPath, nextPrismaFixtureRepoPath } from "../helpers";
 
 describe("Ask intent routing", () => {
   const cleanupTargets: string[] = [];
@@ -46,6 +47,23 @@ describe("Ask intent routing", () => {
     expect(brief).toContain("Firewall report");
   });
 
+  it("routes security prompts into the dedicated security audit workflow", async () => {
+    const outputDir = await createTempOutputDir("project-brain-ask-security-audit");
+    cleanupTargets.push(outputDir);
+    const orchestrator = new ProjectBrainOrchestrator();
+    process.env.OLLAMA_TIMEOUT_MS = "1";
+
+    const result = await orchestrator.ask(nextPrismaFixtureRepoPath, outputDir, "haz una auditoria de seguridad del repositorio");
+
+    expect(result.workflow).toBe("security-audit");
+    expect(result.artifacts.some((artifact) => artifact.label === "Security audit report")).toBe(true);
+    await access(result.briefPath);
+
+    const brief = await readFile(result.briefPath, "utf8");
+    expect(brief).toContain("security-audit");
+    expect(brief).toContain("Security audit report");
+  });
+
   it("can enrich strategic ask flows with the planner model", async () => {
     const outputDir = await createTempOutputDir("project-brain-ask-ai");
     cleanupTargets.push(outputDir);
@@ -77,12 +95,15 @@ describe("Ask intent routing", () => {
     const result = await orchestrator.ask(fixtureRepoPath, outputDir, "quiero definir bien el stack y el alcance de este proyecto");
 
     expect(result.workflow).toBe("discover-project");
+    expect(result.preflightFacts?.recommendedNextAction).toBeTruthy();
     expect(result.aiAssistance?.model).toBe("kimi-k2.5:cloud");
     expect(result.aiAssistance?.profile).toBe("planner");
 
     const brief = await readFile(result.briefPath, "utf8");
     expect(brief).toContain("kimi-k2.5:cloud");
     expect(brief).toContain("AI Assist");
+    expect(brief).toContain("Preflight Facts");
+    expect(await fileExists(path.join(outputDir, "reports", "fact_query.md"))).toBe(false);
   });
 
   it("routes continuation prompts into resume-aware recovery", async () => {
@@ -123,6 +144,18 @@ describe("Ask intent routing", () => {
           path: swarmPath,
           exists: true,
           updatedAt: "2026-03-18T10:05:00.000Z"
+        },
+        memoryReadiness: {
+          status: "ready",
+          memoryBriefPath: path.join(context.memoryDir, "MEMORY_BRIEF.md"),
+          memoryBriefJsonPath: path.join(context.runtimeMemoryDir, "memory_brief", "memory_brief.json"),
+          generatedAt: "2026-03-18T10:00:00.000Z",
+          ageHours: 0,
+          maxAgeHours: 72,
+          factsCount: 1,
+          evidenceCount: 1,
+          tokenGuidanceCount: 1,
+          reason: "test"
         },
         artifacts: [
           {
@@ -213,6 +246,18 @@ describe("Ask intent routing", () => {
           path: planSummaryPath,
           exists: true,
           updatedAt: "2026-03-18T10:10:00.000Z"
+        },
+        memoryReadiness: {
+          status: "ready",
+          memoryBriefPath: path.join(context.memoryDir, "MEMORY_BRIEF.md"),
+          memoryBriefJsonPath: path.join(context.runtimeMemoryDir, "memory_brief", "memory_brief.json"),
+          generatedAt: "2026-03-18T10:00:00.000Z",
+          ageHours: 0,
+          maxAgeHours: 72,
+          factsCount: 1,
+          evidenceCount: 1,
+          tokenGuidanceCount: 1,
+          reason: "test"
         },
         artifacts: [
           {

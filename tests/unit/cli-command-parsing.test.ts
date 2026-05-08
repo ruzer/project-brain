@@ -43,6 +43,10 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
 
     expect(helpText).toContain("init");
     expect(helpText).toContain("map-codebase");
+    expect(helpText).toContain("context-lite");
+    expect(helpText).toContain("fact-query");
+    expect(helpText).toContain("runbook");
+    expect(helpText).toContain("harness-audit");
     expect(helpText).toContain("analyze");
     expect(helpText).toContain("agents");
     expect(helpText).toContain("weekly");
@@ -62,8 +66,11 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
     expect(helpText).toContain("feedback");
     expect(helpText).toContain("models");
     expect(helpText).toContain("doctor");
+    expect(helpText).toContain("start");
+    expect(helpText).toContain("security-audit");
     expect(helpText).toContain("status");
     expect(helpText).toContain("resume");
+    expect(helpText).toContain("console");
   });
 
   it("shows trigger support on analyze", () => {
@@ -80,6 +87,34 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
 
     expect(mapHelp).toContain("--output");
     expect(mapHelp).toContain("--verbose");
+  });
+
+  it("shows context-lite options", () => {
+    const contextLiteHelp = runCliHelp(["context-lite", "--help"]);
+
+    expect(contextLiteHelp).toContain("lightweight AI context");
+    expect(contextLiteHelp).toContain("--output");
+  });
+
+  it("shows fact-query options", () => {
+    const factQueryHelp = runCliHelp(["fact-query", "--help"]);
+
+    expect(factQueryHelp).toContain("factual memory");
+    expect(factQueryHelp).toContain("--output");
+  });
+
+  it("shows runbook options", () => {
+    const runbookHelp = runCliHelp(["runbook", "--help"]);
+
+    expect(runbookHelp).toContain("token-aware");
+    expect(runbookHelp).toContain("--output");
+  });
+
+  it("shows harness audit options", () => {
+    const auditHelp = runCliHelp(["harness-audit", "--help"]);
+
+    expect(auditHelp).toContain("progressive memory");
+    expect(auditHelp).toContain("--output");
   });
 
   it("shows annotation options", () => {
@@ -126,6 +161,8 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
 
     expect(swarmHelp).toContain("Delegated analysis request");
     expect(swarmHelp).toContain("--output");
+    expect(swarmHelp).toContain("--engine");
+    expect(swarmHelp).toContain("--preset");
     expect(swarmHelp).toContain("--parallel");
     expect(swarmHelp).toContain("--chunk-size");
     expect(swarmHelp).toContain("--task-timeout-ms");
@@ -134,6 +171,14 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
     expect(swarmHelp).toContain("--run-timeout-ms");
     expect(swarmHelp).toContain("--max-queued-tasks");
     expect(swarmHelp).toContain("--max-retries");
+  });
+
+  it("shows start options", () => {
+    const startHelp = runCliHelp(["start", "--help"]);
+
+    expect(startHelp).toContain("guided path");
+    expect(startHelp).toContain("--with-swarm");
+    expect(startHelp).toContain("--output");
   });
 
   it("shows self-improve options", () => {
@@ -148,11 +193,15 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
     const searchHelp = runCliHelp(["context-search", "--help"]);
     const getHelp = runCliHelp(["context-get", "--help"]);
     const sourcesHelp = runCliHelp(["context-sources", "--help"]);
+    const radarHelp = runCliHelp(["ecosystem-radar", "--help"]);
 
     expect(searchHelp).toContain("--trust");
     expect(searchHelp).toContain("--output");
     expect(getHelp).toContain("--output");
     expect(sourcesHelp).toContain("--output");
+    expect(radarHelp).toContain("--limit");
+    expect(radarHelp).toContain("--bucket");
+    expect(radarHelp).toContain("--seed-only");
   });
 
   it("shows plan-improvements options", () => {
@@ -184,6 +233,25 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
 
     expect(doctorHelp).toContain("environment");
     expect(doctorHelp).toContain("--output");
+  });
+
+  it("shows security-audit options", () => {
+    const auditHelp = runCliHelp(["security-audit", "--help"]);
+
+    expect(auditHelp).toContain("multi-agent security audit");
+    expect(auditHelp).toContain("--output");
+    expect(auditHelp).toContain("--trigger");
+    expect(auditHelp).toContain("--verbose");
+  });
+
+  it("shows console options", () => {
+    const consoleHelp = runCliHelp(["console", "--help"]);
+
+    expect(consoleHelp).toContain("interactive terminal console");
+    expect(consoleHelp).toContain("--target");
+    expect(consoleHelp).toContain("--engine");
+    expect(consoleHelp).toContain("--trigger");
+    expect(consoleHelp).toContain("--ollama-timeout");
   });
 
   it("shows status options", () => {
