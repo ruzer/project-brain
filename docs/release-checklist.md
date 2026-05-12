@@ -1,6 +1,6 @@
 # Release checklist
 
-Use this checklist before tagging `v0.2.0`.
+Use this checklist before tagging a new release. Replace `<version>` with the release version, for example `0.2.1`.
 
 ## Local gates
 
@@ -35,7 +35,7 @@ Use this checklist before tagging `v0.2.0`.
 ## Release
 
 - [ ] `CHANGELOG.md` is updated.
-- [ ] `docs/releases/0.2.0.md` is updated.
-- [ ] `reports/release-candidate-0.2.0.md` is updated.
+- [ ] `docs/releases/<version>.md` is updated.
+- [ ] `reports/release-candidate-<version>.md` is updated.
 - [ ] Maintainer approves tag creation.
-- [ ] Tag `v0.2.0` is created and pushed.
+- [ ] Tag `v<version>` is created and pushed.

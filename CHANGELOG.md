@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.2.2 - 2026-05-12
+
+### Changed
+
+- README now includes direct run instructions from source, compiled `dist`, and optional `npm link`.
+- CLI version reporting now reads from package metadata instead of a hardcoded string.
+
+### Fixed
+
+- Package metadata, lockfile, README, and output contract are aligned for the `v0.2.2` release.
+
+## 0.2.1 - 2026-05-12
+
+### Added
+
+- `project-brain architecture-plan` generates an evidence-backed architecture blueprint, evolution state, agent context, and compact JSON memory.
+- Default CLI output now writes to `BRAIN/` under the target repository when `--output` is omitted.
+
+### Fixed
+
+- CLI, package metadata, lockfile, README, and output contract versions now align with the `v0.2.1` release tag.
+
 ## 0.2.0 - 2026-05-08
 
 ### Added

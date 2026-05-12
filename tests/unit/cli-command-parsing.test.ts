@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import packageJson from "../../package.json";
+
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 
@@ -38,6 +40,12 @@ function runCli(args: string[]): { stdout: string; stderr: string } {
 }
 
 describe("CLI command parsing", { timeout: 20_000 }, () => {
+  it("reports the package version", () => {
+    const result = runCli(["--version"]);
+
+    expect(result.stdout.trim()).toBe(packageJson.version);
+  });
+
   it("exposes the expected command surface", () => {
     const helpText = runCliHelp(["--help"]);
 

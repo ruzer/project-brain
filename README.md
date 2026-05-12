@@ -1,6 +1,6 @@
 # project-brain
 
-Current release candidate: `0.2.0` internal beta.
+Current release candidate: `0.2.2` internal beta.
 
 `project-brain` is a non-destructive repository analysis engine for software systems and AI-assisted engineering workflows. It analyzes target repositories, builds durable context, runs specialist agents, generates reports, and produces review-only patch proposals.
 
@@ -124,7 +124,9 @@ ollama pull llama3.1:8b
 
 Para entornos sin `brew`, usa la guía oficial de Ollama para tu sistema para completar la instalación.
 
-## Run project-brain from source
+## Como correrlo
+
+Desde este repositorio local:
 
 1. Install dependencies and build once:
 
@@ -133,13 +135,23 @@ npm install
 npm run build
 ```
 
-2. Ejecuta el CLI directamente desde `dist`:
+2. Ejecuta el CLI compilado:
 
 ```bash
 node dist/cli/project-brain.js --help
+node dist/cli/project-brain.js doctor .
+node dist/cli/project-brain.js go "understand this project and suggest the next safe step" /path/to/repo
 ```
 
-3. Prueba rápida de compilación en tu máquina:
+3. Opcionalmente enlaza el comando global para usar `project-brain` directamente:
+
+```bash
+npm link
+project-brain --version
+project-brain console --target /path/to/repo
+```
+
+4. Prueba rápida de compilación en tu máquina:
 
 ```bash
 npm run typecheck
@@ -152,6 +164,8 @@ If you changed CLI behavior, run this sequence before running a repo:
 npm run build
 node dist/cli/project-brain.js doctor .
 ```
+
+Por defecto, si no pasas `--output`, los artefactos se escriben en `/path/to/repo/BRAIN/`. Usa `--output /path/to/output` para separar completamente los resultados del repositorio analizado.
 
 ## Validation
 

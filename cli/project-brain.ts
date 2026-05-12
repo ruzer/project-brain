@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { Command } from "commander";
@@ -23,6 +24,26 @@ const program = new Command();
 const orchestrator = new ProjectBrainOrchestrator();
 const aiRouter = new AIRouter();
 const logger = new StructuredLogger("cli");
+
+function readPackageVersion(): string {
+  const candidates = [
+    path.resolve(__dirname, "..", "package.json"),
+    path.resolve(__dirname, "..", "..", "package.json")
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(readFileSync(candidate, "utf8")) as { version?: unknown };
+      if (typeof parsed.version === "string" && parsed.version.trim().length > 0) {
+        return parsed.version;
+      }
+    } catch {
+      // Try the next layout: source runs from cli/, built runs from dist/cli/.
+    }
+  }
+
+  return "0.0.0";
+}
 
 function parseTimeoutMs(value: string): number {
   const timeoutMs = Number(value);
@@ -214,7 +235,7 @@ function isEcosystemCodebaseMapResult(
 program
   .name("project-brain")
   .description("Analyze repositories, build project context, run specialist agents, and generate reports.")
-  .version("0.1.0");
+  .version(readPackageVersion());
 
 program
   .command("console")

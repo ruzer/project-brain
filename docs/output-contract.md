@@ -1,6 +1,6 @@
 # Output contract
 
-This document defines the beta output contract for `project-brain` 0.2.0.
+This document defines the beta output contract for `project-brain` 0.2.2.
 
 ## Policy
 
