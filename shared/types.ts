@@ -81,6 +81,15 @@ export type AgentPriority = "critical" | "high" | "normal" | "low";
 export type SecurityFindingSeverity = "critical" | "high" | "medium" | "low" | "info";
 export type SecurityFindingProblemType = "code" | "configuration" | "architecture" | "code+configuration";
 export type SecurityFixEffort = "low" | "medium" | "high";
+export type ProjectSeedArchetype =
+  | "saas-webapp"
+  | "marketing-site"
+  | "mobile-app"
+  | "api-backend"
+  | "internal-tool"
+  | "content-platform"
+  | "custom";
+export type ProjectSeedPriority = "mvp-fast" | "solid-architecture" | "low-cost" | "security-first";
 export type SecurityAuditArea =
   | "auth_sessions"
   | "authorization"
@@ -723,6 +732,45 @@ export interface ArchitecturePlanResult {
   statePath: string;
   claudeContextPath: string;
   memoryPath: string;
+}
+
+export interface ProjectSeedInput {
+  projectName: string;
+  problem: string;
+  audience: string;
+  archetype: ProjectSeedArchetype;
+  stackPreference: string;
+  features: string[];
+  authRequired: boolean;
+  roles: string[];
+  dataEntities: string[];
+  integrations: string[];
+  priority: ProjectSeedPriority;
+  language: string;
+  notes: string[];
+  contextOnly: boolean;
+  overwrite?: boolean;
+}
+
+export interface ProjectSeedResult {
+  targetPath: string;
+  projectName: string;
+  archetype: ProjectSeedArchetype;
+  contextOnly: boolean;
+  artifactPaths: {
+    projectCharterPath: string;
+    requirementsPath: string;
+    blueprintPath: string;
+    decisionsPath: string;
+    memoryBriefPath: string;
+    runbookPath: string;
+    architectureBlueprintPath: string;
+    architectureStatePath: string;
+    projectSeedMemoryPath: string;
+    backlogPath: string;
+    claudePath: string;
+  };
+  nextSteps: string[];
 }
 
 export interface ResumeResult {

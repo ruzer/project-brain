@@ -1,6 +1,6 @@
 # Output contract
 
-This document defines the beta output contract for `project-brain` 0.2.2.
+This document defines the beta output contract for `project-brain` 0.2.3.
 
 ## Policy
 
@@ -37,6 +37,11 @@ Paths below are relative to the selected output root. With default CLI settings 
 | Fact query JSON | `AI_CONTEXT/fact_query/fact_query.json` | JSON | STABLE_INTERNAL | fact-query | agents |
 | Runbook report | `reports/runbook.md` | Markdown | STABLE_PUBLIC | runbook | humans |
 | Runbook JSON | `AI_CONTEXT/runbook/runbook.json` | JSON | STABLE_INTERNAL | runbook | resume, agents |
+| Project seed charter | `AI_CONTEXT/PROJECT_CHARTER.md` | Markdown | STABLE_PUBLIC | new | humans, agents |
+| Project seed requirements | `AI_CONTEXT/REQUIREMENTS.md` | Markdown | STABLE_PUBLIC | new | humans, agents |
+| Project seed blueprint | `AI_CONTEXT/PROJECT_BLUEPRINT.md` | Markdown | STABLE_PUBLIC | new | humans, agents |
+| Project seed memory | `memory/project_seed/project_seed.json` | JSON | STABLE_INTERNAL | new | agents, continuity |
+| Project seed backlog | `tasks/initial_backlog.md` | Markdown | STABLE_PUBLIC | new | humans, agents |
 | Architecture plan blueprint | `docs/architecture_plan/BLUEPRINT.md` | Markdown | STABLE_PUBLIC | architecture-plan | humans |
 | Architecture plan state | `docs/architecture_plan/STATE.md` | Markdown | STABLE_PUBLIC | architecture-plan | humans |
 | Architecture plan Claude context | `docs/architecture_plan/CLAUDE.md` | Markdown | STABLE_INTERNAL | architecture-plan | agents, developers |

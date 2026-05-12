@@ -32,6 +32,7 @@ import { runEcosystemRadar } from "../../memory/context_registry/ecosystem_radar
 import { updatePersistentMemory } from "../../memory/context_store";
 import { writeImprovementPlanArtifacts } from "../../planning/improvement_plan";
 import { writeArchitecturePlanArtifacts } from "../../planning/architecture_plan";
+import { writeProjectSeedArtifacts } from "../../planning/project_seed";
 import { buildRunbook } from "../../planning/runbook";
 import { createCycleId, StructuredLogger, withLogContext } from "../../shared/logger";
 import { ensureDir, readJsonSafe, readTextSafe, toPosixPath, uniqueSorted, walkDirectory, writeFileEnsured, writeJsonEnsured } from "../../shared/fs-utils";
@@ -60,6 +61,8 @@ import type {
   ArchitecturePlanResult,
   OrchestrationResult,
   ProjectContext,
+  ProjectSeedInput,
+  ProjectSeedResult,
   ReportManifest,
   RepositoryTarget,
   DoctorResult,
@@ -1191,6 +1194,10 @@ ${renderList(route.followUps)}
     const result = await writeArchitecturePlanArtifacts(context);
     await writeMemoryBriefArtifacts(context);
     return result;
+  }
+
+  async scaffoldProject(targetPath: string, input: ProjectSeedInput): Promise<ProjectSeedResult> {
+    return writeProjectSeedArtifacts(path.resolve(targetPath), input);
   }
 
   async planImprovements(

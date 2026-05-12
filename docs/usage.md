@@ -81,6 +81,47 @@ project-brain ask "revisa los cambios recientes" /path/to/repo
 
 `ask` routes the request into the current best workflow and writes `reports/ask_brief.md` with artifacts and suggested next prompts.
 
+## Create a new project context
+
+Use `new` when there is no repository to analyze yet:
+
+```bash
+project-brain new ./my-new-project
+```
+
+For non-interactive use:
+
+```bash
+project-brain new ./my-new-project \
+  --yes \
+  --name "Inventory SaaS" \
+  --problem "Track workshop inventory" \
+  --audience "small repair shops" \
+  --type saas-webapp \
+  --stack "Next.js + PostgreSQL" \
+  --features "inventory dashboard,order tracking" \
+  --auth yes \
+  --roles "owner,technician" \
+  --data "User,Workshop,InventoryItem,Order" \
+  --integrations "email,object storage"
+```
+
+This writes directly into the new project directory:
+
+- `AI_CONTEXT/PROJECT_CHARTER.md`
+- `AI_CONTEXT/REQUIREMENTS.md`
+- `AI_CONTEXT/PROJECT_BLUEPRINT.md`
+- `AI_CONTEXT/DECISIONS.md`
+- `AI_CONTEXT/MEMORY_BRIEF.md`
+- `AI_CONTEXT/RUNBOOK.md`
+- `docs/architecture_plan/BLUEPRINT.md`
+- `docs/architecture_plan/STATE.md`
+- `memory/project_seed/project_seed.json`
+- `tasks/initial_backlog.md`
+- `CLAUDE.md`
+
+This command is context-only for now. It uses a guided blueprint pattern inspired by The Architect, adapted to Project Brain's persistent `AI_CONTEXT` layout.
+
 Persist a stateful improvement plan:
 
 ```bash

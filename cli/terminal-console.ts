@@ -20,6 +20,10 @@ import type {
   ImpactAnalysisResult,
   ImprovementPlanResult,
   OrchestrationResult,
+  ProjectSeedArchetype,
+  ProjectSeedInput,
+  ProjectSeedPriority,
+  ProjectSeedResult,
   ResumeResult,
   RunbookResult,
   SecurityAuditResult,
@@ -47,6 +51,7 @@ type WorkflowChoice =
   | "code-graph"
   | "impact-radius"
   | "review-delta"
+  | "project-new"
   | "architecture-plan"
   | "firewall"
   | "plan-improvements"
@@ -108,6 +113,7 @@ const WORKFLOW_MENU: ChoiceOption<WorkflowChoice>[] = [
   { value: "harness-audit", label: workflowLabel("harness-audit", "Revisar memoria y costos") },
   { value: "fact-query", label: workflowLabel("fact-query", "Buscar en memoria local") },
   { value: "swarm", label: workflowLabel("swarm", "Analizar con agentes") },
+  { value: "project-new", label: "Crear contexto para proyecto nuevo" },
   { value: "architecture-plan", label: "Generar plan de arquitectura" },
   { value: "plan-improvements", label: workflowLabel("plan-improvements", "Crear plan ejecutivo persistente") },
   { value: "doctor", label: workflowLabel("doctor", "Revisar entorno local") },
@@ -147,6 +153,23 @@ const SWARM_PRESET_CHOICES: ChoiceOption<SwarmPreset>[] = [
   { value: "balanced", label: "Balanceado: recomendado, mejor cobertura" },
   { value: "thorough", label: "Profundo: mas lento/caro, maxima cobertura" },
   { value: "custom", label: "Avanzado: configurar manualmente" }
+];
+
+const PROJECT_ARCHETYPE_CHOICES: ChoiceOption<ProjectSeedArchetype>[] = [
+  { value: "saas-webapp", label: "SaaS / web app" },
+  { value: "marketing-site", label: "Marketing site" },
+  { value: "mobile-app", label: "Mobile app" },
+  { value: "api-backend", label: "API / backend" },
+  { value: "internal-tool", label: "Internal tool" },
+  { value: "content-platform", label: "Content platform" },
+  { value: "custom", label: "Custom" }
+];
+
+const PROJECT_PRIORITY_CHOICES: ChoiceOption<ProjectSeedPriority>[] = [
+  { value: "mvp-fast", label: "MVP rapido" },
+  { value: "solid-architecture", label: "Arquitectura solida" },
+  { value: "low-cost", label: "Costo bajo" },
+  { value: "security-first", label: "Seguridad alta" }
 ];
 
 export function createDefaultTerminalSession(cwd: string): TerminalSessionState {
@@ -423,6 +446,42 @@ async function runWorkflow(
       printSwarmResult(result);
       return;
     }
+    case "project-new": {
+      const target = await promptLine(rl, "Directorio del nuevo proyecto", session.targetPath);
+      const projectName = await promptLine(rl, "Nombre del proyecto", path.basename(target));
+      const problem = await promptRequiredLine(rl, "Que problema resuelve");
+      const audience = await promptRequiredLine(rl, "Para quien es");
+      const archetype = await promptChoice(rl, "Tipo de proyecto", PROJECT_ARCHETYPE_CHOICES, "saas-webapp");
+      const stackPreference = await promptLine(rl, "Stack preferido", "recomiendame uno");
+      const features = parseCsv(await promptLine(rl, "Features iniciales CSV", "onboarding,dashboard,admin settings"));
+      const authRequired = await promptYesNo(rl, "Necesita autenticacion", true);
+      const roles = authRequired ? parseCsv(await promptLine(rl, "Roles CSV", "owner,admin,member")) : [];
+      const dataEntities = parseCsv(await promptLine(rl, "Entidades principales CSV", "User,Project,ActivityLog"));
+      const integrations = parseCsv(await promptLine(rl, "Integraciones CSV", "email,storage,analytics"));
+      const priority = await promptChoice(rl, "Prioridad", PROJECT_PRIORITY_CHOICES, "solid-architecture");
+      const language = await promptLine(rl, "Idioma", "es");
+      const overwrite = await promptYesNo(rl, "Sobrescribir artefactos existentes si existen", false);
+      const input: ProjectSeedInput = {
+        projectName,
+        problem,
+        audience,
+        archetype,
+        stackPreference,
+        features,
+        authRequired,
+        roles,
+        dataEntities,
+        integrations,
+        priority,
+        language,
+        notes: [],
+        contextOnly: true,
+        overwrite
+      };
+      const result = await orchestrator.scaffoldProject(path.resolve(target), input);
+      printProjectSeedResult(result);
+      return;
+    }
     case "self-improve": {
       const intent = await promptLine(rl, "Override intent (optional)");
       const result = await orchestrator.selfImprove(
@@ -543,6 +602,13 @@ function applyRuntimeToggles(session: TerminalSessionState): void {
   } else {
     delete process.env.OLLAMA_TIMEOUT_MS;
   }
+}
+
+function parseCsv(value: string): string[] {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 async function promptLine(rl: Interface, label: string, defaultValue = ""): Promise<string> {
@@ -919,4 +985,18 @@ function printArchitecturePlanResult(result: ArchitecturePlanResult): void {
   console.log(`- State: ${result.statePath}`);
   console.log(`- CLAUDE context: ${result.claudeContextPath}`);
   console.log(`- Memory: ${result.memoryPath}`);
+}
+
+function printProjectSeedResult(result: ProjectSeedResult): void {
+  console.log("");
+  console.log("Project seed");
+  console.log(`- Project: ${result.projectName}`);
+  console.log(`- Target: ${result.targetPath}`);
+  console.log(`- Archetype: ${result.archetype}`);
+  console.log(`- Charter: ${result.artifactPaths.projectCharterPath}`);
+  console.log(`- Requirements: ${result.artifactPaths.requirementsPath}`);
+  console.log(`- Blueprint: ${result.artifactPaths.blueprintPath}`);
+  console.log(`- Memory brief: ${result.artifactPaths.memoryBriefPath}`);
+  console.log(`- Backlog: ${result.artifactPaths.backlogPath}`);
+  console.log(`- CLAUDE: ${result.artifactPaths.claudePath}`);
 }

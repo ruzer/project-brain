@@ -1,6 +1,6 @@
 # project-brain
 
-Current release candidate: `0.2.2` internal beta.
+Current release candidate: `0.2.3` internal beta.
 
 `project-brain` is a non-destructive repository analysis engine for software systems and AI-assisted engineering workflows. It analyzes target repositories, builds durable context, runs specialist agents, generates reports, and produces review-only patch proposals.
 
@@ -196,6 +196,15 @@ Use the console when you want a guided menu:
 ```bash
 project-brain console --target /path/to/repo
 ```
+
+Create a new project context before writing application code:
+
+```bash
+project-brain new ./my-new-project
+project-brain new ./my-new-project --yes --name "Inventory SaaS" --problem "Track workshop inventory" --audience "small repair shops" --type saas-webapp --stack "Next.js + PostgreSQL"
+```
+
+`new` asks for the basic product context, then creates `AI_CONTEXT/`, `docs/architecture_plan/`, `memory/project_seed/`, `tasks/initial_backlog.md`, and `CLAUDE.md`. It is context-only in this version; it does not generate application source code.
 
 Map an existing repository before deeper analysis:
 

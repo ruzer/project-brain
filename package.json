@@ -1,6 +1,6 @@
 {
   "name": "project-brain",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Autonomous project analysis engine that builds context, memory, and agent-driven reports for any software repository.",
   "bin": {
     "project-brain": "dist/cli/project-brain.js"

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.3 - 2026-05-12
+
+### Added
+
+- `project-brain new` seeds new projects with guided `AI_CONTEXT`, architecture docs, project memory, initial backlog, and `CLAUDE.md`.
+- Interactive and non-interactive project seed inputs cover archetype, audience, stack, features, auth, roles, data entities, integrations, priority, and language.
+
+### Changed
+
+- Package metadata, README, and output contract are aligned with the `v0.2.3` release.
+
 ## 0.2.2 - 2026-05-12
 
 ### Changed

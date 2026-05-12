@@ -74,6 +74,7 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
     expect(helpText).toContain("feedback");
     expect(helpText).toContain("models");
     expect(helpText).toContain("doctor");
+    expect(helpText).toContain("new");
     expect(helpText).toContain("start");
     expect(helpText).toContain("security-audit");
     expect(helpText).toContain("status");
@@ -188,6 +189,17 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
     expect(startHelp).toContain("guided path");
     expect(startHelp).toContain("--with-swarm");
     expect(startHelp).toContain("--output");
+  });
+
+  it("shows new project seed options", () => {
+    const newHelp = runCliHelp(["new", "--help"]);
+
+    expect(newHelp).toContain("Create a new project context");
+    expect(newHelp).toContain("--problem");
+    expect(newHelp).toContain("--audience");
+    expect(newHelp).toContain("--type");
+    expect(newHelp).toContain("--features");
+    expect(newHelp).toContain("--yes");
   });
 
   it("shows self-improve options", () => {

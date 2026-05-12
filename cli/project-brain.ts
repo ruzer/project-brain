@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { createInterface, type Interface } from "node:readline/promises";
 
 import { Command } from "commander";
 
@@ -16,6 +17,9 @@ import type {
   GovernanceTrigger,
   LearningOutcome,
   OrchestrationResult,
+  ProjectSeedArchetype,
+  ProjectSeedInput,
+  ProjectSeedPriority,
   SwarmEngine
 } from "../shared/types";
 import { createDefaultTerminalSession, launchTerminalConsole } from "./terminal-console";
@@ -73,6 +77,41 @@ function parseSwarmEngine(value: string): SwarmEngine {
 }
 
 type SwarmPreset = "cheap" | "balanced" | "thorough";
+type ProjectSeedOptions = {
+  name?: string;
+  problem?: string;
+  audience?: string;
+  type?: string;
+  template?: string;
+  stack?: string;
+  features?: string;
+  auth?: string;
+  roles?: string;
+  data?: string;
+  integrations?: string;
+  priority?: string;
+  language?: string;
+  notes?: string;
+  force?: boolean;
+  yes?: boolean;
+};
+
+const PROJECT_ARCHETYPE_CHOICES: Array<{ value: ProjectSeedArchetype; label: string }> = [
+  { value: "saas-webapp", label: "SaaS / web app" },
+  { value: "marketing-site", label: "Marketing site" },
+  { value: "mobile-app", label: "Mobile app" },
+  { value: "api-backend", label: "API / backend" },
+  { value: "internal-tool", label: "Internal tool" },
+  { value: "content-platform", label: "Content platform" },
+  { value: "custom", label: "Custom" }
+];
+
+const PROJECT_PRIORITY_CHOICES: Array<{ value: ProjectSeedPriority; label: string }> = [
+  { value: "mvp-fast", label: "MVP rapido" },
+  { value: "solid-architecture", label: "Arquitectura solida" },
+  { value: "low-cost", label: "Costo bajo" },
+  { value: "security-first", label: "Seguridad alta" }
+];
 
 function parseSwarmPreset(value?: string): SwarmPreset | undefined {
   if (!value) {
@@ -84,6 +123,176 @@ function parseSwarmPreset(value?: string): SwarmPreset | undefined {
   }
 
   throw new Error(`Invalid swarm preset: ${value}. Expected cheap, balanced, or thorough.`);
+}
+
+function parseCsv(value?: string): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function parseProjectArchetype(value?: string): ProjectSeedArchetype | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  const match = PROJECT_ARCHETYPE_CHOICES.find((choice) => choice.value === normalized);
+  if (!match) {
+    throw new Error(`Invalid project type: ${value}. Expected one of ${PROJECT_ARCHETYPE_CHOICES.map((choice) => choice.value).join(", ")}.`);
+  }
+  return match.value;
+}
+
+function parseProjectPriority(value?: string): ProjectSeedPriority | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  const match = PROJECT_PRIORITY_CHOICES.find((choice) => choice.value === normalized);
+  if (!match) {
+    throw new Error(`Invalid project priority: ${value}. Expected one of ${PROJECT_PRIORITY_CHOICES.map((choice) => choice.value).join(", ")}.`);
+  }
+  return match.value;
+}
+
+function parseOptionalBoolean(value?: string): boolean | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (["true", "yes", "y", "si", "s", "1"].includes(normalized)) {
+    return true;
+  }
+  if (["false", "no", "n", "0"].includes(normalized)) {
+    return false;
+  }
+  throw new Error(`Invalid boolean value: ${value}. Expected yes or no.`);
+}
+
+async function cliPromptLine(rl: Interface, label: string, defaultValue = ""): Promise<string> {
+  const prompt = defaultValue.length > 0 ? `${label} [${defaultValue}]: ` : `${label}: `;
+  const answer = (await rl.question(prompt)).trim();
+  return answer.length > 0 ? answer : defaultValue;
+}
+
+async function cliPromptYesNo(rl: Interface, label: string, defaultValue: boolean): Promise<boolean> {
+  while (true) {
+    const answer = (await rl.question(`${label} [${defaultValue ? "Y/n" : "y/N"}]: `)).trim().toLowerCase();
+    if (answer.length === 0) {
+      return defaultValue;
+    }
+    if (["y", "yes", "s", "si"].includes(answer)) {
+      return true;
+    }
+    if (["n", "no"].includes(answer)) {
+      return false;
+    }
+    console.log("Responde y/n.");
+  }
+}
+
+async function cliPromptChoice<T extends string>(
+  rl: Interface,
+  label: string,
+  options: Array<{ value: T; label: string }>,
+  defaultValue: T
+): Promise<T> {
+  while (true) {
+    console.log(label);
+    options.forEach((option, index) => {
+      const suffix = option.value === defaultValue ? " (default)" : "";
+      console.log(`  ${index + 1}. ${option.label}${suffix}`);
+    });
+    const answer = (await rl.question("> ")).trim().toLowerCase();
+    if (answer.length === 0) {
+      return defaultValue;
+    }
+    const numeric = Number.parseInt(answer, 10);
+    if (Number.isFinite(numeric) && numeric >= 1 && numeric <= options.length) {
+      return options[numeric - 1].value;
+    }
+    const direct = options.find((option) => option.value === answer);
+    if (direct) {
+      return direct.value;
+    }
+    console.log("Seleccion invalida.");
+  }
+}
+
+async function collectProjectSeedInput(targetPath: string, options: ProjectSeedOptions): Promise<ProjectSeedInput> {
+  const canPrompt = !options.yes && process.stdin.isTTY && process.stdout.isTTY;
+  const inferredName = path.basename(targetPath);
+  const providedArchetype = parseProjectArchetype(options.type ?? options.template);
+  const providedPriority = parseProjectPriority(options.priority);
+  const providedAuth = parseOptionalBoolean(options.auth);
+
+  if (!canPrompt) {
+    return {
+      projectName: options.name ?? inferredName,
+      problem: options.problem ?? "Pending problem statement.",
+      audience: options.audience ?? "Pending audience definition.",
+      archetype: providedArchetype ?? "custom",
+      stackPreference: options.stack ?? "",
+      features: parseCsv(options.features),
+      authRequired: providedAuth ?? false,
+      roles: parseCsv(options.roles),
+      dataEntities: parseCsv(options.data),
+      integrations: parseCsv(options.integrations),
+      priority: providedPriority ?? "solid-architecture",
+      language: options.language ?? "es",
+      notes: parseCsv(options.notes),
+      contextOnly: true,
+      overwrite: Boolean(options.force)
+    };
+  }
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const projectName = options.name ?? (await cliPromptLine(rl, "Nombre del proyecto", inferredName));
+    const problem = options.problem ?? (await cliPromptLine(rl, "Que problema resuelve"));
+    const audience = options.audience ?? (await cliPromptLine(rl, "Para quien es"));
+    const archetype = providedArchetype ?? (await cliPromptChoice(rl, "Tipo de proyecto", PROJECT_ARCHETYPE_CHOICES, "saas-webapp"));
+    const stackPreference = options.stack ?? (await cliPromptLine(rl, "Stack preferido (opcional)", "recomiendame uno"));
+    const features = options.features
+      ? parseCsv(options.features)
+      : parseCsv(await cliPromptLine(rl, "Features iniciales (CSV)", "onboarding,dashboard,admin settings"));
+    const authRequired = providedAuth ?? (await cliPromptYesNo(rl, "Necesita autenticacion", true));
+    const roles = options.roles
+      ? parseCsv(options.roles)
+      : authRequired
+        ? parseCsv(await cliPromptLine(rl, "Roles (CSV)", "owner,admin,member"))
+        : [];
+    const dataEntities = options.data
+      ? parseCsv(options.data)
+      : parseCsv(await cliPromptLine(rl, "Entidades principales (CSV)", "User,Project,ActivityLog"));
+    const integrations = options.integrations
+      ? parseCsv(options.integrations)
+      : parseCsv(await cliPromptLine(rl, "Integraciones (CSV)", "email,storage,analytics"));
+    const priority = providedPriority ?? (await cliPromptChoice(rl, "Prioridad", PROJECT_PRIORITY_CHOICES, "solid-architecture"));
+    const language = options.language ?? (await cliPromptLine(rl, "Idioma", "es"));
+    const notes = options.notes ? parseCsv(options.notes) : parseCsv(await cliPromptLine(rl, "Notas adicionales (CSV)"));
+
+    return {
+      projectName,
+      problem,
+      audience,
+      archetype,
+      stackPreference,
+      features,
+      authRequired,
+      roles,
+      dataEntities,
+      integrations,
+      priority,
+      language,
+      notes,
+      contextOnly: true,
+      overwrite: Boolean(options.force)
+    };
+  } finally {
+    rl.close();
+  }
 }
 
 function swarmPresetOptions(preset?: SwarmPreset): {
@@ -475,6 +684,45 @@ program
     if (result.nextCommand) {
       console.log(`Next: ${result.nextCommand}`);
     }
+  });
+
+program
+  .command("new")
+  .alias("scaffold-context")
+  .argument("<target>", "Directory for the new project context")
+  .option("--name <name>", "Project name")
+  .option("--problem <text>", "Problem the project solves")
+  .option("--audience <text>", "Target audience")
+  .option("--type <type>", "Project archetype")
+  .option("--template <type>", "Alias for --type")
+  .option("--stack <text>", "Preferred stack or 'recomiendame uno'")
+  .option("--features <csv>", "Initial feature list")
+  .option("--auth <yes|no>", "Whether authentication is required")
+  .option("--roles <csv>", "Expected roles")
+  .option("--data <csv>", "Primary data entities")
+  .option("--integrations <csv>", "External integrations")
+  .option("--priority <priority>", "mvp-fast, solid-architecture, low-cost, or security-first")
+  .option("--language <code>", "Project language", "es")
+  .option("--notes <csv>", "Additional notes")
+  .option("--force", "Overwrite existing generated project seed artifacts")
+  .option("--yes", "Use provided values and defaults without interactive questions")
+  .description("Create a new project context with guided AI_CONTEXT, architecture, memory, and initial backlog artifacts.")
+  .action(async (target: string, options: ProjectSeedOptions) => {
+    const targetPath = resolveTarget(target);
+    const input = await collectProjectSeedInput(targetPath, options);
+    const result = await orchestrator.scaffoldProject(targetPath, input);
+
+    console.log(`Project seed: ${result.projectName}`);
+    console.log(`Target: ${result.targetPath}`);
+    console.log(`Archetype: ${result.archetype}`);
+    console.log(`Context only: ${result.contextOnly ? "yes" : "no"}`);
+    console.log(`Charter: ${result.artifactPaths.projectCharterPath}`);
+    console.log(`Requirements: ${result.artifactPaths.requirementsPath}`);
+    console.log(`Blueprint: ${result.artifactPaths.blueprintPath}`);
+    console.log(`Memory brief: ${result.artifactPaths.memoryBriefPath}`);
+    console.log(`Backlog: ${result.artifactPaths.backlogPath}`);
+    console.log(`CLAUDE: ${result.artifactPaths.claudePath}`);
+    console.log(`Next: ${result.nextSteps.join(" | ")}`);
   });
 
 program
