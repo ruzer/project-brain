@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -145,5 +145,62 @@ describe("Context-lite integration", () => {
     expect(tasks).toContain("Validar documentación marcada como pendiente o draft");
     expect(tasks).toContain("Resolver ambigüedad en fuentes de verdad");
     expect(tasks).not.toContain("Add a CI workflow to run validation on every change.");
+  });
+
+  it("extracts PHP MVC business domains from controllers, models, views, and SQL", async () => {
+    const repoDir = await createTempOutputDir("project-brain-context-lite-php-mvc-repo");
+    const outputDir = await createTempOutputDir("project-brain-context-lite-php-mvc-output");
+    cleanupTargets.push(repoDir, outputDir);
+
+    await mkdir(path.join(repoDir, "default", "app", "controllers"), { recursive: true });
+    await mkdir(path.join(repoDir, "default", "app", "models"), { recursive: true });
+    await mkdir(path.join(repoDir, "default", "app", "views", "empleado"), { recursive: true });
+    await mkdir(path.join(repoDir, "default", "app", "config"), { recursive: true });
+    await writeFile(
+      path.join(repoDir, "README.md"),
+      `![KumbiaPHP logo](https://example.test/logo.svg)
+
+## Sistema para el control de la información del personal
+
+Registro, administración y generación de gafetes de identificación para el personal activo.
+`
+    );
+    await writeFile(path.join(repoDir, "default", "app", "config", "config.php"), "<?php\n");
+    await writeFile(
+      path.join(repoDir, "default", "app", "controllers", "empleado_controller.php"),
+      "<?php\nclass EmpleadoController extends AppController { public function listar() {} public function registrar() {} }\n"
+    );
+    await writeFile(
+      path.join(repoDir, "default", "app", "controllers", "cuenta_controller.php"),
+      "<?php\nclass CuentaController extends AppController { public function listar() {} }\n"
+    );
+    await writeFile(
+      path.join(repoDir, "default", "app", "models", "empleado.php"),
+      "<?php\nclass Empleado extends ActiveRecord { public static function setEmpleado() {} }\n"
+    );
+    await writeFile(path.join(repoDir, "default", "app", "views", "empleado", "listar.phtml"), "<h1>Empleados</h1>\n");
+    await writeFile(path.join(repoDir, "gafete.sql"), "CREATE TABLE `empleado` (`id` int);\n");
+
+    const orchestrator = new ProjectBrainOrchestrator();
+    await orchestrator.contextLite(repoDir, outputDir);
+
+    const systemOverview = await readFile(path.join(outputDir, "AI_CONTEXT", "system_overview.md"), "utf8");
+    expect(systemOverview).toContain("Sistema para el control de la información del personal");
+    expect(systemOverview).toContain("KumbiaPHP");
+    expect(systemOverview).toContain("Dump o esquema SQL versionado");
+
+    const domainInventory = await readFile(path.join(outputDir, "AI_CONTEXT", "domain_inventory.md"), "utf8");
+    expect(domainInventory).toContain("Dominio `empleado`");
+    expect(domainInventory).toContain("default/app/controllers/empleado_controller.php");
+    expect(domainInventory).toContain("default/app/models/empleado.php");
+    expect(domainInventory).toContain("Dominio `cuenta`");
+
+    const modulesMap = await readFile(path.join(outputDir, "AI_CONTEXT", "modules_map.md"), "utf8");
+    expect(modulesMap).toContain("Módulo empleado");
+    expect(modulesMap).toContain("Módulo MVC PHP/Kumbia");
+
+    const backendFlows = await readFile(path.join(outputDir, "AI_CONTEXT", "backend_flows_and_contracts.md"), "utf8");
+    expect(backendFlows).toContain("Kumbia action /empleado/listar");
+    expect(backendFlows).toContain("gafete.sql");
   });
 });

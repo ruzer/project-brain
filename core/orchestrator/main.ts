@@ -31,6 +31,7 @@ import { getContextRegistryEntry, listContextSources, searchContextRegistry } fr
 import { runEcosystemRadar } from "../../memory/context_registry/ecosystem_radar";
 import { updatePersistentMemory } from "../../memory/context_store";
 import { writeImprovementPlanArtifacts } from "../../planning/improvement_plan";
+import { writeArchitecturePlanArtifacts } from "../../planning/architecture_plan";
 import { buildRunbook } from "../../planning/runbook";
 import { createCycleId, StructuredLogger, withLogContext } from "../../shared/logger";
 import { ensureDir, readJsonSafe, readTextSafe, toPosixPath, uniqueSorted, walkDirectory, writeFileEnsured, writeJsonEnsured } from "../../shared/fs-utils";
@@ -56,6 +57,7 @@ import type {
   FirewallInspectionResult,
   GovernanceTrigger,
   ImprovementPlanResult,
+  ArchitecturePlanResult,
   OrchestrationResult,
   ProjectContext,
   ReportManifest,
@@ -1177,6 +1179,20 @@ ${renderList(route.followUps)}
     });
   }
 
+  async architecturePlan(targetPath: string, outputPath = targetPath): Promise<ArchitecturePlanResult> {
+    const scope = await discoverRepositoryTargets(targetPath, outputPath);
+    const firstRepository = scope.repositories[0];
+    const primaryTargetPath = firstRepository?.targetPath ?? targetPath;
+    const primaryOutputPath =
+      scope.mode === "workspace" && firstRepository
+        ? this.workspaceRepoOutputPath(outputPath, firstRepository)
+        : outputPath;
+    const context = await this.initTarget(primaryTargetPath, primaryOutputPath);
+    const result = await writeArchitecturePlanArtifacts(context);
+    await writeMemoryBriefArtifacts(context);
+    return result;
+  }
+
   async planImprovements(
     targetPath: string,
     outputPath = targetPath,
@@ -1436,7 +1452,7 @@ ${renderList(route.followUps)}
   }
 
   async collectReportManifest(outputPath: string): Promise<ReportManifest> {
-    const files = await walkDirectory(outputPath);
+    const files = await walkDirectory(outputPath, 8000, [], { includeGeneratedArtifacts: true });
     return {
       memoryFiles: files.filter((file) => file.startsWith("AI_CONTEXT/")),
       reportFiles: files.filter((file) => file.startsWith("reports/")),

@@ -26,10 +26,12 @@
 ## Recommended workflow
 
 1. Run `project-brain analyze` against the target repository.
-2. Review `AI_CONTEXT`, reports, and task outputs.
+2. Review `BRAIN/AI_CONTEXT`, `BRAIN/reports`, and `BRAIN/tasks` unless you passed a custom `--output`.
 3. Select the relevant prompt template from `prompts/context_templates/`.
 4. Provide the generated context plus the template to the downstream coding agent.
 5. Review any patch proposals manually before implementation.
+
+By default, external runs write generated output under `BRAIN/` in the target repo. This keeps project-brain artifacts distinguishable from the application source while preserving the same internal layout (`AI_CONTEXT/`, `memory/`, `reports/`, `docs/`, `tasks/`).
 
 ## Common artifacts
 

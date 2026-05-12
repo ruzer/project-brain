@@ -18,6 +18,7 @@ describe("DiscoveryEngine fixture filtering", () => {
     cleanupTargets.push(repoDir);
 
     await mkdir(path.join(repoDir, "src"), { recursive: true });
+    await mkdir(path.join(repoDir, "core", "vendor", "library"), { recursive: true });
     await mkdir(path.join(repoDir, "tests", "fixtures", "nested-app"), { recursive: true });
     await writeFile(
       path.join(repoDir, "package.json"),
@@ -32,6 +33,7 @@ describe("DiscoveryEngine fixture filtering", () => {
       })
     );
     await writeFile(path.join(repoDir, "src", "index.ts"), "export const ready = true;\n");
+    await writeFile(path.join(repoDir, "core", "vendor", "library", "noise.ts"), "export const vendored = true;\n");
     await writeFile(
       path.join(repoDir, "tests", "fixtures", "nested-app", "package.json"),
       JSON.stringify({
@@ -54,5 +56,6 @@ describe("DiscoveryEngine fixture filtering", () => {
     expect(result.frameworks).not.toContain("Express");
     expect(result.apis).not.toContain("OpenAPI");
     expect(result.files.some((file) => file.includes("tests/fixtures"))).toBe(false);
+    expect(result.files.some((file) => file.includes("/vendor/"))).toBe(false);
   });
 });

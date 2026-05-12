@@ -19,10 +19,33 @@ const IGNORED_DIRECTORIES = new Set([
   "venv"
 ]);
 
+const ROOT_GENERATED_DIRECTORIES = new Set(["AI_CONTEXT", "reports", "tasks", "patch_proposals", "BRAIN"]);
+
 const IGNORED_PATH_PATTERNS = [
   /(^|\/)__fixtures__(\/|$)/i,
   /(^|\/)(tests?|spec)\/fixtures(\/|$)/i
 ];
+
+async function looksLikeProjectBrainRuntimeMemory(memoryPath: string): Promise<boolean> {
+  const generatedMarkers = [
+    "memory_brief/memory_brief.json",
+    "executive_summary/executive_summary.json",
+    "knowledge_graph/repository_fact_graph.json",
+    "code_graph/code_graph_v2.json",
+    "firewall/agent_firewall.json"
+  ];
+
+  const markerChecks = await Promise.all(generatedMarkers.map((marker) => fileExists(path.join(memoryPath, marker))));
+  return markerChecks.some(Boolean);
+}
+
+function isDependencyVendorDirectory(relativeDir: string, entryName: string): boolean {
+  if (entryName !== "vendor") {
+    return false;
+  }
+
+  return relativeDir === "" || relativeDir === "core" || relativeDir === "app" || relativeDir === "default/app";
+}
 
 export async function fileExists(filePath: string): Promise<boolean> {
   try {
@@ -72,7 +95,12 @@ export async function appendFileEnsured(filePath: string, content: string): Prom
   await fs.appendFile(filePath, content, "utf8");
 }
 
-export async function walkDirectory(rootPath: string, maxFiles = 8000, excludedPaths: string[] = []): Promise<string[]> {
+export async function walkDirectory(
+  rootPath: string,
+  maxFiles = 8000,
+  excludedPaths: string[] = [],
+  options: { includeGeneratedArtifacts?: boolean } = {}
+): Promise<string[]> {
   const files: string[] = [];
   const queue: string[] = [""];
   const normalizedExclusions = excludedPaths.map((value) => toPosixPath(value).replace(/^\.\/+/, ""));
@@ -103,11 +131,28 @@ export async function walkDirectory(rootPath: string, maxFiles = 8000, excludedP
       }
 
       if (entry.isDirectory()) {
-        if (IGNORED_DIRECTORIES.has(entry.name)) {
+        if (!options.includeGeneratedArtifacts && relativeDir === "" && ROOT_GENERATED_DIRECTORIES.has(entry.name)) {
           continue;
         }
 
-        if (entry.name === "vendor" && relativeDir === "") {
+        if (
+          !options.includeGeneratedArtifacts &&
+          relativeDir === "" &&
+          entry.name === "memory" &&
+          (await looksLikeProjectBrainRuntimeMemory(path.join(rootPath, relativePath)))
+        ) {
+          continue;
+        }
+
+        if (!options.includeGeneratedArtifacts && relativeDir === "docs" && entry.name === "codebase_map") {
+          continue;
+        }
+
+        if (isDependencyVendorDirectory(toPosixPath(relativeDir), entry.name)) {
+          continue;
+        }
+
+        if (IGNORED_DIRECTORIES.has(entry.name)) {
           continue;
         }
 

@@ -42,4 +42,43 @@ describe("DiscoveryEngine integration", () => {
     expect(result.files).toContain("src/index.ts");
     expect(result.files).not.toContain("sample-output/reports/noise.ts");
   });
+
+  it("ignores project-brain root artifacts without hiding source memory modules", async () => {
+    const repoDir = await createTempOutputDir("project-brain-generated-artifacts");
+    cleanupTargets.push(repoDir);
+
+    await mkdir(path.join(repoDir, "src"), { recursive: true });
+    await mkdir(path.join(repoDir, "AI_CONTEXT"), { recursive: true });
+    await mkdir(path.join(repoDir, "reports"), { recursive: true });
+    await mkdir(path.join(repoDir, "tasks", "packets"), { recursive: true });
+    await mkdir(path.join(repoDir, "memory", "memory_brief"), { recursive: true });
+    await writeFile(path.join(repoDir, "package.json"), JSON.stringify({ name: "temp-repo" }));
+    await writeFile(path.join(repoDir, "src", "index.ts"), "export const value = 1;\n");
+    await writeFile(path.join(repoDir, "AI_CONTEXT", "noise.ts"), "export const noise = 1;\n");
+    await writeFile(path.join(repoDir, "reports", "noise.ts"), "export const noise = 1;\n");
+    await writeFile(path.join(repoDir, "tasks", "packets", "noise.ts"), "export const noise = 1;\n");
+    await writeFile(path.join(repoDir, "memory", "memory_brief", "memory_brief.json"), "{}\n");
+
+    const result = await new DiscoveryEngine().analyze(repoDir);
+
+    expect(result.files).toContain("src/index.ts");
+    expect(result.files).not.toContain("AI_CONTEXT/noise.ts");
+    expect(result.files).not.toContain("reports/noise.ts");
+    expect(result.files).not.toContain("tasks/packets/noise.ts");
+    expect(result.structure.topLevelDirectories).not.toContain("memory");
+  });
+
+  it("keeps a real source memory directory when it is not project-brain runtime output", async () => {
+    const repoDir = await createTempOutputDir("project-brain-source-memory");
+    cleanupTargets.push(repoDir);
+
+    await mkdir(path.join(repoDir, "memory", "context_store"), { recursive: true });
+    await writeFile(path.join(repoDir, "package.json"), JSON.stringify({ name: "temp-repo" }));
+    await writeFile(path.join(repoDir, "memory", "context_store", "index.ts"), "export const source = true;\n");
+
+    const result = await new DiscoveryEngine().analyze(repoDir);
+
+    expect(result.files).toContain("memory/context_store/index.ts");
+    expect(result.structure.topLevelDirectories).toContain("memory");
+  });
 });

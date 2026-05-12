@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -125,5 +125,21 @@ describe("CLI smoke workflows", () => {
     const firewallReport = readFileSync(path.join(outputDir, "reports", "agent_firewall.md"), "utf8");
 
     expect(firewallReport).toContain("Trigger: security-advisory");
+  }, 10000);
+
+  it("uses BRAIN as the default output root when --output is omitted", async () => {
+    const targetDir = await createTempOutputDir("project-brain-default-output-target");
+    cleanupTargets.push(targetDir);
+    const cwd = path.resolve(currentDir, "..", "..");
+
+    mkdirSync(path.join(targetDir, "src"), { recursive: true });
+    writeFileSync(path.join(targetDir, "package.json"), JSON.stringify({ name: "default-output-target" }));
+    writeFileSync(path.join(targetDir, "src", "index.ts"), "export const ready = true;\n");
+
+    runCli(["context-lite", targetDir], cwd);
+
+    expect(existsSync(path.join(targetDir, "BRAIN", "AI_CONTEXT", "system_overview.md"))).toBe(true);
+    expect(existsSync(path.join(targetDir, "BRAIN", "reports", "context_lite.md"))).toBe(true);
+    expect(existsSync(path.join(targetDir, "AI_CONTEXT"))).toBe(false);
   }, 10000);
 });

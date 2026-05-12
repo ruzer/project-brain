@@ -5,13 +5,15 @@
 Start here for normal use:
 
 ```bash
-project-brain go "understand this project and suggest the next safe step" /path/to/repo --output /path/to/output
+project-brain go "understand this project and suggest the next safe step" /path/to/repo
 ```
+
+If `--output` is omitted, project-brain writes all generated artifacts under `/path/to/repo/BRAIN/`. That directory contains the generated `AI_CONTEXT/`, runtime `memory/`, `reports/`, `tasks/`, and generated docs/proposals. Pass `--output /path/to/output` to place the same layout somewhere else.
 
 Use the guided console when the user should not remember command names:
 
 ```bash
-project-brain console --target /path/to/repo --output /path/to/output
+project-brain console --target /path/to/repo
 ```
 
 Read these docs for release-candidate operation:
@@ -61,16 +63,16 @@ For GitHub-side settings such as branch protection and secret scanning, follow `
 Map an existing repository into structured onboarding docs:
 
 ```bash
-project-brain map-codebase /path/to/repo --output /path/to/output
+project-brain map-codebase /path/to/repo
 ```
 
 Start with plain language instead of choosing a command manually:
 
 ```bash
-project-brain start "quiero analizar y mejorar este proyecto" /path/to/repo --output /path/to/output
-project-brain ask "identifica este proyecto" /path/to/repo --output /path/to/output
-project-brain ask "dime que le falta criticamente" /path/to/repo --output /path/to/output
-project-brain ask "revisa los cambios recientes" /path/to/repo --output /path/to/output
+project-brain start "quiero analizar y mejorar este proyecto" /path/to/repo
+project-brain ask "identifica este proyecto" /path/to/repo
+project-brain ask "dime que le falta criticamente" /path/to/repo
+project-brain ask "revisa los cambios recientes" /path/to/repo
 ```
 
 `start` is the simple path for non-technical users. It runs cheap deterministic preflight first: doctor, codebase map, code graph, fact query, runbook, harness audit, and firewall. It does not run the model-heavy swarm unless you pass `--with-swarm`.
@@ -92,6 +94,19 @@ This writes:
 - `docs/improvement_plan/KNOWN_RISKS.md`
 - `docs/improvement_plan/ROADMAP.md`
 - `docs/improvement_plan/TRACKS.md`
+
+Generate a bounded architecture plan before restructuring:
+
+```bash
+project-brain architecture-plan /path/to/repo --output /path/to/output
+```
+
+This writes:
+
+- `docs/architecture_plan/BLUEPRINT.md`
+- `docs/architecture_plan/STATE.md`
+- `docs/architecture_plan/CLAUDE.md`
+- `memory/architecture_plan/architecture_plan.json`
 
 Search the curated local context registry:
 
@@ -354,6 +369,7 @@ project-brain swarm "ayudame a mejorar este repo" /path/to/repo --parallel 3 --c
 project-brain swarm "ayudame a mejorar este repo" /path/to/repo --parallel 2 --chunk-size 1 --planner-timeout-ms 8000 --synthesis-timeout-ms 8000 --run-timeout-ms 30000 --max-queued-tasks 8
 project-brain self-improve /path/to/repo
 project-brain plan-improvements /path/to/repo --trigger repository-change
+project-brain architecture-plan /path/to/repo --output /path/to/output
 project-brain context-search "express observability" /path/to/repo
 project-brain context-get node-express-api /path/to/repo
 project-brain context-sources /path/to/repo

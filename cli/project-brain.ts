@@ -161,8 +161,10 @@ function resolveTarget(target: string): string {
   return path.resolve(process.cwd(), target);
 }
 
+const DEFAULT_OUTPUT_DIR_NAME = "BRAIN";
+
 function resolveOutput(targetPath: string, output?: string): string {
-  return output ? resolveTarget(output) : targetPath;
+  return output ? resolveTarget(output) : path.join(targetPath, DEFAULT_OUTPUT_DIR_NAME);
 }
 
 function resolveTrigger(trigger?: string): GovernanceTrigger {
@@ -1001,6 +1003,22 @@ program
   });
 
 program
+  .command("architecture-plan")
+  .argument("[target]", "Repository to generate architecture evidence plan", ".")
+  .option("-o, --output <dir>", "Output directory")
+  .description("Generate architecture evidence artifacts and temporary execution context.")
+  .action(async (target: string, options: { output?: string }) => {
+    const targetPath = resolveTarget(target);
+    const outputPath = resolveOutput(targetPath, options.output);
+    const result = await orchestrator.architecturePlan(targetPath, outputPath);
+    console.log(`Architecture plan: ${result.planDir}`);
+    console.log(`Blueprint: ${result.blueprintPath}`);
+    console.log(`State: ${result.statePath}`);
+    console.log(`Claude context: ${result.claudeContextPath}`);
+    console.log(`Memory: ${result.memoryPath}`);
+  });
+
+program
   .command("plan-improvements")
   .argument("[target]", "Repository to turn into a persistent improvement plan", ".")
   .option("-o, --output <dir>", "Output directory")
@@ -1046,7 +1064,7 @@ program
   .option("-o, --output <dir>", "Output directory")
   .action(async (target: string, options: { output?: string }) => {
     const targetPath = resolveTarget(target);
-    const outputPath = resolveOutput(targetPath, options.output);
+    const outputPath = options.output ? resolveTarget(options.output) : targetPath;
     const manifest = await orchestrator.collectReportManifest(outputPath);
     console.log(JSON.stringify(manifest, null, 2));
   });

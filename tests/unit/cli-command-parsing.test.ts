@@ -71,6 +71,7 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
     expect(helpText).toContain("status");
     expect(helpText).toContain("resume");
     expect(helpText).toContain("console");
+    expect(helpText).toContain("architecture-plan");
   });
 
   it("shows trigger support on analyze", () => {
@@ -209,6 +210,13 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
 
     expect(planHelp).toContain("--trigger");
     expect(planHelp).toContain("--output");
+  });
+
+  it("shows architecture-plan options", () => {
+    const architectureHelp = runCliHelp(["architecture-plan", "--help"]);
+
+    expect(architectureHelp).toContain("--output");
+    expect(architectureHelp).toContain("Generate architecture evidence");
   });
 
   it("shows firewall options", () => {

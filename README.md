@@ -7,8 +7,10 @@ Current release candidate: `0.2.0` internal beta.
 Recommended beta entry point:
 
 ```bash
-project-brain go "understand this project and suggest the next safe step" /path/to/repo --output /path/to/output
+project-brain go "understand this project and suggest the next safe step" /path/to/repo
 ```
+
+By default, generated artifacts are grouped under `/path/to/repo/BRAIN/` so `AI_CONTEXT/`, runtime `memory/`, `reports/`, `tasks/`, and generated docs do not spread across the target repository root. Use `--output /path/to/output` when you want a different location.
 
 Typical use cases include:
 
@@ -102,7 +104,7 @@ Si quieres validar la instalación completa localmente:
 ```bash
 project-brain doctor .
 project-brain models
-project-brain console --target /ruta/al/repo --output /tmp/project-brain-run
+project-brain console --target /ruta/al/repo
 ```
 
 Instalación recomendada de Ollama (si aún no lo tienes):
@@ -172,31 +174,31 @@ npm run build
 Recommended entry point for non-technical or day-to-day use:
 
 ```bash
-project-brain go "understand this project and suggest the next safe step" /path/to/repo --output /path/to/output
+project-brain go "understand this project and suggest the next safe step" /path/to/repo
 ```
 
 Use the console when you want a guided menu:
 
 ```bash
-project-brain console --target /path/to/repo --output /path/to/output
+project-brain console --target /path/to/repo
 ```
 
 Map an existing repository before deeper analysis:
 
 ```bash
-project-brain map-codebase /path/to/repo --output /path/to/output
+project-brain map-codebase /path/to/repo
 ```
 
 Generate a lightweight `AI_CONTEXT/` pack for a smaller app without running the full governed pipeline:
 
 ```bash
-project-brain context-lite /path/to/repo --output /path/to/output
+project-brain context-lite /path/to/repo
 ```
 
 Use plain language and let `project-brain` route the workflow:
 
 ```bash
-project-brain ask "identifica este proyecto" /path/to/repo --output /path/to/output
+project-brain ask "identifica este proyecto" /path/to/repo
 ```
 
 Run a structured, evidence-based security audit with verified architecture and a coordinated agent team:
@@ -217,6 +219,12 @@ Persist a project-level improvement roadmap from the current analysis state:
 
 ```bash
 project-brain plan-improvements /path/to/repo --trigger repository-change --output /path/to/output
+```
+
+Generate an architecture evidence plan (blueprint + evolution state + execution context) before major refactors:
+
+```bash
+project-brain architecture-plan /path/to/repo --output /path/to/output
 ```
 
 Search curated stack guidance and materialize it into project context:

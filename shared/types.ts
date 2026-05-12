@@ -716,6 +716,15 @@ export type ResumeStage =
   | "swarm"
   | "plan-improvements";
 
+export interface ArchitecturePlanResult {
+  context: ProjectContext;
+  planDir: string;
+  blueprintPath: string;
+  statePath: string;
+  claudeContextPath: string;
+  memoryPath: string;
+}
+
 export interface ResumeResult {
   context: ProjectContext;
   reportPath: string;

@@ -36,6 +36,19 @@ function buildRecommendations(discovery: Omit<DiscoveryResult, "recommendations"
   return uniqueSorted(recommendations);
 }
 
+function detectStructuralFrameworks(files: string[]): string[] {
+  const frameworks: string[] = [];
+
+  if (
+    files.some((filePath) => /(^|\/)core\/kumbia\//i.test(filePath)) ||
+    files.some((filePath) => /(^|\/)(?:default\/)?app\/config\/config\.php$/i.test(filePath))
+  ) {
+    frameworks.push("KumbiaPHP");
+  }
+
+  return uniqueSorted(frameworks);
+}
+
 export class DiscoveryEngine {
   private readonly logger = new StructuredLogger("discovery-engine");
 
@@ -49,7 +62,8 @@ export class DiscoveryEngine {
 
     const repoScan = await scanRepositoryStructure(targetPath, options?.excludePaths ?? []);
     const dependencyScan = await scanDependencies(targetPath, repoScan.files);
-    const apiScan = scanApis(repoScan.files, dependencyScan.dependencies, dependencyScan.frameworks);
+    const frameworks = uniqueSorted([...dependencyScan.frameworks, ...detectStructuralFrameworks(repoScan.files)]);
+    const apiScan = scanApis(repoScan.files, dependencyScan.dependencies, frameworks);
     const infraScan = await scanInfrastructure(targetPath, repoScan.files);
     const git = detectGitIntegration(targetPath, repoScan.structure.submodules.length > 0);
     const ci = detectCi(repoScan.files);
@@ -63,7 +77,7 @@ export class DiscoveryEngine {
       files: repoScan.files,
       structure: repoScan.structure,
       languages: repoScan.languages,
-      frameworks: dependencyScan.frameworks,
+      frameworks,
       apis: apiScan.apis,
       infrastructure: infraScan.infrastructure,
       testing: dependencyScan.testing,

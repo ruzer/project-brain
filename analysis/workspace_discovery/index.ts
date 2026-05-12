@@ -33,6 +33,7 @@ const IGNORED_WORKSPACE_DIRECTORIES = new Set([
   "docs",
   "memory",
   "tasks",
+  "BRAIN",
   "ecosystem"
 ]);
 

@@ -9,6 +9,7 @@ import { setLoggerOptions } from "../shared/logger";
 import type {
   AskResult,
   CodeGraphBuildResult,
+  ArchitecturePlanResult,
   ContextLiteResult,
   DoctorResult,
   EcosystemAnalysisResult,
@@ -46,6 +47,7 @@ type WorkflowChoice =
   | "code-graph"
   | "impact-radius"
   | "review-delta"
+  | "architecture-plan"
   | "firewall"
   | "plan-improvements"
   | "report";
@@ -106,6 +108,7 @@ const WORKFLOW_MENU: ChoiceOption<WorkflowChoice>[] = [
   { value: "harness-audit", label: workflowLabel("harness-audit", "Revisar memoria y costos") },
   { value: "fact-query", label: workflowLabel("fact-query", "Buscar en memoria local") },
   { value: "swarm", label: workflowLabel("swarm", "Analizar con agentes") },
+  { value: "architecture-plan", label: "Generar plan de arquitectura" },
   { value: "plan-improvements", label: workflowLabel("plan-improvements", "Crear plan ejecutivo persistente") },
   { value: "doctor", label: workflowLabel("doctor", "Revisar entorno local") },
   { value: "code-graph", label: workflowLabel("code-graph", "Construir mapa factual") },
@@ -132,6 +135,8 @@ const TRIGGER_CHOICES: ChoiceOption<GovernanceTrigger>[] = [
   { value: "dependency-update", label: "dependency-update" }
 ];
 
+const DEFAULT_OUTPUT_DIR_NAME = "BRAIN";
+
 const SWARM_ENGINE_CHOICES: ChoiceOption<SwarmEngine>[] = [
   { value: "bounded", label: "bounded" },
   { value: "deepagents", label: "deepagents" }
@@ -148,7 +153,7 @@ export function createDefaultTerminalSession(cwd: string): TerminalSessionState 
   const resolvedCwd = path.resolve(cwd);
   return {
     targetPath: resolvedCwd,
-    outputPath: resolvedCwd,
+    outputPath: path.join(resolvedCwd, DEFAULT_OUTPUT_DIR_NAME),
     trigger: "manual",
     verbose: false,
     swarmEngine: "bounded"
@@ -461,6 +466,11 @@ async function runWorkflow(
     case "firewall": {
       const result = await orchestrator.inspectFirewall(session.targetPath, session.outputPath, session.trigger);
       printFirewallResult(result);
+      return;
+    }
+    case "architecture-plan": {
+      const result = await orchestrator.architecturePlan(session.targetPath, session.outputPath);
+      printArchitecturePlanResult(result);
       return;
     }
     case "plan-improvements": {
@@ -899,4 +909,14 @@ function printImprovementPlanResult(result: ImprovementPlanResult): void {
   console.log(`- Risks: ${result.risksPath}`);
   console.log(`- Roadmap: ${result.roadmapPath}`);
   console.log(`- Tracks: ${result.tracksPath}`);
+}
+
+function printArchitecturePlanResult(result: ArchitecturePlanResult): void {
+  console.log("");
+  console.log("Architecture plan");
+  console.log(`- Plan dir: ${result.planDir}`);
+  console.log(`- Blueprint: ${result.blueprintPath}`);
+  console.log(`- State: ${result.statePath}`);
+  console.log(`- CLAUDE context: ${result.claudeContextPath}`);
+  console.log(`- Memory: ${result.memoryPath}`);
 }

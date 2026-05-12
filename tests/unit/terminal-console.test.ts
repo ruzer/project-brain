@@ -5,12 +5,12 @@ import { describe, expect, it } from "vitest";
 import { createDefaultTerminalSession, summarizeTerminalSession } from "../../cli/terminal-console";
 
 describe("terminal console helpers", () => {
-  it("defaults target and output to the provided working directory", () => {
+  it("defaults target to the working directory and output to BRAIN", () => {
     const cwd = path.resolve("/tmp/project-brain-console");
     const session = createDefaultTerminalSession(cwd);
 
     expect(session.targetPath).toBe(cwd);
-    expect(session.outputPath).toBe(cwd);
+    expect(session.outputPath).toBe(path.join(cwd, "BRAIN"));
     expect(session.trigger).toBe("manual");
     expect(session.swarmEngine).toBe("bounded");
     expect(session.verbose).toBe(false);

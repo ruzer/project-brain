@@ -593,13 +593,27 @@ function pickBalancedDomainFiles(candidates: Array<{ filePath: string; score: nu
 }
 
 function parseReadmeSummary(content: string): string | undefined {
-  const lines = content
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .filter((line) => !line.startsWith("#"));
+  const lines = content.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 
-  return lines[0] ? lines[0].replace(/\s+/g, " ").trim() : undefined;
+  for (const rawLine of lines) {
+    if (/^(!\[|\[!\[|---+$)/.test(rawLine) || /^https?:\/\//i.test(rawLine)) {
+      continue;
+    }
+
+    const normalized = normalizeDocText(rawLine.replace(/^#{1,6}\s+/, ""));
+    if (
+      !normalized ||
+      normalized.length < 8 ||
+      /^(change log|license|manual|comunity|community|english|espa[ñn]ol)$/i.test(normalized) ||
+      /\b(kumbiaphp logo|welcome to kumbiaphp|fast and easy php framework|scrutinizer|code climate|php[57]\s+ready)\b/i.test(normalized)
+    ) {
+      continue;
+    }
+
+    return normalized.replace(/\s+/g, " ").trim();
+  }
+
+  return undefined;
 }
 
 async function loadRepoMetadata(context: ProjectContext): Promise<RepoMetadata> {
@@ -735,6 +749,69 @@ function pickRepresentativeFiles(files: string[], limit: number): string[] {
   }
 
   return selected;
+}
+
+const IGNORED_MVC_DOMAIN_LABELS = new Set(["empty", "index", "pages", "blanco", "shared"]);
+
+function normalizeDomainLabel(value: string): string {
+  return toSlug(value.replace(/_controller$/i, ""));
+}
+
+function inferPhpMvcDomain(filePath: string): { label: string; role: "controller" | "model" | "view" } | undefined {
+  const normalized = filePath.replace(/\\/g, "/");
+  const controller = normalized.match(/(^|\/)(?:default\/)?app\/controllers\/([^/]+)_controller\.php$/i);
+  if (controller?.[2]) {
+    const label = normalizeDomainLabel(controller[2]);
+    return label && !IGNORED_MVC_DOMAIN_LABELS.has(label) ? { label, role: "controller" } : undefined;
+  }
+
+  const model = normalized.match(/(^|\/)(?:default\/)?app\/models\/([^/]+)\.php$/i);
+  if (model?.[2]) {
+    const label = normalizeDomainLabel(model[2]);
+    return label && !IGNORED_MVC_DOMAIN_LABELS.has(label) && !label.startsWith("bak-") ? { label, role: "model" } : undefined;
+  }
+
+  const view = normalized.match(/(^|\/)(?:default\/)?app\/views\/([^/]+)\//i);
+  if (view?.[2]) {
+    const label = normalizeDomainLabel(view[2]);
+    return label && !IGNORED_MVC_DOMAIN_LABELS.has(label) && !label.startsWith("_") ? { label, role: "view" } : undefined;
+  }
+
+  return undefined;
+}
+
+function inferPhpMvcDomainEntries(discovery: DiscoveryResult): DomainInventoryEntry[] {
+  const domains = new Map<string, DomainInventoryEntry>();
+  const roles = new Map<string, Set<string>>();
+
+  for (const filePath of discovery.files) {
+    const domain = inferPhpMvcDomain(filePath);
+    if (!domain) {
+      continue;
+    }
+
+    const entry = domains.get(domain.label) ?? {
+      label: domain.label,
+      docFiles: [],
+      codeFiles: [],
+      highlights: []
+    };
+    entry.codeFiles = uniqueSorted([...entry.codeFiles, filePath]).slice(0, 8);
+    domains.set(domain.label, entry);
+
+    const roleSet = roles.get(domain.label) ?? new Set<string>();
+    roleSet.add(domain.role);
+    roles.set(domain.label, roleSet);
+  }
+
+  for (const entry of domains.values()) {
+    const roleLabels = [...(roles.get(entry.label) ?? new Set<string>())].sort();
+    entry.highlights = [
+      `Dominio inferido desde MVC PHP/Kumbia (${roleLabels.join(", ") || "superficie"})`
+    ];
+  }
+
+  return [...domains.values()].sort((left, right) => left.label.localeCompare(right.label));
 }
 
 function normalizeNavLabel(value: string): string | undefined {
@@ -1452,35 +1529,58 @@ function pickRepresentativeDomainLabels(entries: DomainInventoryEntry[], limit: 
 function buildDomainEntries(discovery: DiscoveryResult, insights: DocumentationInsight[]): DomainInventoryEntry[] {
   const domainMap = new Map<string, DomainInventoryEntry>();
   const insightMap = new Map<string, DocumentationInsight[]>();
+  const mergeEntry = (entry: DomainInventoryEntry): void => {
+    const existing = domainMap.get(entry.label) ?? {
+      label: entry.label,
+      docFiles: [],
+      codeFiles: [],
+      highlights: []
+    };
+
+    existing.docFiles = uniqueSorted([...existing.docFiles, ...entry.docFiles]);
+    existing.codeFiles = uniqueSorted([...existing.codeFiles, ...entry.codeFiles]).slice(0, 8);
+    existing.highlights = uniquePreserved([...existing.highlights, ...entry.highlights]).slice(0, 4);
+    domainMap.set(entry.label, existing);
+  };
 
   for (const insight of insights) {
     if (!insight.domainKey) {
       continue;
     }
 
-    const existing = domainMap.get(insight.domainKey) ?? {
+    const entry = domainMap.get(insight.domainKey) ?? {
       label: insight.domainKey,
       docFiles: [],
       codeFiles: [],
       highlights: []
     };
 
-    existing.docFiles = uniqueSorted([...existing.docFiles, insight.filePath]);
-    existing.highlights = uniquePreserved([
-      ...existing.highlights,
+    entry.docFiles = uniqueSorted([...entry.docFiles, insight.filePath]);
+    entry.highlights = uniquePreserved([
+      ...entry.highlights,
       insight.summary ?? "",
       ...insight.flowHighlights,
       ...insight.ruleHighlights,
       ...insight.decisionHighlights
     ]).slice(0, 4);
 
-    domainMap.set(insight.domainKey, existing);
+    domainMap.set(insight.domainKey, entry);
     insightMap.set(insight.domainKey, [...(insightMap.get(insight.domainKey) ?? []), insight]);
+  }
+
+  for (const entry of inferPhpMvcDomainEntries(discovery)) {
+    mergeEntry(entry);
   }
 
   for (const entry of domainMap.values()) {
     const domainInsights = insightMap.get(entry.label) ?? [];
     const tokens = buildDomainSearchTokens(entry.label, domainInsights);
+    const existingCodeFiles = entry.codeFiles;
+
+    if (domainInsights.length === 0) {
+      entry.codeFiles = existingCodeFiles;
+      continue;
+    }
 
     const rankedCandidates = discovery.files
       .filter((filePath) => !/(^|\/)(docs|doc)\//i.test(filePath))
@@ -1491,7 +1591,7 @@ function buildDomainEntries(discovery: DiscoveryResult, insights: DocumentationI
       .filter((candidate) => candidate.score > 0)
       .sort((left, right) => right.score - left.score || left.filePath.localeCompare(right.filePath));
 
-    entry.codeFiles = pickBalancedDomainFiles(rankedCandidates, 6);
+    entry.codeFiles = uniqueSorted([...existingCodeFiles, ...pickBalancedDomainFiles(rankedCandidates, 6)]).slice(0, 8);
   }
 
   return [...domainMap.values()].sort((left, right) => left.label.localeCompare(right.label));
@@ -1617,6 +1717,10 @@ function inferProjectShape(discovery: DiscoveryResult): string {
     return "Frontend-oriented application";
   }
 
+  if (discovery.languages.includes("PHP") && discovery.files.some((filePath) => /(^|\/)(?:default\/)?app\/controllers\/[^/]+_controller\.php$/i.test(filePath))) {
+    return "PHP MVC web application";
+  }
+
   if (frameworks.has("Express") || frameworks.has("FastAPI") || frameworks.has("NestJS") || frameworks.has("Spring") || frameworks.has("Rails")) {
     return "Backend/API service";
   }
@@ -1651,6 +1755,10 @@ function detectActors(discovery: DiscoveryResult): { confirmed: string[]; pendin
 
   if (discovery.files.some((filePath) => /(^|\/)(admin|backoffice|dashboard)(\/|$)/i.test(filePath))) {
     actors.push(`Operadores o administradores internos${toEvidence(sample(matchingFiles(discovery, /(^|\/)(admin|backoffice|dashboard)(\/|$)/i), 4))}`);
+  }
+
+  if (discovery.files.some((filePath) => /(^|\/)(seguridad_usuarios|usuario|usuarios|cuenta|cuentas)(\/|_|\.|$)/i.test(filePath))) {
+    actors.push(`Operadores internos con cuentas de usuario${toEvidence(sample(matchingFiles(discovery, /(^|\/)(seguridad_usuarios|usuario|usuarios|cuenta|cuentas)(\/|_|\.|$)/i), 4))}`);
   }
 
   if (discovery.files.some((filePath) => /(^|\/)(auth|login|signup|account|profile)(\/|$)/i.test(filePath))) {
@@ -1714,6 +1822,11 @@ function detectDataSignals(discovery: DiscoveryResult, flatDependencies: string[
       ...sqlMigrationFiles,
       ...matchingFiles(discovery, /\.sql$/i).filter((filePath) => !/\/prisma\//i.test(filePath))
     ]);
+  }
+
+  const sqlFiles = matchingFiles(discovery, /\.sql$/i).filter((filePath) => !/\/prisma\//i.test(filePath));
+  if (sqlMigrationFiles.length === 0 && sqlFiles.length > 0) {
+    add("Dump o esquema SQL versionado sugiere la fuente de verdad relacional", sqlFiles);
   }
 
   const dependencySignals = matchingDependencies(flatDependencies, DATA_DEPENDENCY_MAP);
@@ -1792,13 +1905,16 @@ function detectBackendSignals(discovery: DiscoveryResult, flatDependencies: stri
     [
       ...matchingFiles(discovery, /(^|\/)(src\/)?app\/api\/.+\/route\.(ts|tsx|js|jsx)$/i, 160),
       ...matchingFiles(discovery, /(^|\/)(src\/)?pages\/api\/.+\.(ts|tsx|js|jsx)$/i, 80),
-      ...matchingFiles(discovery, /(^|\/)(routes|controllers|api)\//i, 80)
+      ...matchingFiles(discovery, /(^|\/)(routes|controllers|api)\//i, 80),
+      ...matchingFiles(discovery, /(^|\/)(?:default\/)?app\/controllers\/[^/]+_controller\.php$/i, 120)
     ]
   ).slice(0, 120);
 
   const contractFiles = uniqueSorted([
     ...discovery.apiFiles,
     ...matchingFiles(discovery, /(schema\.graphql|schema\.prisma|openapi|swagger)/i),
+    ...matchingFiles(discovery, /(^|\/)(?:default\/)?app\/config\/routes\.php$/i, 4),
+    ...matchingFiles(discovery, /\.sql$/i, 6),
     ...matchingFiles(discovery, /(^|\/)(API|ARCHITECTURE|FLOWS|BUSINESS_RULES)\.(md|mdx|txt)$/i, 12),
     ...matchingFiles(discovery, /(^|\/)app\/docs\/technical\/ACCESS_CONTROL\.(md|mdx|txt)$/i, 4)
   ]).filter((filePath) => !/^AI_CONTEXT\//i.test(filePath));
@@ -1984,6 +2100,18 @@ async function extractInlineEndpoints(context: ProjectContext, backend: BackendS
 
       endpointExamples.add(`API handler ${routePath} (${filePath})`);
     }
+
+    const phpController = filePath.match(/(^|\/)(?:default\/)?app\/controllers\/([^/]+)_controller\.php$/i);
+    if (phpController?.[2]) {
+      const controllerRoute = normalizeDomainLabel(phpController[2]).replace(/-/g, "_");
+      for (const match of content.matchAll(/public\s+function\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g)) {
+        const action = String(match[1]);
+        if (/^(__construct|initialize|before_filter|after_filter)$/i.test(action)) {
+          continue;
+        }
+        endpointExamples.add(`Kumbia action /${controllerRoute}/${action} (${filePath})`);
+      }
+    }
   }
 
   return pickRepresentativeEndpointExamples([...endpointExamples], 16);
@@ -2012,6 +2140,12 @@ function detectModuleSignals(discovery: DiscoveryResult): ModuleSignal[] {
   for (const filePath of discovery.files) {
     const normalized = filePath.replace(/\\/g, "/");
     const parts = normalized.split("/");
+    const phpMvcDomain = inferPhpMvcDomain(normalized);
+
+    if (phpMvcDomain) {
+      push(phpMvcDomain.label, normalized, `Módulo MVC PHP/Kumbia detectado por ${phpMvcDomain.role}.`);
+      continue;
+    }
 
     if (/^(src\/)?(features|domains|modules)\//i.test(normalized) && parts[2]) {
       push(parts[2], normalized, "Módulo explícito bajo `features/`, `domains/` o `modules/`.");
@@ -2840,7 +2974,7 @@ async function buildDocuments(context: ProjectContext): Promise<ContextLiteDocum
 
   const summary = uniqueSorted([
     ...systemOverview.summary,
-    `Dominios documentados: ${pickRepresentativeDomainLabels(documentation.domainEntries, 6).join(", ") || "sin dominios documentados"}`,
+    `Dominios detectados: ${pickRepresentativeDomainLabels(documentation.domainEntries, 6).join(", ") || "sin dominios confirmados"}`,
     `Módulos detectados: ${detectModuleSignals(context.discovery)
       .slice(0, 5)
       .map((signal) => signal.label)
