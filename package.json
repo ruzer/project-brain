@@ -1,6 +1,6 @@
 {
   "name": "project-brain",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Autonomous project analysis engine that builds context, memory, and agent-driven reports for any software repository.",
   "bin": {
     "project-brain": "dist/cli/project-brain.js",
@@ -14,6 +14,7 @@
     "verify": "npm run verify:quick && npm run test && npm run test:smoke",
     "security:repo": "node scripts/check-repo-safety.mjs --all",
     "security:audit": "npm audit --omit=dev --audit-level=high",
+    "review:exports": "node scripts/unused-exports-review.mjs",
     "hooks:install": "node scripts/install-hooks.mjs",
     "prepare": "node scripts/install-hooks.mjs",
     "test": "vitest run",

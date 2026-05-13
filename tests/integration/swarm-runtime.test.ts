@@ -258,6 +258,78 @@ describe("Swarm runtime", () => {
     expect(report).toContain("Worker outputs can be useful even when they do not serialize as JSON.");
   });
 
+  it("flags code-only local worker responses as unknown instead of treating them as findings", async () => {
+    const outputDir = await createTempOutputDir("project-brain-swarm-code-response");
+    cleanupTargets.push(outputDir);
+
+    const orchestrator = new ProjectBrainOrchestrator({
+      aiRouter: {
+        async selectModel(input) {
+          const profile = input.profile ?? "worker";
+          return {
+            preferredRoute: "local",
+            selectedRoute: "local",
+            provider: "ollama",
+            model: "qwen2.5-coder:7b",
+            profile,
+            residency: "local",
+            reason: "test",
+            offlineCapable: true
+          };
+        },
+        async ask(input) {
+          if (input.profile === "planner") {
+            return JSON.stringify({
+              overview: "Run one worker over the repo.",
+              tasks: [
+                {
+                  taskId: "scan",
+                  title: "Scan repository",
+                  goal: "Inspect the repository.",
+                  profile: "worker",
+                  deliverable: "Short scan"
+                }
+              ]
+            });
+          }
+
+          if (input.profile === "worker") {
+            return [
+              "import os",
+              "from pathlib import Path",
+              "def walk_repo(root):",
+              "    for path in Path(root).rglob('*.ts'):",
+              "        print(path)",
+              "if __name__ == '__main__':",
+              "    walk_repo('.')"
+            ].join("\n");
+          }
+
+          return JSON.stringify({
+            headline: "Code-only worker response was contained.",
+            summary: "The synthesizer received an unknown instead of false findings.",
+            priorities: ["Keep malformed local outputs quarantined"],
+            next_steps: ["Rerun with a stricter structured prompt"],
+            unknowns: ["One worker returned code-only output."]
+          });
+        }
+      }
+    });
+
+    const result = await orchestrator.swarm(fixtureRepoPath, outputDir, "detecta respuestas fuera de formato", {
+      parallelism: 1,
+      chunkSize: 1,
+      maxQueuedTasks: 1
+    });
+
+    expect(result.workerResults[0]?.summary).toContain("returned code instead of structured analysis");
+    expect(result.workerResults[0]?.findings).toEqual([]);
+    expect(result.workerResults[0]?.unknowns).toContain("Worker response looked like generated code/script instead of evidence-backed analysis.");
+
+    const report = await readFile(result.reportPath, "utf8");
+    expect(report).toContain("Worker response looked like generated code/script");
+  });
+
   it("splits timed-out chunks into smaller queued tasks before failing", async () => {
     const outputDir = await createTempOutputDir("project-brain-swarm-timeout");
     cleanupTargets.push(outputDir);

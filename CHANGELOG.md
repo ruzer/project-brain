@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.4 - 2026-05-13
+
+### Added
+- `npm run review:exports` generates a review-only `ts-prune` report for unused export candidates.
+- Dedicated agent behavior tests cover QA, security, observability, and optimization signals.
+
+### Fixed
+- Swarm workers now quarantine code/script-only local model responses as unknowns instead of promoting them into findings.
+
+### Tests
+- Full suite passes: 51 files, 142 tests.
+
 ## 0.2.3 - 2026-05-12
 
 ### Added

@@ -303,6 +303,32 @@ function sectionToText(lines: string[] | undefined): string {
     .trim();
 }
 
+function looksLikeCodeOnlyResponse(input: string): boolean {
+  const cleaned = stripCodeFences(input);
+  const lines = cleaned
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length < 3) {
+    return false;
+  }
+
+  const hasStructuredSections = lines.some((line) => {
+    const headingMatch = line.match(/^(?:#{1,6}\s*)?([A-Za-z][A-Za-z _-]+?)(?::\s*(.*))?$/);
+    return Boolean(headingMatch && normalizeSectionKey(headingMatch[1] ?? ""));
+  });
+  if (hasStructuredSections) {
+    return false;
+  }
+
+  const codeSignalCount = lines.filter((line) =>
+    /^(?:#!|import\s+|from\s+\S+\s+import\s+|def\s+|class\s+|for\s+|while\s+|if\s+__name__|print\(|const\s+|let\s+|var\s+|function\s+|export\s+|package\s+main|use\s+|fn\s+)/.test(line) ||
+    /[{};]$/.test(line)
+  ).length;
+
+  return codeSignalCount >= Math.max(3, Math.ceil(lines.length * 0.4));
+}
+
 function normalizeStringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
 }
@@ -438,6 +464,24 @@ function normalizeWorkerPayload(raw: string, task: SwarmPlanTask): WorkerPayload
   const findings = sectionToList(sections.findings);
   const recommendations = sectionToList((sections.recommendations?.length ?? 0) > 0 ? sections.recommendations : sections.next_steps);
   const summary = sectionToText(sections.summary) || sectionToText(sections.body);
+
+  if (
+    summary &&
+    findings.length === 0 &&
+    recommendations.length === 0 &&
+    sectionToList(sections.verified_facts).length === 0 &&
+    sectionToList(sections.evidence_refs).length === 0 &&
+    looksLikeCodeOnlyResponse(raw)
+  ) {
+    return {
+      summary: `The ${task.title} worker returned code instead of structured analysis.`,
+      findings: [],
+      recommendations: ["Rerun this worker with a narrower analysis-only prompt or a stronger structured-output model."],
+      verifiedFacts: [],
+      unknowns: ["Worker response looked like generated code/script instead of evidence-backed analysis."],
+      evidenceRefs: []
+    };
+  }
 
   if (summary || findings.length > 0 || recommendations.length > 0) {
     return {
