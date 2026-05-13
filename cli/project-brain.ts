@@ -72,6 +72,15 @@ function parsePositiveInteger(value: string, label: string): number {
   return Math.trunc(numeric);
 }
 
+function parseNonNegativeInteger(value: string, label: string): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    throw new Error(`Invalid ${label}: ${value}. Expected zero or a positive integer.`);
+  }
+
+  return Math.trunc(numeric);
+}
+
 function parseSwarmEngine(value: string): SwarmEngine {
   const normalized = value.trim().toLowerCase();
   if (normalized === "bounded" || normalized === "deepagents") {
@@ -513,7 +522,7 @@ program
       session.maxQueuedTasks = options.maxQueuedTasks
         ? parsePositiveInteger(options.maxQueuedTasks, "max queued tasks")
         : session.maxQueuedTasks;
-      session.maxRetries = options.maxRetries ? parsePositiveInteger(options.maxRetries, "max retries") : session.maxRetries;
+      session.maxRetries = options.maxRetries ? parseNonNegativeInteger(options.maxRetries, "max retries") : session.maxRetries;
       session.ollamaTimeoutMs = options.ollamaTimeout
         ? parsePositiveInteger(options.ollamaTimeout, "ollama timeout")
         : session.ollamaTimeoutMs;
@@ -1132,9 +1141,11 @@ program
   ) => {
     const targetPath = resolveTarget(target);
     const outputPath = resolveOutput(targetPath, options.output);
-    const presetOptions = swarmPresetOptions(parseSwarmPreset(options.preset));
+    const preset = parseSwarmPreset(options.preset);
+    const presetOptions = swarmPresetOptions(preset);
     const result = await orchestrator.swarm(targetPath, outputPath, intent, {
       engine: options.engine ? parseSwarmEngine(options.engine) : undefined,
+      preset,
       parallelism: options.parallel ? parsePositiveInteger(options.parallel, "parallel worker count") : presetOptions.parallelism,
       chunkSize: options.chunkSize ? parsePositiveInteger(options.chunkSize, "chunk size") : presetOptions.chunkSize,
       taskTimeoutMs: options.taskTimeoutMs ? parsePositiveInteger(options.taskTimeoutMs, "task timeout") : presetOptions.taskTimeoutMs,
@@ -1142,7 +1153,7 @@ program
       synthesisTimeoutMs: options.synthesisTimeoutMs ? parsePositiveInteger(options.synthesisTimeoutMs, "synthesis timeout") : presetOptions.synthesisTimeoutMs,
       runTimeoutMs: options.runTimeoutMs ? parsePositiveInteger(options.runTimeoutMs, "run timeout") : presetOptions.runTimeoutMs,
       maxQueuedTasks: options.maxQueuedTasks ? parsePositiveInteger(options.maxQueuedTasks, "max queued tasks") : presetOptions.maxQueuedTasks,
-      maxRetries: options.maxRetries ? parsePositiveInteger(options.maxRetries, "max retries") : presetOptions.maxRetries
+      maxRetries: options.maxRetries ? parseNonNegativeInteger(options.maxRetries, "max retries") : presetOptions.maxRetries
     });
     console.log(`Engine: ${result.engine}`);
     console.log(`Swarm report: ${result.reportPath}`);
@@ -1176,7 +1187,9 @@ program
     const targetPath = resolveTarget(target);
     const outputPath = resolveOutput(targetPath, options.output);
     const result = await orchestrator.selfImprove(targetPath, outputPath, options.intent);
+    const planPath = path.join(outputPath, "docs", "improvement_plan", "SUMMARY.md");
     console.log(`Self-improve report: ${result.reportPath}`);
+    console.log(`Improvement plan: ${planPath}`);
     console.log(`Swarm memory: ${result.memoryPath}`);
     console.log(`Planner: ${result.planner.model} (${result.planner.provider}, ${result.planner.residency})`);
     console.log(

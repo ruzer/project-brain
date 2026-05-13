@@ -4,10 +4,11 @@ import path from "node:path";
 
 import { buildMemoryBriefSummary, buildRepoSummary } from "../../agents/ai-support";
 import { loadScopeMemoryRecords, renderScopeMemoryForPrompt, writeScopeMemoryFromSwarmResult } from "../../memory/scope_store";
+import { appendError, appendLearning } from "../../memory/session_log";
 import { readJsonSafe, writeFileEnsured, writeJsonEnsured } from "../../shared/fs-utils";
 import type { ProjectContext, ScopeMemoryRecord, SwarmPlanTask, SwarmRunResult, SwarmWorkerResult } from "../../shared/types";
 import type { AIRouterRequest, AIRouterTask, ModelProfile, ModelSelection } from "../ai_router/router";
-import { applyTokenPolicy } from "../token_policy";
+import { applyPresetPolicy, applyTokenPolicy, type TokenPreset } from "../token_policy";
 
 interface SwarmAssistant {
   ask(input: AIRouterRequest): Promise<string>;
@@ -17,6 +18,7 @@ interface SwarmAssistant {
 interface SwarmRuntimeOptions {
   parallelism?: number;
   chunkSize?: number;
+  preset?: TokenPreset;
   taskTimeoutMs?: number;
   maxRetries?: number;
   plannerTimeoutMs?: number;
@@ -573,7 +575,7 @@ function recommendedParallelism(requested?: number): SwarmRunResult["parallelism
   };
 }
 
-function recommendedResilience(requestedTimeoutMs?: number, requestedRetries?: number): SwarmRunResult["resilience"] {
+export function recommendedResilience(requestedTimeoutMs?: number, requestedRetries?: number): SwarmRunResult["resilience"] {
   return {
     runTimeoutMs: 90_000,
     plannerTimeoutMs: 18_000,
@@ -581,7 +583,7 @@ function recommendedResilience(requestedTimeoutMs?: number, requestedRetries?: n
     taskTimeoutMs: requestedTimeoutMs ? clamp(Math.trunc(requestedTimeoutMs), 5_000, 120_000) : 20_000,
     requestedTaskTimeoutMs: requestedTimeoutMs,
     queueBudget: 0,
-    maxRetries: requestedRetries ? clamp(Math.trunc(requestedRetries), 0, 4) : 1,
+    maxRetries: requestedRetries === undefined ? 1 : clamp(Math.trunc(requestedRetries), 0, 4),
     plannerTimedOut: false,
     synthesisTimedOut: false,
     runTimedOut: false,
@@ -1584,6 +1586,10 @@ async function askWithSwarmCache(
   return response;
 }
 
+function applySwarmRequestPolicy(request: AIRouterRequest, preset: TokenPreset | undefined): AIRouterRequest {
+  return applyPresetPolicy(request, preset ?? "balanced");
+}
+
 function renderSwarmReport(
   context: ProjectContext,
   intent: string,
@@ -1762,7 +1768,7 @@ export async function runSwarm(
 
   const deadline = createDeadline(resilience.runTimeoutMs);
   const plannerRequest: AIRouterRequest = {
-    ...buildPlannerPrompt(context, intent),
+    ...applySwarmRequestPolicy(buildPlannerPrompt(context, intent), options.preset),
     allowRemote: !resilience.localBudgetMode,
     timeoutMs: Math.min(resilience.plannerTimeoutMs, remainingBudgetMs(deadline))
   };
@@ -1862,7 +1868,7 @@ export async function runSwarm(
       scopeMemoryByChunk.get(task.chunk.chunkId) ?? []
     );
     const timedRequest: AIRouterRequest = {
-      ...request,
+      ...applySwarmRequestPolicy(request, options.preset),
       timeoutMs: Math.min(resilience.taskTimeoutMs, remainingMs)
     };
     let selection: ModelSelection | undefined;
@@ -2008,7 +2014,7 @@ export async function runSwarm(
 
   let synthesis: SynthesisPayload;
   const synthesisRequest: AIRouterRequest = {
-    ...buildSynthesisPrompt(context, intent, planner.overview, workerResults),
+    ...applySwarmRequestPolicy(buildSynthesisPrompt(context, intent, planner.overview, workerResults), options.preset),
     allowRemote: !resilience.localBudgetMode,
     timeoutMs: Math.min(resilience.synthesisTimeoutMs, Math.max(remainingBudgetMs(deadline), 1_000))
   };
@@ -2065,6 +2071,19 @@ export async function runSwarm(
   updateSwarmLearning(swarmLearning, workerResults);
   await writeJsonEnsured(swarmResponseCachePath, responseCache);
   await writeJsonEnsured(swarmLearningPath, swarmLearning);
+  await appendLearning(context, synthesis.headline);
+  for (const nextStep of synthesis.next_steps) {
+    await appendLearning(context, nextStep);
+  }
+  const unknownLoggedAt = new Date().toISOString();
+  for (const result of workerResults) {
+    for (const unknown of result.unknowns ?? []) {
+      await appendError(context, `${unknownLoggedAt} [${result.scopePaths.join(", ") || "."}] ${unknown}`);
+    }
+  }
+  for (const unknown of synthesis.unknowns) {
+    await appendError(context, `${unknownLoggedAt} [synthesis] ${unknown}`);
+  }
 
   const reportPath = path.join(context.reportsDir, "swarm_run.md");
   const memoryPath = path.join(context.memoryDir, "swarm", "swarm_run.json");

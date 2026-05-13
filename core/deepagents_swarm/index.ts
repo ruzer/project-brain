@@ -2,6 +2,22 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+/*
+ * Experimental Deep Agents engine for repository analysis.
+ *
+ * Use `deepagents` when a run needs a richer scratch workspace, repository tools,
+ * and subagent-style exploration. Prefer the bounded engine for default CLI runs,
+ * deterministic budgeting, predictable retries, and cheaper local execution.
+ *
+ * External requirements: Ollama must be reachable, at least one configured local
+ * model must be installed, and the `deepagents`, LangChain, and ChatOllama
+ * packages must be available at runtime.
+ *
+ * Known limitations: this engine is analysis-only, exposes less queue/retry
+ * control than the bounded runtime, and normalizes unstructured Deep Agents
+ * responses into conservative `SwarmRunResult` fallbacks.
+ */
+
 import { ChatOllama } from "@langchain/ollama";
 import { FilesystemBackend, createDeepAgent, type SubAgent } from "deepagents";
 import { tool, toolStrategy } from "langchain";
@@ -11,6 +27,7 @@ import { buildRepoSummary } from "../../agents/ai-support";
 import { ensureDir, readTextSafe, toPosixPath, walkDirectory, writeFileEnsured, writeJsonEnsured } from "../../shared/fs-utils";
 import type { ProjectContext, SwarmPlanTask, SwarmRunResult, SwarmWorkerResult } from "../../shared/types";
 import type { ModelInventory } from "../ai_router/router";
+import type { TokenPreset } from "../token_policy";
 
 interface DeepAgentsAssistant {
   listModels?: () => Promise<ModelInventory>;
@@ -19,6 +36,7 @@ interface DeepAgentsAssistant {
 interface DeepAgentsSwarmOptions {
   parallelism?: number;
   chunkSize?: number;
+  preset?: TokenPreset;
   taskTimeoutMs?: number;
   maxRetries?: number;
   plannerTimeoutMs?: number;
@@ -595,12 +613,29 @@ function resolveModelSelection(inventory: ModelInventory): {
   throw new Error("Deep Agents swarm requires at least one Ollama model. Run `project-brain models` to verify availability.");
 }
 
+function resolvePresetParallelism(preset: TokenPreset | undefined): number {
+  if (preset === "cheap") {
+    return 1;
+  }
+  if (preset === "thorough") {
+    return 3;
+  }
+  return 2;
+}
+
+function clampParallelism(value: number): number {
+  return Math.min(4, Math.max(1, Math.trunc(value)));
+}
+
 export async function runDeepAgentsSwarm(
   context: ProjectContext,
   intent: string,
   assistant: DeepAgentsAssistant,
   options: DeepAgentsSwarmOptions = {}
 ): Promise<SwarmRunResult> {
+  if (!intent.trim()) {
+    throw new Error("Deep Agents swarm requires a non-empty intent.");
+  }
   if (!assistant.listModels) {
     throw new Error("Deep Agents swarm requires model inventory support from the AI router.");
   }
@@ -616,6 +651,7 @@ export async function runDeepAgentsSwarm(
   const freeMemoryMb = Math.round(os.freemem() / (1024 * 1024));
   const totalMemoryMb = Math.round(os.totalmem() / (1024 * 1024));
   const runTimeoutMs = options.runTimeoutMs ?? 90_000;
+  const selectedParallelism = clampParallelism(options.parallelism ?? resolvePresetParallelism(options.preset));
 
   await ensureDir(workspacePath);
 
@@ -772,7 +808,7 @@ export async function runDeepAgentsSwarm(
   };
 
   const parallelism: SwarmRunResult["parallelism"] = {
-    selected: 1,
+    selected: selectedParallelism,
     requested: options.parallelism,
     cpuCount,
     loadAverage1m,

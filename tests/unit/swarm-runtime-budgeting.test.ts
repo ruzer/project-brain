@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { deriveAdaptiveQueueBudget, deriveResourcePressure, deriveSplitGroupSize } from "../../core/swarm_runtime/index";
+import {
+  deriveAdaptiveQueueBudget,
+  deriveResourcePressure,
+  deriveSplitGroupSize,
+  recommendedResilience
+} from "../../core/swarm_runtime/index";
 
 describe("swarm runtime budgeting", () => {
   it("classifies resource pressure from load and free memory", () => {
@@ -23,5 +28,11 @@ describe("swarm runtime budgeting", () => {
     expect(deriveSplitGroupSize("low", true)).toBe(3);
     expect(deriveSplitGroupSize("medium", true)).toBe(2);
     expect(deriveSplitGroupSize("high", true)).toBe(1);
+  });
+
+  it("preserves an explicit zero retry budget", () => {
+    expect(recommendedResilience(undefined, 0).maxRetries).toBe(0);
+    expect(recommendedResilience(undefined, 2).maxRetries).toBe(2);
+    expect(recommendedResilience(undefined).maxRetries).toBe(1);
   });
 });

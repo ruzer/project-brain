@@ -132,6 +132,14 @@ async function writeSeedFile(filePath: string, content: string, overwrite: boole
   await writeFileEnsured(filePath, content);
 }
 
+async function writeSeedJson(filePath: string, data: unknown, overwrite: boolean): Promise<void> {
+  if (!overwrite && (await fileExists(filePath))) {
+    throw new Error(`Refusing to overwrite existing project seed artifact: ${filePath}. Re-run with --force to replace it.`);
+  }
+
+  await writeJsonEnsured(filePath, data);
+}
+
 function buildCharter(input: ProjectSeedInput): string {
   const definition = ARCHETYPES[input.archetype];
   return `# Project Charter
@@ -520,12 +528,12 @@ export async function writeProjectSeedArtifacts(targetPath: string, input: Proje
   await writeSeedFile(artifactPaths.architectureStatePath, buildArchitectureState(normalized), overwrite);
   await writeSeedFile(artifactPaths.backlogPath, buildBacklog(normalized), overwrite);
   await writeSeedFile(artifactPaths.claudePath, buildClaudeContext(normalized), overwrite);
-  await writeJsonEnsured(artifactPaths.projectSeedMemoryPath, {
+  await writeSeedJson(artifactPaths.projectSeedMemoryPath, {
     generatedAt: new Date().toISOString(),
     source: "project-brain project_seed",
     referencePattern: "the-architect-style guided blueprint adapted to AI_CONTEXT",
     input: normalized
-  });
+  }, overwrite);
 
   return {
     targetPath,

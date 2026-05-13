@@ -1,6 +1,9 @@
 import type { AIRouterRequest, ModelProfile } from "../ai_router/router";
 
 const TOKEN_POLICY_MARKER = "[project-brain-token-policy:v1]";
+const PRESET_POLICY_MARKER = "[project-brain-preset-policy:v1]";
+
+export type TokenPreset = "cheap" | "balanced" | "thorough";
 
 function policyForProfile(profile: ModelProfile | undefined): string[] {
   const common = [
@@ -48,6 +51,22 @@ export function applyTokenPolicy(request: AIRouterRequest): AIRouterRequest {
   return {
     ...request,
     prompt: `${policy}\n\n${request.prompt.trim()}`
+  };
+}
+
+export function applyPresetPolicy(request: AIRouterRequest, preset: TokenPreset = "balanced"): AIRouterRequest {
+  if (preset === "balanced" || request.prompt.includes(PRESET_POLICY_MARKER)) {
+    return request;
+  }
+
+  const presetInstruction =
+    preset === "cheap"
+      ? "Be maximally concise. Return only the top 3 findings. Omit evidence_refs longer than one path."
+      : "Be exhaustive. Include all evidence_refs. Do not truncate findings or unknowns.";
+
+  return {
+    ...request,
+    prompt: `${PRESET_POLICY_MARKER}\n${presetInstruction}\n\n${request.prompt.trim()}`
   };
 }
 

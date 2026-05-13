@@ -72,6 +72,7 @@ export interface TerminalSessionState {
   verbose: boolean;
   ollamaTimeoutMs?: number;
   swarmEngine: SwarmEngine;
+  tokenPreset?: Exclude<SwarmPreset, "custom">;
   parallelism?: number;
   chunkSize?: number;
   taskTimeoutMs?: number;
@@ -193,6 +194,7 @@ export function summarizeTerminalSession(state: TerminalSessionState): string[] 
     [
       "Swarm defaults:",
       `engine=${state.swarmEngine}`,
+      `preset=${state.tokenPreset ?? "custom"}`,
       `parallel=${state.parallelism ?? "auto"}`,
       `chunkSize=${state.chunkSize ?? "auto"}`,
       `taskTimeoutMs=${state.taskTimeoutMs ?? "auto"}`,
@@ -303,10 +305,12 @@ async function configureSwarmDefaults(rl: Interface, session: TerminalSessionSta
   session.swarmEngine = await promptChoice(rl, "Motor", SWARM_ENGINE_CHOICES, session.swarmEngine);
   const preset = await promptChoice(rl, "Preset", SWARM_PRESET_CHOICES, "balanced");
   if (preset !== "custom") {
+    session.tokenPreset = preset;
     applySwarmPreset(session, preset);
     console.log(`Costo seleccionado: ${describeSwarmCost(session)}`);
     return;
   }
+  session.tokenPreset = undefined;
   session.parallelism = await promptOptionalInteger(rl, "Trabajo en paralelo", session.parallelism);
   session.chunkSize = await promptOptionalInteger(rl, "Alcance por tarea", session.chunkSize);
   session.taskTimeoutMs = await promptOptionalInteger(rl, "Limite de tiempo por tarea ms", session.taskTimeoutMs);
@@ -314,7 +318,7 @@ async function configureSwarmDefaults(rl: Interface, session: TerminalSessionSta
   session.synthesisTimeoutMs = await promptOptionalInteger(rl, "Limite de sintesis ms", session.synthesisTimeoutMs);
   session.runTimeoutMs = await promptOptionalInteger(rl, "Limite total ms", session.runTimeoutMs);
   session.maxQueuedTasks = await promptOptionalInteger(rl, "Maximo de tareas", session.maxQueuedTasks);
-  session.maxRetries = await promptOptionalInteger(rl, "Reintentos", session.maxRetries);
+  session.maxRetries = await promptOptionalInteger(rl, "Reintentos", session.maxRetries, { allowZero: true });
 }
 
 function describeSwarmCost(session: TerminalSessionState): string {
@@ -434,6 +438,7 @@ async function runWorkflow(
       const intent = await promptRequiredLine(rl, "Swarm intent");
       const result = await orchestrator.swarm(session.targetPath, session.outputPath, intent, {
         engine: session.swarmEngine,
+        preset: session.tokenPreset,
         parallelism: session.parallelism,
         chunkSize: session.chunkSize,
         taskTimeoutMs: session.taskTimeoutMs,
@@ -627,7 +632,12 @@ async function promptRequiredLine(rl: Interface, label: string): Promise<string>
   }
 }
 
-async function promptOptionalInteger(rl: Interface, label: string, current?: number): Promise<number | undefined> {
+async function promptOptionalInteger(
+  rl: Interface,
+  label: string,
+  current?: number,
+  options: { allowZero?: boolean } = {}
+): Promise<number | undefined> {
   while (true) {
     const placeholder = current === undefined ? "auto" : String(current);
     const answer = (await rl.question(`${label} [${placeholder}; escribe auto para limpiar]: `)).trim().toLowerCase();
@@ -638,10 +648,10 @@ async function promptOptionalInteger(rl: Interface, label: string, current?: num
       return undefined;
     }
     const parsed = Number(answer);
-    if (Number.isFinite(parsed) && parsed > 0) {
+    if (Number.isFinite(parsed) && (options.allowZero ? parsed >= 0 : parsed > 0)) {
       return Math.trunc(parsed);
     }
-    console.log("Ingresa un entero positivo o 'auto'.");
+    console.log(options.allowZero ? "Ingresa cero, un entero positivo o 'auto'." : "Ingresa un entero positivo o 'auto'.");
   }
 }
 
@@ -996,7 +1006,12 @@ function printProjectSeedResult(result: ProjectSeedResult): void {
   console.log(`- Charter: ${result.artifactPaths.projectCharterPath}`);
   console.log(`- Requirements: ${result.artifactPaths.requirementsPath}`);
   console.log(`- Blueprint: ${result.artifactPaths.blueprintPath}`);
+  console.log(`- Decisions: ${result.artifactPaths.decisionsPath}`);
   console.log(`- Memory brief: ${result.artifactPaths.memoryBriefPath}`);
+  console.log(`- Runbook: ${result.artifactPaths.runbookPath}`);
+  console.log(`- Architecture blueprint: ${result.artifactPaths.architectureBlueprintPath}`);
+  console.log(`- Architecture state: ${result.artifactPaths.architectureStatePath}`);
+  console.log(`- Project seed memory: ${result.artifactPaths.projectSeedMemoryPath}`);
   console.log(`- Backlog: ${result.artifactPaths.backlogPath}`);
   console.log(`- CLAUDE: ${result.artifactPaths.claudePath}`);
 }

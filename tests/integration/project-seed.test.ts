@@ -1,4 +1,4 @@
-import { access, readFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -81,5 +81,32 @@ describe("Project seed integration", () => {
     await orchestrator.scaffoldProject(targetDir, input);
 
     await expect(orchestrator.scaffoldProject(targetDir, input)).rejects.toThrow("Refusing to overwrite");
+  });
+
+  it("refuses to overwrite project seed JSON memory unless requested", async () => {
+    const targetDir = await createTempOutputDir("project-brain-new-json-overwrite");
+    cleanupTargets.push(targetDir);
+    await mkdir(path.join(targetDir, "memory", "project_seed"), { recursive: true });
+    await writeFile(path.join(targetDir, "memory", "project_seed", "project_seed.json"), "{}\n", "utf8");
+    const orchestrator = new ProjectBrainOrchestrator();
+
+    await expect(
+      orchestrator.scaffoldProject(targetDir, {
+        projectName: "JSON Guard",
+        problem: "Prevent accidental JSON memory replacement.",
+        audience: "Maintainers",
+        archetype: "custom",
+        stackPreference: "",
+        features: [],
+        authRequired: false,
+        roles: [],
+        dataEntities: [],
+        integrations: [],
+        priority: "mvp-fast",
+        language: "es",
+        notes: [],
+        contextOnly: true
+      })
+    ).rejects.toThrow("Refusing to overwrite");
   });
 });

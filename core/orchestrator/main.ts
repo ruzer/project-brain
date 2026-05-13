@@ -11,6 +11,7 @@ import { writeCodebaseMapArtifacts } from "../codebase_map";
 import { runDoctor } from "../doctor";
 import { buildResume } from "../resume";
 import { buildStatus } from "../status";
+import { buildWorkflowRuntimeDefinitions, type WorkflowRuntimeDefinition } from "../workflow_registry";
 import { ContextBuilder } from "../context_builder";
 import { writeContextLiteArtifacts } from "../context_lite";
 import { WeeklyScheduler } from "../scheduler";
@@ -25,6 +26,7 @@ import { runFactQuery } from "../../memory/fact_query";
 import { preflightFacts } from "../../memory/preflight_facts";
 import { writeMemoryBriefArtifacts } from "../../memory/memory_brief";
 import { assessMemoryReadiness } from "../../memory/readiness";
+import { updateContext } from "../../memory/session_log";
 import { runHarnessAudit } from "../../operations/harness_audit";
 import { clearContextAnnotation, listContextAnnotations, readContextAnnotation, writeContextAnnotation } from "../../memory/annotations";
 import { getContextRegistryEntry, listContextSources, searchContextRegistry } from "../../memory/context_registry";
@@ -74,6 +76,7 @@ import type {
   RunbookResult,
   SwarmRunResult
 } from "../../shared/types";
+import type { TokenPreset } from "../token_policy";
 
 function highestRisk(agentReports: AgentReport[]): "low" | "medium" | "high" {
   if (agentReports.some((report) => report.riskLevel === "high")) {
@@ -433,94 +436,127 @@ export class ProjectBrainOrchestrator {
     options: { withSwarm?: boolean } = {}
   ): Promise<StartResult> {
     const context = await this.initTarget(targetPath, outputPath);
-    const outputFlag = `--output ${JSON.stringify(outputPath)}`;
-    const targetArg = JSON.stringify(targetPath);
     const executedSteps: StartStep[] = [];
     let status = await buildStatus(context);
     const hasArtifact = (label: string): boolean => status.artifacts.some((artifact) => artifact.label === label && artifact.exists);
+    const workflowHasArtifact = (workflow: WorkflowRuntimeDefinition): boolean =>
+      workflow.artifactLabels.some((label) => hasArtifact(label));
     const refreshStatus = async (): Promise<void> => {
       status = await buildStatus(context);
     };
-    const addStep = (
-      id: string,
-      label: string,
+    const addWorkflowStep = (
+      workflow: WorkflowRuntimeDefinition,
       stepStatus: StartStep["status"],
-      command: string,
       summary: string
     ): void => {
       executedSteps.push({
-        id,
-        label,
+        id: workflow.workflowId,
+        label: workflow.commandLabel,
         status: stepStatus,
-        command,
+        command: workflow.command,
         summary
       });
     };
+    const workflows = buildWorkflowRuntimeDefinitions(context, intent).sort(
+      (left, right) => left.resumePriority - right.resumePriority || left.workflowId.localeCompare(right.workflowId)
+    );
+    const cheapWorkflows = workflows.filter((workflow) => workflow.cheap);
+    const modelWorkflow = workflows.find((workflow) => workflow.usesModel);
 
-    if (status.summary.doctorStatus === "unknown" || status.summary.doctorStatus === "fail") {
-      await this.doctor(targetPath, outputPath);
-      addStep("doctor", "Revisar entorno local", "done", `project-brain doctor ${targetArg} ${outputFlag}`, "Se actualizo el diagnostico local.");
-      await refreshStatus();
-    } else {
-      addStep("doctor", "Revisar entorno local", "skipped", `project-brain doctor ${targetArg} ${outputFlag}`, "Ya existe un diagnostico utilizable.");
+    for (const workflow of cheapWorkflows) {
+      switch (workflow.workflowId) {
+        case "memory-brief":
+          addWorkflowStep(workflow, workflowHasArtifact(workflow) ? "skipped" : "done", "MEMORY_BRIEF se actualizo durante initTarget.");
+          break;
+        case "start":
+          addWorkflowStep(workflow, "done", "Este workflow esta en ejecucion.");
+          break;
+        case "doctor":
+          if (status.summary.doctorStatus === "unknown" || status.summary.doctorStatus === "fail") {
+            await this.doctor(targetPath, outputPath);
+            addWorkflowStep(workflow, "done", "Se actualizo el diagnostico local.");
+            await refreshStatus();
+          } else {
+            addWorkflowStep(workflow, "skipped", "Ya existe un diagnostico utilizable.");
+          }
+          break;
+        case "map-codebase":
+          if (!workflowHasArtifact(workflow)) {
+            await writeCodebaseMapArtifacts(context);
+            addWorkflowStep(workflow, "done", "Se genero el mapa estructural.");
+            await refreshStatus();
+          } else {
+            addWorkflowStep(workflow, "skipped", "Ya existe mapa estructural.");
+          }
+          break;
+        case "code-graph":
+          if (!workflowHasArtifact(workflow)) {
+            await this.buildCodeGraph(targetPath, outputPath);
+            addWorkflowStep(workflow, "done", "Se genero el grafo factual.");
+            await refreshStatus();
+          } else {
+            addWorkflowStep(workflow, "skipped", "Ya existe grafo factual.");
+          }
+          break;
+        case "fact-query":
+          if (!workflowHasArtifact(workflow)) {
+            await this.factQuery(targetPath, outputPath, `${context.repoName} ${intent}`);
+            addWorkflowStep(workflow, "done", "Se filtro memoria relevante sin usar modelo.");
+            await refreshStatus();
+          } else {
+            addWorkflowStep(workflow, "skipped", "Ya existe consulta factual reutilizable.");
+          }
+          break;
+        case "runbook":
+          if (!workflowHasArtifact(workflow)) {
+            await this.runbook(targetPath, outputPath, intent);
+            addWorkflowStep(workflow, "done", "Se genero un runbook token-aware.");
+            await refreshStatus();
+          } else {
+            addWorkflowStep(workflow, "skipped", "Ya existe runbook.");
+          }
+          break;
+        case "harness-audit":
+          if (!workflowHasArtifact(workflow)) {
+            await this.harnessAudit(targetPath, outputPath);
+            addWorkflowStep(workflow, "done", "Se audito preparacion de memoria/costos.");
+            await refreshStatus();
+          } else {
+            addWorkflowStep(workflow, "skipped", "Ya existe harness audit.");
+          }
+          break;
+        case "firewall":
+          if (!workflowHasArtifact(workflow)) {
+            await this.inspectFirewall(targetPath, outputPath, "repository-change");
+            addWorkflowStep(workflow, "done", "Se genero snapshot de firewall.");
+            await refreshStatus();
+          } else {
+            addWorkflowStep(workflow, "skipped", "Ya existe firewall.");
+          }
+          break;
+        case "plan-improvements":
+          if (hasArtifact("Swarm") && !workflowHasArtifact(workflow)) {
+            await this.planImprovements(targetPath, outputPath, "repository-change");
+            addWorkflowStep(workflow, "done", "Se convirtieron findings existentes en plan persistente.");
+            await refreshStatus();
+          } else if (!hasArtifact("Swarm")) {
+            addWorkflowStep(workflow, "skipped", "Requiere un swarm previo; queda como paso posterior al contexto.");
+          } else {
+            addWorkflowStep(workflow, "skipped", "Ya existe plan de mejoras.");
+          }
+          break;
+        case "resume":
+        case "ask":
+        case "review-delta":
+          addWorkflowStep(workflow, "skipped", workflow.rationale);
+          break;
+      }
     }
 
-    if (!hasArtifact("Codebase Map")) {
-      await writeCodebaseMapArtifacts(context);
-      addStep("map-codebase", "Crear mapa del proyecto", "done", `project-brain map-codebase ${targetArg} ${outputFlag}`, "Se genero el mapa estructural.");
-      await refreshStatus();
-    } else {
-      addStep("map-codebase", "Crear mapa del proyecto", "skipped", `project-brain map-codebase ${targetArg} ${outputFlag}`, "Ya existe mapa estructural.");
-    }
-
-    if (!hasArtifact("Repository Fact Graph")) {
-      await this.buildCodeGraph(targetPath, outputPath);
-      addStep("code-graph", "Crear hechos estructurales", "done", `project-brain code-graph ${targetArg} ${outputFlag}`, "Se genero el grafo factual.");
-      await refreshStatus();
-    } else {
-      addStep("code-graph", "Crear hechos estructurales", "skipped", `project-brain code-graph ${targetArg} ${outputFlag}`, "Ya existe grafo factual.");
-    }
-
-    const factQuery = `${context.repoName} ${intent}`;
-    if (!hasArtifact("Fact Query")) {
-      await this.factQuery(targetPath, outputPath, factQuery);
-      addStep("fact-query", "Buscar memoria factual", "done", `project-brain fact-query ${JSON.stringify(factQuery)} ${targetArg} ${outputFlag}`, "Se filtro memoria relevante sin usar modelo.");
-      await refreshStatus();
-    } else {
-      addStep("fact-query", "Buscar memoria factual", "skipped", `project-brain fact-query ${JSON.stringify(factQuery)} ${targetArg} ${outputFlag}`, "Ya existe consulta factual reutilizable.");
-    }
-
-    if (!hasArtifact("Runbook")) {
-      await this.runbook(targetPath, outputPath, intent);
-      addStep("runbook", "Preparar ruta barata", "done", `project-brain runbook ${JSON.stringify(intent)} ${targetArg} ${outputFlag}`, "Se genero un runbook token-aware.");
-      await refreshStatus();
-    } else {
-      addStep("runbook", "Preparar ruta barata", "skipped", `project-brain runbook ${JSON.stringify(intent)} ${targetArg} ${outputFlag}`, "Ya existe runbook.");
-    }
-
-    if (!hasArtifact("Harness Audit")) {
-      await this.harnessAudit(targetPath, outputPath);
-      addStep("harness-audit", "Auditar memoria y costos", "done", `project-brain harness-audit ${targetArg} ${outputFlag}`, "Se audito preparacion de memoria/costos.");
-      await refreshStatus();
-    } else {
-      addStep("harness-audit", "Auditar memoria y costos", "skipped", `project-brain harness-audit ${targetArg} ${outputFlag}`, "Ya existe harness audit.");
-    }
-
-    if (!hasArtifact("Firewall")) {
-      await this.inspectFirewall(targetPath, outputPath, "repository-change");
-      addStep("firewall", "Revisar limites de agentes", "done", `project-brain firewall ${targetArg} --trigger repository-change ${outputFlag}`, "Se genero snapshot de firewall.");
-      await refreshStatus();
-    } else {
-      addStep("firewall", "Revisar limites de agentes", "skipped", `project-brain firewall ${targetArg} --trigger repository-change ${outputFlag}`, "Ya existe firewall.");
-    }
-
-    if (hasArtifact("Swarm") && !hasArtifact("Improvement Plan")) {
-      await this.planImprovements(targetPath, outputPath, "repository-change");
-      addStep("plan-improvements", "Consolidar plan", "done", `project-brain plan-improvements ${targetArg} ${outputFlag}`, "Se convirtieron findings existentes en plan persistente.");
-      await refreshStatus();
-    } else if (!hasArtifact("Swarm") && options.withSwarm) {
+    if (!hasArtifact("Swarm") && options.withSwarm) {
       await this.swarm(targetPath, outputPath, intent, {
         engine: "bounded",
+        preset: "cheap",
         chunkSize: 1,
         parallelism: 2,
         taskTimeoutMs: 90_000,
@@ -530,18 +566,27 @@ export class ProjectBrainOrchestrator {
         maxQueuedTasks: 4,
         maxRetries: 0
       });
-      addStep("swarm", "Analizar con agentes", "done", `project-brain swarm ${JSON.stringify(intent)} ${targetArg} ${outputFlag} --preset cheap`, "Se ejecuto swarm porque se pidio --with-swarm.");
       await refreshStatus();
+      if (modelWorkflow) {
+        executedSteps.push({
+          id: modelWorkflow.workflowId,
+          label: modelWorkflow.commandLabel,
+          status: "done",
+          command: modelWorkflow.command,
+          summary: "Se ejecuto swarm porque se pidio --with-swarm."
+        });
+      }
       if (!hasArtifact("Improvement Plan")) {
         await this.planImprovements(targetPath, outputPath, "repository-change");
-        addStep("plan-improvements", "Consolidar plan", "done", `project-brain plan-improvements ${targetArg} ${outputFlag}`, "Se convirtieron findings del swarm en plan persistente.");
         await refreshStatus();
       }
-    } else if (!hasArtifact("Swarm")) {
-      addStep("swarm", "Analizar con agentes", "suggested", `project-brain swarm ${JSON.stringify(intent)} ${targetArg} ${outputFlag} --preset cheap`, "Listo para swarm, pero no se ejecuto para evitar gasto de tokens/modelos.");
     }
 
-    const nextCommand = executedSteps.find((step) => step.status === "suggested")?.command ?? status.suggestions[0]?.command;
+    const suggestedStep = executedSteps.find((step) => step.status === "suggested");
+    const nextCommand =
+      suggestedStep?.command ??
+      (!hasArtifact("Swarm") ? modelWorkflow?.command : undefined) ??
+      status.suggestions[0]?.command;
     const result: StartResult = {
       context,
       intent,
@@ -589,6 +634,18 @@ ${executedSteps.map((step) => `- [${step.status}] ${step.label}: \`${step.comman
       executedSteps,
       nextCommand,
       suggestions: status.suggestions
+    });
+    const lastDoneCommand = [...executedSteps].reverse().find((step) => step.status === "done")?.command ?? "project-brain start";
+    await updateContext(context, {
+      detected_stack: [
+        `Languages: ${context.discovery.languages.join(", ") || "UNKNOWN"}`,
+        `Frameworks: ${context.discovery.frameworks.join(", ") || "UNKNOWN"}`,
+        `Testing: ${context.discovery.testing.join(", ") || "UNKNOWN"}`,
+        `Infrastructure: ${context.discovery.infrastructure.join(", ") || "UNKNOWN"}`
+      ],
+      entrypoints: context.discovery.structure.sampleFiles.slice(0, 12),
+      last_command: lastDoneCommand,
+      updated_at: new Date().toISOString()
     });
     await writeMemoryBriefArtifacts(context);
 
@@ -1147,6 +1204,7 @@ ${renderList(route.followUps)}
       runTimeoutMs?: number;
       maxQueuedTasks?: number;
       scopeBias?: "balanced" | "source-first";
+      preset?: TokenPreset;
     }
   ): Promise<SwarmRunResult> {
     const context = await this.initTarget(targetPath, outputPath);
@@ -1169,17 +1227,23 @@ ${renderList(route.followUps)}
   async selfImprove(
     targetPath: string,
     outputPath = targetPath,
-    intent = "ayudame a mejorar este repo y prioriza mejoras reales"
+    intent = "identify high-value improvements"
   ): Promise<SwarmRunResult> {
-    return this.swarm(targetPath, outputPath, intent, {
+    await this.start(targetPath, outputPath, "analiza y mejora project-brain");
+    const result = await this.swarm(targetPath, outputPath, intent, {
+      preset: "cheap",
+      parallelism: 2,
       chunkSize: 1,
-      taskTimeoutMs: 12_000,
-      plannerTimeoutMs: 8_000,
-      synthesisTimeoutMs: 8_000,
-      runTimeoutMs: 45_000,
-      maxRetries: 1,
+      taskTimeoutMs: 90_000,
+      plannerTimeoutMs: 60_000,
+      synthesisTimeoutMs: 60_000,
+      runTimeoutMs: 120_000,
+      maxQueuedTasks: 4,
+      maxRetries: 0,
       scopeBias: "source-first"
     });
+    await this.planImprovements(targetPath, outputPath, "architecture-review");
+    return result;
   }
 
   async architecturePlan(targetPath: string, outputPath = targetPath): Promise<ArchitecturePlanResult> {
