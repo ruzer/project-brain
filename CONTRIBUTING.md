@@ -14,6 +14,7 @@ Thanks for contributing.
 - Prefer deterministic analysis and explicit artifacts over opaque behavior.
 - If you add or change a CLI command, update the README, `docs/usage.md`, and tests.
 - If you adapt code or file content from another project, preserve its license notices and document the source clearly.
+- La versión canónica vive en `package.json`. El README siempre debe reflejar `version` de `package.json`. Actualizar ambos en el mismo commit.
 
 ## Development checklist
 

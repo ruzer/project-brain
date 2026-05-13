@@ -1,0 +1,11 @@
+{
+  "name": "express-js-repo",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "test": "node tests/app.test.js"
+  },
+  "dependencies": {
+    "express": "^4.18.0"
+  }
+}

@@ -341,10 +341,13 @@ Do not version generated local runtime outputs:
 
 - `.claude/`
 - `.project-brain/runtime/`
-- `AI_CONTEXT/doctor/`
+- `BRAIN/`
+- `AI_CONTEXT/`
 - `reports/doctor.md`
 
 Use `--output` outside the target repository when validating real projects.
+
+In this repository specifically, curated source memory lives in `docs/project-context/`. `AI_CONTEXT/` is reserved for generated output layouts, either under `BRAIN/AI_CONTEXT/` by default or under a custom `--output`.
 
 ## Typical repository workflow
 
@@ -563,20 +566,25 @@ is reported as stale and is not used as current factual evidence.
 
 ## Runtime artifact policy
 
-Project Brain versions source documentation, templates, contracts, and curated
-`AI_CONTEXT/*.md` memory files. Runtime diagnostics and local agent state are
-generated per machine/session and are ignored by git.
+Project Brain versions source documentation, templates, contracts, schemas, and
+curated project memory under `docs/project-context/`. Runtime diagnostics and
+local agent state are generated per machine/session and are ignored by git.
+
+There should be only one generated `AI_CONTEXT/` tree per output root. In this
+repository, local CLI runs default to `BRAIN/AI_CONTEXT/`; top-level
+`AI_CONTEXT/` is ignored to prevent duplicate generated context.
 
 Versioned examples:
 
-- `AI_CONTEXT/*.md` curated project memory
+- `docs/project-context/*.md` curated project memory for this repository
 - `reports/templates/*.md` report templates
 - `docs/**` source documentation
 
 Ignored runtime examples:
 
 - `.claude/`
-- `AI_CONTEXT/doctor/`
+- `BRAIN/`
+- `AI_CONTEXT/`
 - `reports/doctor.md`
 - `.project-brain/runtime/`
 

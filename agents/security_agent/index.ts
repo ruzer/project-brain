@@ -1,4 +1,8 @@
+import { execFileSync } from "node:child_process";
+import path from "node:path";
+
 import { BaseAgent } from "../base-agent";
+import { fileExists } from "../../shared/fs-utils";
 
 import type {
   AgentEvaluation,
@@ -16,6 +20,68 @@ const LOCKFILES = [
   "go.sum",
   "Cargo.lock"
 ];
+export type SensitiveFileExposureCategory = "SECRET_TRACKED" | "SECRET_PRESENT_UNTRACKED" | "SECRET_IN_OUTPUT";
+
+export interface SensitiveFileExposure {
+  filePath: string;
+  category: SensitiveFileExposureCategory;
+  severity: SecurityFinding["severity"];
+}
+
+function normalizeRepoFile(filePath: string): string {
+  return filePath.replace(/^\/+/, "").replace(/\\/g, "/");
+}
+
+export function isTrackedByGit(filePath: string, targetPath: string): boolean {
+  try {
+    execFileSync("git", ["ls-files", "--error-unmatch", normalizeRepoFile(filePath)], {
+      cwd: targetPath,
+      stdio: "ignore"
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function isCopiedToOutput(context: ProjectContext, filePath: string): Promise<boolean> {
+  const normalized = normalizeRepoFile(filePath);
+  const resolvedTarget = path.resolve(context.targetPath);
+  const resolvedOutput = path.resolve(context.outputPath);
+
+  if (resolvedTarget === resolvedOutput) {
+    return false;
+  }
+
+  return fileExists(path.join(context.outputPath, normalized));
+}
+
+export async function classifySensitiveFileExposure(
+  context: ProjectContext,
+  filePath: string
+): Promise<SensitiveFileExposure> {
+  if (await isCopiedToOutput(context, filePath)) {
+    return {
+      filePath: normalizeRepoFile(filePath),
+      category: "SECRET_IN_OUTPUT",
+      severity: "medium"
+    };
+  }
+
+  if (isTrackedByGit(filePath, context.targetPath)) {
+    return {
+      filePath: normalizeRepoFile(filePath),
+      category: "SECRET_TRACKED",
+      severity: "high"
+    };
+  }
+
+  return {
+    filePath: normalizeRepoFile(filePath),
+    category: "SECRET_PRESENT_UNTRACKED",
+    severity: "low"
+  };
+}
 
 function pushFinding(
   target: SecurityFinding[],
@@ -47,22 +113,71 @@ export class SecurityAgent extends BaseAgent {
         /id_rsa|credentials|secret/i.test(file)
     ).filter((file) => !/\.example$|\.sample$|\.template$/i.test(file));
 
-    if (riskyFiles.length > 0) {
+    const classifiedRiskyFiles = await Promise.all(
+      riskyFiles.map((file) => classifySensitiveFileExposure(context, file))
+    );
+    const groupedRiskyFiles = classifiedRiskyFiles.reduce<Record<SensitiveFileExposureCategory, SensitiveFileExposure[]>>(
+      (groups, exposure) => {
+        groups[exposure.category].push(exposure);
+        return groups;
+      },
+      {
+        SECRET_TRACKED: [],
+        SECRET_PRESENT_UNTRACKED: [],
+        SECRET_IN_OUTPUT: []
+      }
+    );
+
+    for (const [category, exposures] of Object.entries(groupedRiskyFiles) as Array<[SensitiveFileExposureCategory, SensitiveFileExposure[]]>) {
+      if (exposures.length === 0) {
+        continue;
+      }
+      const sample = exposures.map((entry) => entry.filePath).slice(0, 5);
+      const severity = exposures.some((entry) => entry.severity === "high")
+        ? "high"
+        : exposures.some((entry) => entry.severity === "medium")
+          ? "medium"
+          : "low";
+      const title =
+        category === "SECRET_TRACKED"
+          ? "SECRET_TRACKED: Secretos o material sensible versionado en el repositorio"
+          : category === "SECRET_IN_OUTPUT"
+            ? "SECRET_IN_OUTPUT: Archivo sensible copiado al output de análisis"
+            : "SECRET_PRESENT_UNTRACKED: Archivo sensible presente pero no versionado";
+      const evidence =
+        category === "SECRET_TRACKED"
+          ? `git ls-files confirma archivos sensibles versionados: ${sample.join(", ")}.`
+          : category === "SECRET_IN_OUTPUT"
+            ? `Se detectaron archivos sensibles en el directorio de output: ${sample.join(", ")}.`
+            : `Se detectaron archivos sensibles presentes en working tree, pero git ls-files no los reporta como versionados: ${sample.join(", ")}.`;
+      const impact =
+        category === "SECRET_TRACKED"
+          ? "Exposición de credenciales, secretos operativos o llaves privadas reutilizables."
+          : category === "SECRET_IN_OUTPUT"
+            ? "Los artefactos generados pueden transportar secretos fuera del repositorio objetivo."
+            : "Riesgo local reducido: el secreto existe en el working tree, pero no hay evidencia de que esté versionado.";
+      const fix =
+        category === "SECRET_TRACKED"
+          ? "Mover los secretos a un vault o variables de entorno del despliegue, rotarlos y agregar reglas de ignore para impedir nuevos commits sensibles."
+          : category === "SECRET_IN_OUTPUT"
+            ? "Eliminar secretos del output, rotarlos si el output fue compartido y agregar exclusiones para impedir copias futuras."
+            : "Mantener el archivo en `.gitignore`, validar que no se copie a artefactos y usar `.env.example` sin valores reales.";
+
       pushFinding(
         securityFindings,
         {
           area: "sensitive_data",
-          severity: "high",
-          title: "Secretos o material sensible versionado en el repositorio",
-          location: riskyFiles.slice(0, 5).join(", "),
-          evidence: `Se detectaron archivos con patrón sensible: ${riskyFiles.slice(0, 5).join(", ")}.`,
+          severity,
+          title,
+          location: sample.join(", "),
+          evidence,
           attackVector: [
             "Un atacante obtiene acceso al repositorio o a un artefacto que lo replique.",
             "Lee el archivo sensible comprometido.",
             "Reutiliza secretos, claves o credenciales contra entornos reales."
           ],
-          impact: "Exposición de credenciales, secretos operativos o llaves privadas reutilizables.",
-          fix: "Mover los secretos a un vault o variables de entorno del despliegue, rotarlos y agregar reglas de ignore para impedir nuevos commits sensibles.",
+          impact,
+          fix,
           references: ["CWE-798", "OWASP A05:2021", "ASVS 8.1.1"],
           effort: "medium",
           problemType: "configuration",
@@ -71,10 +186,13 @@ export class SecurityAgent extends BaseAgent {
         findings,
         recommendations
       );
+    }
+
+    if (classifiedRiskyFiles.length > 0) {
       coverage.push({
         area: "sensitive_data",
         status: "finding",
-        note: `Archivos sensibles confirmados: ${riskyFiles.slice(0, 5).join(", ")}`,
+        note: `Archivos sensibles confirmados: ${classifiedRiskyFiles.map((entry) => `${entry.filePath} (${entry.category})`).slice(0, 5).join(", ")}`,
         agentId: this.agentId
       });
     } else {

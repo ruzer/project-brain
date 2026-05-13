@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import os from "node:os";
 import path from "node:path";
 
 import { buildMemoryBriefSummary, buildRepoSummary } from "../../agents/ai-support";
@@ -9,6 +8,31 @@ import { readJsonSafe, writeFileEnsured, writeJsonEnsured } from "../../shared/f
 import type { ProjectContext, ScopeMemoryRecord, SwarmPlanTask, SwarmRunResult, SwarmWorkerResult } from "../../shared/types";
 import type { AIRouterRequest, AIRouterTask, ModelProfile, ModelSelection } from "../ai_router/router";
 import { applyPresetPolicy, applyTokenPolicy, type TokenPreset } from "../token_policy";
+import {
+  applyResilienceOverrides,
+  deriveSplitGroupSize,
+  recommendedChunkSize,
+  recommendedParallelism,
+  recommendedResilience,
+  shouldUseLocalBudgetMode
+} from "./resource_budget";
+import {
+  buildFallbackPlan,
+  normalizePlannerPayload,
+  normalizeSynthesisPayload,
+  normalizeTaskDependencies,
+  normalizeWorkerPayload,
+  uniqueStrings,
+  type PlannerPayload,
+  type SynthesisPayload
+} from "./output_normalizer";
+
+export {
+  deriveAdaptiveQueueBudget,
+  deriveResourcePressure,
+  deriveSplitGroupSize,
+  recommendedResilience
+} from "./resource_budget";
 
 interface SwarmAssistant {
   ask(input: AIRouterRequest): Promise<string>;
@@ -26,30 +50,6 @@ interface SwarmRuntimeOptions {
   runTimeoutMs?: number;
   maxQueuedTasks?: number;
   scopeBias?: SwarmRunResult["chunking"]["scopeBias"];
-}
-
-interface PlannerPayload {
-  overview: string;
-  tasks: SwarmPlanTask[];
-}
-
-interface WorkerPayload {
-  summary: string;
-  findings: string[];
-  recommendations: string[];
-  verifiedFacts: string[];
-  unknowns: string[];
-  evidenceRefs: string[];
-}
-
-interface SynthesisPayload {
-  headline: string;
-  summary: string;
-  priorities: string[];
-  next_steps: string[];
-  verified_facts: string[];
-  unknowns: string[];
-  evidence_refs: string[];
 }
 
 interface ScopeChunk {
@@ -162,397 +162,6 @@ function renderList(items: string[]): string {
   return items.length > 0 ? items.map((item) => `- ${item}`).join("\n") : "- None";
 }
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
-
-function extractJsonObject(input: string): Record<string, unknown> | undefined {
-  const trimmed = input.trim();
-  const candidate = trimmed.startsWith("```")
-    ? trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")
-    : trimmed;
-
-  try {
-    const parsed = JSON.parse(candidate) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : undefined;
-  } catch {
-    const start = candidate.indexOf("{");
-    const end = candidate.lastIndexOf("}");
-    if (start < 0 || end <= start) {
-      return undefined;
-    }
-
-    try {
-      const parsed = JSON.parse(candidate.slice(start, end + 1)) as unknown;
-      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : undefined;
-    } catch {
-      return undefined;
-    }
-  }
-}
-
-type StructuredSectionKey =
-  | "body"
-  | "headline"
-  | "summary"
-  | "findings"
-  | "recommendations"
-  | "priorities"
-  | "next_steps"
-  | "verified_facts"
-  | "unknowns"
-  | "evidence_refs";
-
-function stripCodeFences(input: string): string {
-  return input
-    .trim()
-    .replace(/^```(?:json|markdown|md|text)?\s*/i, "")
-    .replace(/\s*```$/, "")
-    .trim();
-}
-
-function normalizeSectionKey(rawKey: string): StructuredSectionKey | undefined {
-  const normalized = rawKey.trim().toLowerCase().replace(/\s+/g, " ");
-
-  if (normalized === "headline") {
-    return "headline";
-  }
-  if (normalized === "summary" || normalized === "overview") {
-    return "summary";
-  }
-  if (normalized === "findings" || normalized === "issues" || normalized === "risks" || normalized === "observations") {
-    return "findings";
-  }
-  if (normalized === "recommendations" || normalized === "actions" || normalized === "action items") {
-    return "recommendations";
-  }
-  if (normalized === "priorities") {
-    return "priorities";
-  }
-  if (normalized === "next steps" || normalized === "next_steps" || normalized === "next-step" || normalized === "next step") {
-    return "next_steps";
-  }
-  if (normalized === "verified facts" || normalized === "verified_facts" || normalized === "facts") {
-    return "verified_facts";
-  }
-  if (normalized === "unknowns" || normalized === "unknown" || normalized === "not verified" || normalized === "not_verified") {
-    return "unknowns";
-  }
-  if (normalized === "evidence refs" || normalized === "evidence_refs" || normalized === "evidence" || normalized === "sources") {
-    return "evidence_refs";
-  }
-
-  return undefined;
-}
-
-function parseStructuredSections(input: string): Partial<Record<StructuredSectionKey, string[]>> {
-  const cleaned = stripCodeFences(input);
-  const sections: Partial<Record<StructuredSectionKey, string[]>> = {
-    body: []
-  };
-  let currentSection: StructuredSectionKey = "body";
-
-  for (const rawLine of cleaned.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line) {
-      continue;
-    }
-
-    const headingMatch = line.match(/^(?:#{1,6}\s*)?([A-Za-z][A-Za-z _-]+?)(?::\s*(.*))?$/);
-    const sectionKey = headingMatch ? normalizeSectionKey(headingMatch[1] ?? "") : undefined;
-    if (sectionKey) {
-      currentSection = sectionKey;
-      sections[currentSection] ??= [];
-      const inlineValue = headingMatch?.[2]?.trim();
-      if (inlineValue) {
-        sections[currentSection]!.push(inlineValue);
-      }
-      continue;
-    }
-
-    sections[currentSection] ??= [];
-    sections[currentSection]!.push(line);
-  }
-
-  return sections;
-}
-
-function stripListPrefix(value: string): string {
-  return value.replace(/^[-*+]\s+/, "").replace(/^\d+\.\s+/, "").trim();
-}
-
-function sectionToList(lines: string[] | undefined): string[] {
-  if (!lines || lines.length === 0) {
-    return [];
-  }
-
-  return lines
-    .map((line) => stripListPrefix(line))
-    .filter((line) => line.length > 0);
-}
-
-function sectionToText(lines: string[] | undefined): string {
-  if (!lines || lines.length === 0) {
-    return "";
-  }
-
-  return lines
-    .map((line) => stripListPrefix(line))
-    .filter((line) => line.length > 0)
-    .join(" ")
-    .trim();
-}
-
-function looksLikeCodeOnlyResponse(input: string): boolean {
-  const cleaned = stripCodeFences(input);
-  const lines = cleaned
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (lines.length < 3) {
-    return false;
-  }
-
-  const hasStructuredSections = lines.some((line) => {
-    const headingMatch = line.match(/^(?:#{1,6}\s*)?([A-Za-z][A-Za-z _-]+?)(?::\s*(.*))?$/);
-    return Boolean(headingMatch && normalizeSectionKey(headingMatch[1] ?? ""));
-  });
-  if (hasStructuredSections) {
-    return false;
-  }
-
-  const codeSignalCount = lines.filter((line) =>
-    /^(?:#!|import\s+|from\s+\S+\s+import\s+|def\s+|class\s+|for\s+|while\s+|if\s+__name__|print\(|const\s+|let\s+|var\s+|function\s+|export\s+|package\s+main|use\s+|fn\s+)/.test(line) ||
-    /[{};]$/.test(line)
-  ).length;
-
-  return codeSignalCount >= Math.max(3, Math.ceil(lines.length * 0.4));
-}
-
-function normalizeStringList(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
-}
-
-function normalizeProfile(value: unknown): SwarmPlanTask["profile"] | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "worker" || normalized === "reviewer" || normalized === "reasoning" || normalized === "planner" || normalized === "synthesizer") {
-    return normalized;
-  }
-
-  return undefined;
-}
-
-function normalizeTaskDependencies(tasks: SwarmPlanTask[]): SwarmPlanTask[] {
-  const validTaskIds = new Set(tasks.map((task) => task.taskId));
-
-  return tasks.map((task) => {
-    const dependsOn = uniqueStrings((task.dependsOn ?? []).filter((dependencyId) => dependencyId !== task.taskId && validTaskIds.has(dependencyId)));
-    return dependsOn.length > 0
-      ? {
-          ...task,
-          dependsOn
-        }
-      : {
-          ...task,
-          dependsOn: undefined
-        };
-  });
-}
-
-function buildFallbackPlan(intent: string): PlannerPayload {
-  return {
-    overview: `This swarm run breaks the request into bounded repository scanning, risk review, and implementation reasoning for: ${intent}`,
-    tasks: normalizeTaskDependencies([
-      {
-        taskId: "scan-scope",
-        title: "Scan project scope",
-        goal: "Identify the main stack, repo shape, and obvious hotspots tied to the request.",
-        profile: "worker",
-        deliverable: "Short scan of relevant modules and project characteristics."
-      },
-      {
-        taskId: "review-risks",
-        title: "Review critical risks",
-        goal: "Surface concrete technical, security, or process risks related to the request.",
-        profile: "reviewer",
-        deliverable: "Findings and improvement recommendations.",
-        dependsOn: ["scan-scope"]
-      },
-      {
-        taskId: "reason-next-steps",
-        title: "Reason about next steps",
-        goal: "Turn the scan and risk review into practical next steps and tradeoffs.",
-        profile: "reasoning",
-        deliverable: "Decision-oriented next-step guidance.",
-        dependsOn: ["scan-scope", "review-risks"]
-      }
-    ])
-  };
-}
-
-function normalizePlannerPayload(raw: string, intent: string): PlannerPayload {
-  const parsed = extractJsonObject(raw);
-  if (!parsed) {
-    return buildFallbackPlan(intent);
-  }
-
-  const tasks = Array.isArray(parsed.tasks)
-    ? parsed.tasks
-        .map((task, index): SwarmPlanTask | undefined => {
-          if (!task || typeof task !== "object" || Array.isArray(task)) {
-            return undefined;
-          }
-
-          const record = task as Record<string, unknown>;
-          const title = typeof record.title === "string" ? record.title.trim() : "";
-          const goal = typeof record.goal === "string" ? record.goal.trim() : "";
-          const deliverable = typeof record.deliverable === "string" ? record.deliverable.trim() : "";
-          const profile = normalizeProfile(record.profile) ?? (index === 0 ? "worker" : index === 1 ? "reviewer" : "reasoning");
-          const dependsOn = normalizeStringList(record.dependsOn ?? record.depends_on);
-
-          if (!title || !goal || !deliverable) {
-            return undefined;
-          }
-
-          return {
-            taskId: typeof record.taskId === "string" && record.taskId.trim().length > 0 ? record.taskId.trim() : `task-${index + 1}`,
-            title,
-            goal,
-            profile,
-            deliverable,
-            dependsOn
-          };
-        })
-        .filter((task): task is SwarmPlanTask => Boolean(task))
-        .slice(0, 4)
-    : [];
-
-  if (tasks.length === 0) {
-    return buildFallbackPlan(intent);
-  }
-
-  return {
-    overview:
-      typeof parsed.overview === "string" && parsed.overview.trim().length > 0
-        ? parsed.overview.trim()
-        : buildFallbackPlan(intent).overview,
-    tasks: normalizeTaskDependencies(tasks)
-  };
-}
-
-function normalizeWorkerPayload(raw: string, task: SwarmPlanTask): WorkerPayload {
-  const parsed = extractJsonObject(raw);
-  if (parsed) {
-    return {
-      summary:
-        typeof parsed.summary === "string" && parsed.summary.trim().length > 0
-          ? parsed.summary.trim()
-          : `The ${task.title} worker finished without a summary.`,
-      findings: normalizeStringList(parsed.findings),
-      recommendations: normalizeStringList(parsed.recommendations),
-      verifiedFacts: normalizeStringList(parsed.verified_facts ?? parsed.verifiedFacts),
-      unknowns: normalizeStringList(parsed.unknowns),
-      evidenceRefs: normalizeStringList(parsed.evidence_refs ?? parsed.evidenceRefs)
-    };
-  }
-
-  const sections = parseStructuredSections(raw);
-  const findings = sectionToList(sections.findings);
-  const recommendations = sectionToList((sections.recommendations?.length ?? 0) > 0 ? sections.recommendations : sections.next_steps);
-  const summary = sectionToText(sections.summary) || sectionToText(sections.body);
-
-  if (
-    summary &&
-    findings.length === 0 &&
-    recommendations.length === 0 &&
-    sectionToList(sections.verified_facts).length === 0 &&
-    sectionToList(sections.evidence_refs).length === 0 &&
-    looksLikeCodeOnlyResponse(raw)
-  ) {
-    return {
-      summary: `The ${task.title} worker returned code instead of structured analysis.`,
-      findings: [],
-      recommendations: ["Rerun this worker with a narrower analysis-only prompt or a stronger structured-output model."],
-      verifiedFacts: [],
-      unknowns: ["Worker response looked like generated code/script instead of evidence-backed analysis."],
-      evidenceRefs: []
-    };
-  }
-
-  if (summary || findings.length > 0 || recommendations.length > 0) {
-    return {
-      summary: summary || `The ${task.title} worker returned partial structured text.`,
-      findings,
-      recommendations,
-      verifiedFacts: sectionToList(sections.verified_facts),
-      unknowns: sectionToList(sections.unknowns),
-      evidenceRefs: sectionToList(sections.evidence_refs)
-    };
-  }
-
-  return {
-    summary: `The ${task.title} worker could not return structured JSON.`,
-    findings: [],
-    recommendations: [],
-    verifiedFacts: [],
-    unknowns: [],
-    evidenceRefs: []
-  };
-}
-
-function normalizeSynthesisPayload(raw: string, intent: string): SynthesisPayload {
-  const parsed = extractJsonObject(raw);
-  if (parsed) {
-    return {
-      headline:
-        typeof parsed.headline === "string" && parsed.headline.trim().length > 0
-          ? parsed.headline.trim()
-          : `Completed a bounded swarm review for: ${intent}`,
-      summary:
-        typeof parsed.summary === "string" && parsed.summary.trim().length > 0
-          ? parsed.summary.trim()
-          : "The swarm synthesized the delegated outputs.",
-      priorities: normalizeStringList(parsed.priorities),
-      next_steps: normalizeStringList(parsed.next_steps),
-      verified_facts: normalizeStringList(parsed.verified_facts ?? parsed.verifiedFacts),
-      unknowns: normalizeStringList(parsed.unknowns),
-      evidence_refs: normalizeStringList(parsed.evidence_refs ?? parsed.evidenceRefs)
-    };
-  }
-
-  const sections = parseStructuredSections(raw);
-  const headline = sectionToText(sections.headline);
-  const summary = sectionToText(sections.summary) || sectionToText(sections.body);
-  const priorities = sectionToList(sections.priorities);
-  const nextSteps = sectionToList((sections.next_steps?.length ?? 0) > 0 ? sections.next_steps : sections.recommendations);
-
-  if (headline || summary || priorities.length > 0 || nextSteps.length > 0) {
-    return {
-      headline: headline || `Completed a bounded swarm review for: ${intent}`,
-      summary: summary || "The swarm synthesized the delegated outputs.",
-      priorities,
-      next_steps: nextSteps,
-      verified_facts: sectionToList(sections.verified_facts),
-      unknowns: sectionToList(sections.unknowns),
-      evidence_refs: sectionToList(sections.evidence_refs)
-    };
-  }
-
-  return {
-    headline: `Completed a bounded swarm review for: ${intent}`,
-    summary: "The swarm finished, but synthesis did not return structured JSON.",
-    priorities: [],
-    next_steps: [],
-    verified_facts: [],
-    unknowns: [],
-    evidence_refs: []
-  };
-}
-
 function taskTypeForProfile(profile: ModelProfile): AIRouterTask {
   if (profile === "reviewer") {
     return "code-smell-detection";
@@ -564,166 +173,6 @@ function taskTypeForProfile(profile: ModelProfile): AIRouterTask {
     return "report-synthesis";
   }
   return "generic-analysis";
-}
-
-function recommendedChunkSize(
-  context: ProjectContext,
-  requested?: number,
-  scopeBias: ScopeBias = "balanced"
-): SwarmRunResult["chunking"] {
-  const sourceFileCount = context.discovery.structure.sourceFileCount;
-  const scopeUnits = Math.max(context.discovery.structure.topLevelDirectories.length, 1);
-  const adaptiveChunkSize =
-    sourceFileCount >= 800 ? 1
-    : sourceFileCount >= 250 ? 2
-    : sourceFileCount >= 120 ? 3
-    : 4;
-  const selectedChunkSize = requested ? clamp(Math.trunc(requested), 1, 6) : adaptiveChunkSize;
-
-  return {
-    selectedChunkSize,
-    requestedChunkSize: requested,
-    scopeUnits,
-    scopeChunks: 0,
-    queuedTasks: 0,
-    queueStrategy: "round-robin",
-    scopeBias,
-    scopeHints: []
-  };
-}
-
-function recommendedParallelism(requested?: number): SwarmRunResult["parallelism"] {
-  const cpuCount = typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length;
-  const loadAverage1m = Number(os.loadavg()[0]?.toFixed(2) ?? 0);
-  const totalMemoryMb = Math.round(os.totalmem() / 1024 / 1024);
-  const freeMemoryMb = Math.round(os.freemem() / 1024 / 1024);
-  const baseParallelism = clamp(Math.floor(cpuCount / 2), 2, 4);
-  const highLoad = loadAverage1m >= cpuCount * 0.75;
-  const lowMemory = freeMemoryMb < 2048;
-  const adaptiveParallelism = highLoad || lowMemory ? Math.max(1, baseParallelism - 1) : baseParallelism;
-  const selected = requested ? clamp(Math.trunc(requested), 1, 8) : adaptiveParallelism;
-  const pressure = deriveResourcePressure({
-    cpuCount,
-    loadAverage1m,
-    freeMemoryMb
-  });
-
-  return {
-    selected,
-    requested,
-    cpuCount,
-    loadAverage1m,
-    freeMemoryMb,
-    totalMemoryMb,
-    pressure
-  };
-}
-
-export function recommendedResilience(requestedTimeoutMs?: number, requestedRetries?: number): SwarmRunResult["resilience"] {
-  return {
-    runTimeoutMs: 90_000,
-    plannerTimeoutMs: 18_000,
-    synthesisTimeoutMs: 15_000,
-    taskTimeoutMs: requestedTimeoutMs ? clamp(Math.trunc(requestedTimeoutMs), 5_000, 120_000) : 20_000,
-    requestedTaskTimeoutMs: requestedTimeoutMs,
-    queueBudget: 0,
-    maxRetries: requestedRetries === undefined ? 1 : clamp(Math.trunc(requestedRetries), 0, 4),
-    plannerTimedOut: false,
-    synthesisTimedOut: false,
-    runTimedOut: false,
-    timedOutTasks: 0,
-    retriedTasks: 0,
-    splitTasks: 0,
-    failedTasks: 0,
-    droppedTasks: 0,
-    localBudgetMode: false,
-    adaptiveQueueBudget: false
-  };
-}
-
-export function deriveResourcePressure(parallelism: Pick<SwarmRunResult["parallelism"], "cpuCount" | "loadAverage1m" | "freeMemoryMb">): ResourcePressure {
-  const loadRatio = parallelism.cpuCount > 0 ? parallelism.loadAverage1m / parallelism.cpuCount : 0;
-
-  if (loadRatio >= 0.75 || parallelism.freeMemoryMb < 1024) {
-    return "high";
-  }
-
-  if (loadRatio >= 0.5 || parallelism.freeMemoryMb < 2048) {
-    return "medium";
-  }
-
-  return "low";
-}
-
-export function deriveAdaptiveQueueBudget(
-  parallelism: Pick<SwarmRunResult["parallelism"], "selected" | "cpuCount" | "loadAverage1m" | "freeMemoryMb">
-): number {
-  const pressure = deriveResourcePressure(parallelism);
-  const balancedBudget = Math.max(parallelism.selected * 4, 12);
-
-  if (pressure === "high") {
-    return Math.max(parallelism.selected * 2, 6);
-  }
-
-  if (pressure === "medium") {
-    return Math.max(parallelism.selected * 3, 8);
-  }
-
-  return balancedBudget;
-}
-
-export function deriveSplitGroupSize(pressure: ResourcePressure, localBudgetMode: boolean): number {
-  if (localBudgetMode && pressure === "high") {
-    return 1;
-  }
-
-  if (localBudgetMode && pressure === "medium") {
-    return 2;
-  }
-
-  if (localBudgetMode) {
-    return 3;
-  }
-
-  if (pressure === "high") {
-    return 2;
-  }
-
-  if (pressure === "medium") {
-    return 3;
-  }
-
-  return 4;
-}
-
-function applyResilienceOverrides(
-  resilience: SwarmRunResult["resilience"],
-  options: SwarmRuntimeOptions,
-  parallelism: SwarmRunResult["parallelism"]
-): void {
-  resilience.runTimeoutMs = options.runTimeoutMs ? clamp(Math.trunc(options.runTimeoutMs), 10_000, 600_000) : 90_000;
-  resilience.requestedRunTimeoutMs = options.runTimeoutMs;
-  resilience.plannerTimeoutMs = options.plannerTimeoutMs
-    ? clamp(Math.trunc(options.plannerTimeoutMs), 3_000, resilience.runTimeoutMs)
-    : Math.min(18_000, resilience.runTimeoutMs);
-  resilience.requestedPlannerTimeoutMs = options.plannerTimeoutMs;
-  resilience.synthesisTimeoutMs = options.synthesisTimeoutMs
-    ? clamp(Math.trunc(options.synthesisTimeoutMs), 3_000, resilience.runTimeoutMs)
-    : Math.min(15_000, resilience.runTimeoutMs);
-  resilience.requestedSynthesisTimeoutMs = options.synthesisTimeoutMs;
-  resilience.adaptiveQueueBudget = !options.maxQueuedTasks;
-  resilience.queueBudget = options.maxQueuedTasks
-    ? clamp(Math.trunc(options.maxQueuedTasks), parallelism.selected, 64)
-    : deriveAdaptiveQueueBudget(parallelism);
-  resilience.requestedQueueBudget = options.maxQueuedTasks;
-}
-
-function shouldUseLocalBudgetMode(resilience: SwarmRunResult["resilience"]): boolean {
-  return (
-    resilience.runTimeoutMs <= 45_000 ||
-    resilience.plannerTimeoutMs <= 8_000 ||
-    resilience.synthesisTimeoutMs <= 8_000
-  );
 }
 
 async function mapWithConcurrency<TInput, TOutput>(
@@ -796,10 +245,6 @@ async function drainTaskLevelsWithConcurrency(
   }
 
   return results;
-}
-
-function uniqueStrings(items: string[]): string[] {
-  return [...new Set(items.filter((item) => item.trim().length > 0))];
 }
 
 function stableSerialize(value: unknown): string {

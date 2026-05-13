@@ -60,7 +60,7 @@ function summarizeRisk(report: AgentReport): string[] {
 }
 
 function summarizeProposal(proposal: ProposalArtifact): string {
-  return `${proposal.title} | status=${proposal.status} | consensus=${proposal.consensusState} (${proposal.consensusScore.toFixed(2)}) | risk=${proposal.riskLevel}`;
+  return `${proposal.title} | status=${proposal.status} | consensus=${proposal.consensusState} (${proposal.consensusScore.toFixed(2)}, ${proposal.consensusConfidenceMethod}) | risk=${proposal.riskLevel}`;
 }
 
 export async function writeImprovementPlanArtifacts(

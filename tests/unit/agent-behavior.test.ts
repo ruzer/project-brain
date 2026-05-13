@@ -109,7 +109,7 @@ describe("agent behavior", () => {
     expect(report.coverage?.some((entry) => entry.area === "abuse_protection" && entry.status === "not-reviewed")).toBe(true);
   });
 
-  it("SecurityAgent reports versioned sensitive files and missing lockfiles", async () => {
+  it("SecurityAgent reports classified sensitive files and missing lockfiles", async () => {
     const outputDir = await createTempOutputDir("project-brain-security-agent");
     cleanupTargets.push(outputDir);
     const dependencies: DependencyManifest[] = [
@@ -128,8 +128,8 @@ describe("agent behavior", () => {
 
     const report = await new SecurityAgent().run(context);
 
-    expect(report.riskLevel).toBe("high");
-    expect(report.securityFindings?.some((finding) => finding.title.includes("Secretos"))).toBe(true);
+    expect(report.riskLevel).toBe("medium");
+    expect(report.securityFindings?.some((finding) => finding.title.includes("SECRET_PRESENT_UNTRACKED"))).toBe(true);
     expect(report.securityFindings?.some((finding) => finding.title.includes("Dependencias sin lockfile"))).toBe(true);
     expect(report.securityFindings?.some((finding) => finding.title.includes("Dockerfile"))).toBe(true);
   });

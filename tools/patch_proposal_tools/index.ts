@@ -133,6 +133,10 @@ function isAllowedPatchTarget(task: UXImplementationTask): boolean {
   const targetFile = task.file.replace(/^\/+/, "");
   const combinedText = `${targetFile} ${task.problem} ${task.proposedChange}`;
 
+  if (targetFile.split(/[\\/]+/).includes("..")) {
+    return false;
+  }
+
   if (!targetFile.startsWith("src/")) {
     return false;
   }
@@ -142,6 +146,29 @@ function isAllowedPatchTarget(task: UXImplementationTask): boolean {
   }
 
   return !BLOCKED_PATCH_PATTERNS.some((pattern) => pattern.test(combinedText));
+}
+
+export function resolvePatchTargetPath(context: ProjectContext, targetFile: string): {
+  normalizedTargetFile: string;
+  absoluteTargetPath: string;
+} {
+  const normalizedTargetFile = targetFile.replace(/^\/+/, "").replace(/\\/g, "/");
+  const targetRoot = path.resolve(context.targetPath);
+  const resolved = path.resolve(targetRoot, normalizedTargetFile);
+
+  // Security confinement for review-only proposals: generated task input must never read outside the target repo.
+  if (normalizedTargetFile.split("/").includes("..")) {
+    throw new Error(`Path traversal bloqueado: ${targetFile}`);
+  }
+
+  if (resolved !== targetRoot && !resolved.startsWith(`${targetRoot}${path.sep}`)) {
+    throw new Error(`Path traversal bloqueado: ${targetFile}`);
+  }
+
+  return {
+    normalizedTargetFile,
+    absoluteTargetPath: resolved
+  };
 }
 
 function slugify(value: string): string {
@@ -431,10 +458,9 @@ export async function generatePatchProposals(
     const patchId = `patch_${String(index + 1).padStart(3, "0")}`;
     const fileName = `${patchId}_${uniqueSlug}.diff`;
     const filePath = path.join(context.patchProposalDir, fileName);
-    const targetFile = task.file.replace(/^\/+/, "");
-    const targetPath = path.join(context.targetPath, targetFile);
-    const targetExists = await fileExists(targetPath);
-    const targetContent = targetExists ? await readTextSafe(targetPath) : "";
+    const { normalizedTargetFile: targetFile, absoluteTargetPath } = resolvePatchTargetPath(context, task.file);
+    const targetExists = await fileExists(absoluteTargetPath);
+    const targetContent = targetExists ? await readTextSafe(absoluteTargetPath) : "";
     const patchContent = renderPatchProposal(task, targetContent, targetExists, TASK_REPORT_FILE);
 
     await writeFileEnsured(filePath, patchContent);

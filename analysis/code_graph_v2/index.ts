@@ -17,6 +17,7 @@ import type {
 
 const CODE_GRAPH_V2_FILE = "code_graph_v2.json";
 const GRAPH_SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
+const LOCAL_RESOLUTION_CANDIDATES = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
 
 function isGraphSource(filePath: string): boolean {
   return GRAPH_SOURCE_EXTENSIONS.some((extension) => filePath.endsWith(extension));
@@ -189,29 +190,48 @@ function resolveLocalImport(
   compilerOptions: ts.CompilerOptions,
   knownFiles: Set<string>
 ): string | undefined {
-  const fromAbsolute = path.join(targetPath, fromFile);
-  const resolution = ts.resolveModuleName(specifier, fromAbsolute, compilerOptions, ts.sys).resolvedModule;
-
-  if (!resolution?.resolvedFileName) {
+  if (!specifier.startsWith(".")) {
     return undefined;
   }
 
-  const rawRelative = toPosixPath(path.relative(targetPath, resolution.resolvedFileName));
-  const directMatch = rawRelative.replace(/^\.\/+/, "");
-  if (knownFiles.has(directMatch)) {
-    return directMatch;
+  const fromAbsolute = path.join(targetPath, fromFile);
+  const resolution = ts.resolveModuleName(specifier, fromAbsolute, compilerOptions, ts.sys).resolvedModule;
+
+  if (resolution?.resolvedFileName) {
+    const rawRelative = toPosixPath(path.relative(targetPath, resolution.resolvedFileName));
+    const directMatch = rawRelative.replace(/^\.\/+/, "");
+    if (knownFiles.has(directMatch)) {
+      return directMatch;
+    }
+
+    if (directMatch.endsWith(".d.ts")) {
+      const tsCandidate = directMatch.replace(/\.d\.ts$/, ".ts");
+      const tsxCandidate = directMatch.replace(/\.d\.ts$/, ".tsx");
+      const jsCandidate = directMatch.replace(/\.d\.ts$/, ".js");
+      const jsxCandidate = directMatch.replace(/\.d\.ts$/, ".jsx");
+
+      for (const candidate of [tsCandidate, tsxCandidate, jsCandidate, jsxCandidate]) {
+        if (knownFiles.has(candidate)) {
+          return candidate;
+        }
+      }
+    }
   }
 
-  if (directMatch.endsWith(".d.ts")) {
-    const tsCandidate = directMatch.replace(/\.d\.ts$/, ".ts");
-    const tsxCandidate = directMatch.replace(/\.d\.ts$/, ".tsx");
-    const jsCandidate = directMatch.replace(/\.d\.ts$/, ".js");
-    const jsxCandidate = directMatch.replace(/\.d\.ts$/, ".jsx");
+  const baseDir = path.posix.dirname(fromFile);
+  const resolvedBase = path.posix.normalize(path.posix.join(baseDir, specifier));
+  const candidates = [
+    resolvedBase,
+    ...LOCAL_RESOLUTION_CANDIDATES.flatMap((extension) => [
+      `${resolvedBase}${extension}`,
+      path.posix.join(resolvedBase, `index${extension}`)
+    ])
+  ];
 
-    for (const candidate of [tsCandidate, tsxCandidate, jsCandidate, jsxCandidate]) {
-      if (knownFiles.has(candidate)) {
-        return candidate;
-      }
+  for (const candidate of candidates) {
+    const normalized = toPosixPath(candidate).replace(/^\.\/+/, "");
+    if (knownFiles.has(normalized)) {
+      return normalized;
     }
   }
 
@@ -387,6 +407,25 @@ function parseGraphFile(
     }
   };
 
+  const recordCommonJsRequire = (node: ts.CallExpression): void => {
+    if (!ts.isIdentifier(node.expression) || node.expression.text !== "require") {
+      return;
+    }
+
+    const [firstArg] = node.arguments;
+    if (!firstArg || !ts.isStringLiteralLike(firstArg)) {
+      return;
+    }
+
+    const resolvedFile = resolveLocalImport(targetPath, filePath, firstArg.text, compilerOptions, knownFiles);
+    if (!resolvedFile) {
+      return;
+    }
+
+    imports.add(resolvedFile);
+    addEdge("imports", filePath, resolvedFile, firstArg);
+  };
+
   const visitTopLevelStatement = (node: ts.Statement): void => {
     if (ts.isImportDeclaration(node)) {
       recordImport(node);
@@ -511,6 +550,10 @@ function parseGraphFile(
 
   const walkCalls = (node: ts.Node, currentSymbolId?: string): void => {
     const nextSymbolId = declarationIds.get(node) ?? currentSymbolId;
+
+    if (ts.isCallExpression(node)) {
+      recordCommonJsRequire(node);
+    }
 
     if ((ts.isCallExpression(node) || ts.isNewExpression(node)) && nextSymbolId) {
       const target = resolveCallTarget(node.expression);

@@ -1,7 +1,7 @@
 {
   "name": "project-brain",
-  "version": "0.2.4",
-  "description": "Autonomous project analysis engine that builds context, memory, and agent-driven reports for any software repository.",
+  "version": "0.2.5",
+  "description": "Repository analysis and review engine — generates context, proposals, and improvement plans without modifying target code.",
   "bin": {
     "project-brain": "dist/cli/project-brain.js",
     "brain": "dist/cli/project-brain.js"
@@ -11,7 +11,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "verify:quick": "npm run lint && npm run typecheck && npm run build",
-    "verify": "npm run verify:quick && npm run test && npm run test:smoke",
+    "verify": "npm run verify:quick && npm run test && npm run test:smoke && npm run check-version",
+    "check-version": "node -e \"const p=require('./package.json');const r=require('fs').readFileSync('README.md','utf8');if(!r.includes(p.version))process.exit(1);\"",
     "security:repo": "node scripts/check-repo-safety.mjs --all",
     "security:audit": "npm audit --omit=dev --audit-level=high",
     "review:exports": "node scripts/unused-exports-review.mjs",

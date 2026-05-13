@@ -147,6 +147,7 @@ export interface BasicRepoScan {
   scannedAt: string;
   files: string[];
   languages: string[];
+  ecosystem?: "node" | "python" | "go" | "java" | "rust" | "dotnet" | "ruby" | "php";
   structure: RepoStructure;
 }
 
@@ -205,6 +206,7 @@ export interface DiscoveryResult {
   files: string[];
   structure: RepoStructure;
   languages: string[];
+  ecosystem?: "node" | "python" | "go" | "java" | "rust" | "dotnet" | "ruby" | "php";
   frameworks: string[];
   apis: string[];
   infrastructure: string[];
@@ -953,6 +955,9 @@ export interface ProposalArtifact {
   consensusState: ProposalConsensusState;
   supportingAgents: string[];
   consensusThemes: string[];
+  consensusEvidenceRefs: string[];
+  consensusContradictions: string[];
+  consensusConfidenceMethod: "lexical" | "structural";
   filePath: string;
   riskLevel: RiskLevel;
   affectedFiles: string[];

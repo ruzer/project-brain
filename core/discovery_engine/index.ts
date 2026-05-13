@@ -77,6 +77,7 @@ export class DiscoveryEngine {
       files: repoScan.files,
       structure: repoScan.structure,
       languages: repoScan.languages,
+      ecosystem: repoScan.ecosystem,
       frameworks,
       apis: apiScan.apis,
       infrastructure: infraScan.infrastructure,

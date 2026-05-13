@@ -520,7 +520,7 @@ export class AgentSelfGovernanceSystem {
         const proposalId = createProposalId(score.agentId, proposalIndex);
         const filePath = path.join(context.proposalDir, proposalFileName(score.agentId, proposalIndex, title));
         const consensus = assessProposalConsensus(
-          `${title}\n${report.summary}\n${recommendation}`,
+          `${title}\n${report.summary}\n${recommendation}\nFiles: ${affectedFiles.join(", ")}`,
           score.agentId,
           agentReports
         );
@@ -538,8 +538,11 @@ export class AgentSelfGovernanceSystem {
 
 - State: ${consensus.consensusState}
 - Score: ${consensus.consensusScore}
+- Method: ${consensus.confidenceMethod}
 - Supporting agents: ${consensus.supportingAgents.join(", ") || "None"}
 - Shared themes: ${consensus.consensusThemes.join(", ") || "None"}
+- Evidence refs: ${consensus.evidenceRefs.join(", ") || "None"}
+- Contradictions: ${consensus.contradictions.join(", ") || "None"}
 
 ## Description
 
@@ -587,6 +590,9 @@ ${implementationSketch}
           consensusState: consensus.consensusState,
           supportingAgents: consensus.supportingAgents,
           consensusThemes: consensus.consensusThemes,
+          consensusEvidenceRefs: consensus.evidenceRefs,
+          consensusContradictions: consensus.contradictions,
+          consensusConfidenceMethod: consensus.confidenceMethod,
           filePath,
           riskLevel: report.riskLevel,
           affectedFiles,

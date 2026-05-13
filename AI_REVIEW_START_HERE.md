@@ -13,10 +13,12 @@ Start here before reading large source files:
 3. `docs/roadmap/fact-based-context-roadmap.md`
 4. `docs/reference-repo-analysis/claude-mem-comparison.md`
 5. `docs/reference-repo-analysis/graphify-comparison.md` if present
-6. `AI_CONTEXT/MEMORY_BRIEF.md` when analyzing a generated output directory
-7. `AI_CONTEXT/EXECUTIVE_SUMMARY.md` when available in an output directory
-8. `memory/scopes/*.json` for fresh/stale scoped memory
-9. `memory/knowledge_graph/repository_fact_graph.json` when available in an output directory
+6. `docs/project-context/CONTEXT.md`
+7. `docs/project-context/ARCHITECTURE_MAP.md`
+8. `AI_CONTEXT/MEMORY_BRIEF.md` when analyzing a generated output directory
+9. `AI_CONTEXT/EXECUTIVE_SUMMARY.md` when available in an output directory
+10. `memory/scopes/*.json` for fresh/stale scoped memory
+11. `memory/knowledge_graph/repository_fact_graph.json` when available in an output directory
 
 ## Source Entry Points
 
@@ -41,8 +43,9 @@ Read these source files next:
 - Prefer `go`, `status`, `resume`, `runbook`, and `fact-query` before broad `analyze` or model-heavy swarm work.
 - Do not infer repository behavior from filenames alone.
 - Use generated memory before broad source reading.
-- Treat `AI_CONTEXT/MEMORY_BRIEF.md` as the compact handoff.
-- Treat `AI_CONTEXT/EXECUTIVE_SUMMARY.md` as the human-facing release/state summary.
+- Treat `docs/project-context/` as the curated, versioned context for this repository.
+- Treat generated `AI_CONTEXT/MEMORY_BRIEF.md` as the compact handoff inside an output directory.
+- Treat generated `AI_CONTEXT/EXECUTIVE_SUMMARY.md` as the human-facing release/state summary inside an output directory.
 - Use `preflightFacts` before model-heavy ask or agent workflows when evidence may already exist.
 - Treat `memory/knowledge_graph/repository_fact_graph.json` as structural evidence.
 - Treat stale scope memory as a delta target, not truth.
@@ -68,7 +71,7 @@ node dist/cli/project-brain.js resume . --output ./sample-output/self-optimizati
 The highest-value optimization work is:
 
 1. keep `preflightFacts` and `fact-query` ahead of model-heavy work
-2. keep `AI_CONTEXT/CONTEXT.md`, `LEARNINGS.md`, `ERRORS.md`, and `DECISIONS.md` alive instead of skeletal
+2. keep `docs/project-context/CONTEXT.md`, `LEARNINGS.md`, `ERRORS.md`, and `DECISIONS.md` alive instead of skeletal
 3. prefer factual graph, executive summary, and scope memory over long markdown reports
 4. update decisions, learnings, corrections, and unknowns incrementally
 5. keep swarm prompts short, scoped, and cacheable

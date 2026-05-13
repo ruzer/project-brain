@@ -1,8 +1,8 @@
 # project-brain
 
-Current release candidate: `0.2.3` internal beta.
+Current release candidate: `0.2.5` internal beta.
 
-`project-brain` is a non-destructive repository analysis engine for software systems and AI-assisted engineering workflows. It analyzes target repositories, builds durable context, runs specialist agents, generates reports, and produces review-only patch proposals.
+`project-brain` is a non-destructive repository analysis engine for TypeScript and JavaScript repositories. Python, Go, and other ecosystems are partially supported via file detection. It analyzes target repositories, builds durable context, runs specialist agents, generates reports, and produces review-only patch proposals.
 
 Recommended beta entry point:
 
@@ -10,7 +10,9 @@ Recommended beta entry point:
 project-brain go "understand this project and suggest the next safe step" /path/to/repo
 ```
 
-By default, generated artifacts are grouped under `/path/to/repo/BRAIN/` so `AI_CONTEXT/`, runtime `memory/`, `reports/`, `tasks/`, and generated docs do not spread across the target repository root. Use `--output /path/to/output` when you want a different location.
+By default, generated artifacts are grouped under `/path/to/repo/BRAIN/` so generated `AI_CONTEXT/`, runtime `memory/`, `reports/`, `tasks/`, and generated docs do not spread across the target repository root. Use `--output /path/to/output` when you want a different location.
+
+Note for this repository: `AI_CONTEXT/` is reserved for generated output only. Curated, versioned project context lives under `docs/project-context/`, while local runs write generated context to `BRAIN/AI_CONTEXT/`.
 
 Typical use cases include:
 
@@ -34,6 +36,8 @@ Typical use cases include:
 - applies a proposal consensus gate before elevating recommendations
 - produces review-only patch proposals for human approval
 - exports reusable prompt templates for external repositories and downstream coding agents
+
+Specialist agents combine deterministic heuristics with optional AI analysis. Depth varies by agent. Consensus gating includes lexical theme matching today and structural evidence consensus when reports include shared file/path evidence.
 
 ## Architecture
 
@@ -295,6 +299,7 @@ model-heavy work:
 - `docs/installation.md`: install and validate from source.
 - `docs/first-analysis-5-min.md`: first guided run for a new target repository.
 - `docs/output-contract.md`: stable and internal output contracts.
+- `docs/LIMITATIONS.md`: supported ecosystems, review-only boundaries, and known beta limits.
 - `docs/release-checklist.md`: local and remote gates before tagging.
 - `docs/releases/0.2.0.md`: release notes.
 - `docs/user-test-script.md`: non-technical user test.
@@ -310,6 +315,8 @@ The default product posture is analysis and review. Generated patch proposals ar
 not applied automatically. Runtime diagnostics, local model inventory, and
 machine-specific reports are ignored by git; stable templates live under
 `reports/templates/`.
+
+Consensus is currently theme-based by default. Structural evidence consensus is in active development and is used when agent reports cite overlapping evidence paths.
 
 ## Troubleshooting
 

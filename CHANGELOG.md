@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.5 - 2026-05-13
+
+### Added
+- JavaScript fixture coverage for pure JS repos, CommonJS impact radius, and repos without `package.json`.
+- `docs/LIMITATIONS.md` documents supported ecosystems, review-only behavior, output confinement, and remote model limits.
+- Structural consensus metadata captures supporting agents, evidence refs, contradictions, and confidence method.
+
+### Fixed
+- Repository scanning now detects JavaScript extensions and separates Node ecosystem detection from TypeScript language detection.
+- `impact-radius` resolves CommonJS `require(...)` edges in the code graph.
+- Security audit `.env` findings distinguish tracked secrets from untracked local files and output copies.
+- Patch proposal target reads are confined to the analyzed repository and block path traversal.
+- README, package metadata, and output contract are aligned with the `v0.2.5` release.
+
+### Tests
+- Full suite passes: 58 files, 156 tests.
+
 ## 0.2.4 - 2026-05-13
 
 ### Added

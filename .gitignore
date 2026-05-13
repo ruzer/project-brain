@@ -15,12 +15,12 @@ coverage/
 .DS_Store
 sample-output/
 BRAIN/
+AI_CONTEXT/
 .project-brain-local/
 
 # Local agent/runtime state
 .claude/
 
 # Generated runtime diagnostics
-AI_CONTEXT/doctor/
 reports/doctor.md
 .project-brain/runtime/
