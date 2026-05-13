@@ -143,11 +143,13 @@ node dist/cli/project-brain.js doctor .
 node dist/cli/project-brain.js go "understand this project and suggest the next safe step" /path/to/repo
 ```
 
-3. Opcionalmente enlaza el comando global para usar `project-brain` directamente:
+3. Opcionalmente enlaza los comandos globales para usar `project-brain` o el alias corto `brain` directamente:
 
 ```bash
 npm link
 project-brain --version
+brain --version
+brain help
 project-brain console --target /path/to/repo
 ```
 

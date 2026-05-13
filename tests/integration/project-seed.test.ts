@@ -44,11 +44,14 @@ describe("Project seed integration", () => {
     await access(result.artifactPaths.claudePath);
 
     const blueprint = await readFile(result.artifactPaths.blueprintPath, "utf8");
+    const claudeContext = await readFile(result.artifactPaths.claudePath, "utf8");
     const memory = JSON.parse(await readFile(result.artifactPaths.projectSeedMemoryPath, "utf8")) as {
       input: { projectName: string; archetype: string };
     };
 
     expect(blueprint).toContain("## 9. Build Order");
+    expect(blueprint).toContain("## Coding Discipline");
+    expect(claudeContext).toContain("Prefer the smallest implementation");
     expect(blueprint).toContain("Next.js + PostgreSQL");
     expect(memory.input.projectName).toBe("Inventory SaaS");
     expect(memory.input.archetype).toBe("saas-webapp");

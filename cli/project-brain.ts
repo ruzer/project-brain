@@ -49,6 +49,11 @@ function readPackageVersion(): string {
   return "0.0.0";
 }
 
+function commandName(): string {
+  const invokedName = path.basename(process.argv[1] ?? "project-brain").replace(/\.(?:cjs|js|mjs)$/i, "");
+  return invokedName === "project-brain" || invokedName === "brain" ? invokedName : "project-brain";
+}
+
 function parseTimeoutMs(value: string): number {
   const timeoutMs = Number(value);
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
@@ -442,7 +447,7 @@ function isEcosystemCodebaseMapResult(
 }
 
 program
-  .name("project-brain")
+  .name(commandName())
   .description("Analyze repositories, build project context, run specialist agents, and generate reports.")
   .version(readPackageVersion());
 

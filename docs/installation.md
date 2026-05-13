@@ -39,6 +39,7 @@ npm test
 npm run build
 npm audit --audit-level=high
 project-brain --help
+brain --help
 project-brain go --help
 ```
 

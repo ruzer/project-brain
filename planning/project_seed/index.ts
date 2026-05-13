@@ -95,6 +95,15 @@ function renderNumbered(values: string[]): string {
   return values.length > 0 ? values.map((value, index) => `${index + 1}. ${value}`).join("\n") : "1. Pending confirmation";
 }
 
+function buildCodingDiscipline(): string {
+  return `- State assumptions before changing code.
+- Prefer the smallest implementation that satisfies the confirmed goal.
+- Do not refactor adjacent code unless the task requires it.
+- Every changed line should trace to the current task or accepted decision.
+- Define verification before implementation.
+- If context is missing or contradictory, stop and ask instead of guessing.`;
+}
+
 function normalizeInput(input: ProjectSeedInput): ProjectSeedInput {
   const archetype = ARCHETYPES[input.archetype] ? input.archetype : "custom";
   const definition = ARCHETYPES[archetype];
@@ -282,6 +291,10 @@ Read \`CLAUDE.md\` and \`AI_CONTEXT/MEMORY_BRIEF.md\` before implementation.
 - Do not invent requirements not captured in this seed.
 - Update \`AI_CONTEXT/DECISIONS.md\` when making stack or architecture choices.
 - Keep work incremental and verifiable.
+
+## Coding Discipline
+
+${buildCodingDiscipline()}
 `;
 }
 
@@ -367,6 +380,10 @@ project-brain doctor .
 project-brain architecture-plan .
 project-brain security-audit .
 \`\`\`
+
+## Coding Discipline
+
+${buildCodingDiscipline()}
 `;
 }
 
@@ -462,6 +479,10 @@ This project was seeded by project-brain.
 - Treat \`AI_CONTEXT/\` as the source of truth until code exists.
 - Ask before changing project scope, stack, auth, payments, persistence, or deployment assumptions.
 - Keep implementation aligned with \`tasks/initial_backlog.md\`.
+
+## Coding Discipline
+
+${buildCodingDiscipline()}
 `;
 }
 

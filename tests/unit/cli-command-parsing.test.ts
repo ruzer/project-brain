@@ -46,6 +46,13 @@ describe("CLI command parsing", { timeout: 20_000 }, () => {
     expect(result.stdout.trim()).toBe(packageJson.version);
   });
 
+  it("publishes the short brain binary alias", () => {
+    expect(packageJson.bin).toMatchObject({
+      "project-brain": "dist/cli/project-brain.js",
+      brain: "dist/cli/project-brain.js"
+    });
+  });
+
   it("exposes the expected command surface", () => {
     const helpText = runCliHelp(["--help"]);
 
