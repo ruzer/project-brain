@@ -49,7 +49,7 @@
     "eslint": "^10.0.3",
     "ts-node": "^10.9.2",
     "ts-prune": "^0.10.3",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.6"
   },
   "engines": {
     "node": ">=20"
