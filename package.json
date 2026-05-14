@@ -43,7 +43,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/node": "^20.19.0",
+    "@types/node": "^25.7.0",
     "@typescript-eslint/parser": "^8.57.0",
     "dependency-cruiser": "^17.3.8",
     "eslint": "^10.0.3",
