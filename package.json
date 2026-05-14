@@ -38,7 +38,7 @@
     "@langchain/ollama": "^1.2.6",
     "commander": "^14.0.1",
     "deepagents": "^1.8.4",
-    "langchain": "^1.2.35",
+    "langchain": "^1.4.0",
     "typescript": "^5.9.3",
     "zod": "^4.3.6"
   },
