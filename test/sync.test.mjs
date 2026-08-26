@@ -44,6 +44,11 @@ test("sync falla de forma segura si faltan marcadores", async (t) => {
 });
 
 test("sync preserva los permisos del archivo de contexto", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("los permisos POSIX no aplican en Windows");
+    return;
+  }
+
   const root = await temporaryRepository(t);
   await initRepository(root);
   const contextPath = path.join(root, "AI_CONTEXT", "CONTEXT.md");

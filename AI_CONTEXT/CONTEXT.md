@@ -9,7 +9,7 @@ role: context
 ## Hechos verificados del repositorio
 
 - Archivos analizados: 31
-- Huella del inventario: `sha256:aaec898c7b00bf09bc2468b1e44c877ae974698220f667353690c272826ab213`
+- Huella del inventario: `sha256:2f4d3550ed9f3e1c317c050f027a0d7164846db16d5f51961a613baeffd764a0`
 - Stack: Node.js
 - Raíces principales: .github, bin, schema, src, templates, test, test-support
 - Lenguajes: JavaScript
