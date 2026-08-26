@@ -28,5 +28,6 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
       - run: npm ci
-      - run: npm audit --omit=dev --audit-level=high
+      - name: Audit production and development dependencies
+        run: npm audit --audit-level=high
       - run: npm run check
