@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ruzer/project-brain/schema/context-contract.schema.json",
+  "title": "Project Brain Lite context contract",
+  "description": "Contrato portable para el conjunto mínimo de contexto.",
+  "type": "object",
+  "required": [
+    "contractVersion",
+    "files",
+    "generatedFile",
+    "markers",
+    "limits"
+  ],
+  "properties": {
+    "contractVersion": { "const": 1 },
+    "files": {
+      "type": "array",
+      "prefixItems": [
+        { "const": "AGENTS.md" },
+        { "const": "AI_CONTEXT/CONTEXT.md" },
+        { "const": "AI_CONTEXT/DECISIONS.md" },
+        { "const": "AI_CONTEXT/TASKS.md" },
+        { "const": "AI_CONTEXT/LEARNINGS.md" }
+      ],
+      "minItems": 5,
+      "maxItems": 5
+    },
+    "generatedFile": { "const": "AI_CONTEXT/CONTEXT.md" },
+    "markers": {
+      "type": "object",
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "const": "<!-- brain:generated:start -->" },
+        "end": { "const": "<!-- brain:generated:end -->" }
+      },
+      "additionalProperties": false
+    },
+    "limits": {
+      "type": "object",
+      "required": ["bytesPerFile", "linesPerFile", "totalBytes"],
+      "properties": {
+        "bytesPerFile": { "type": "integer", "minimum": 1 },
+        "linesPerFile": { "type": "integer", "minimum": 1 },
+        "totalBytes": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "default": {
+    "contractVersion": 1,
+    "files": [
+      "AGENTS.md",
+      "AI_CONTEXT/CONTEXT.md",
+      "AI_CONTEXT/DECISIONS.md",
+      "AI_CONTEXT/TASKS.md",
+      "AI_CONTEXT/LEARNINGS.md"
+    ],
+    "generatedFile": "AI_CONTEXT/CONTEXT.md",
+    "markers": {
+      "start": "<!-- brain:generated:start -->",
+      "end": "<!-- brain:generated:end -->"
+    },
+    "limits": {
+      "bytesPerFile": 12288,
+      "linesPerFile": 240,
+      "totalBytes": 40960
+    }
+  }
+}

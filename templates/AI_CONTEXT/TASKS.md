@@ -5,9 +5,11 @@ role: tasks
 
 # Tareas
 
+Mantén aquí solo trabajo activo. Cierra o elimina entradas terminadas; Git conserva el historial.
+
 ## En curso
 
-- Ninguna.
+- [ ] Resultado concreto — responsable — siguiente paso verificable.
 
 ## Bloqueos
 
