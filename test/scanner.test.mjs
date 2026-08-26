@@ -100,6 +100,19 @@ test("la huella usa rutas y tamaños, no timestamps ni contenido del mismo tama�
   assert.notEqual(differentSize.fingerprint, initial.fingerprint);
 });
 
+test("reconoce JavaScript puro sin package.json ni TypeScript inventado", async (t) => {
+  const root = await temporaryRepository(t);
+  await put(root, "src/index.js", "export const ready = true;\n");
+  await put(root, "test/index.test.cjs", "module.exports = true;\n");
+
+  const scan = await scanRepository(root);
+
+  assert.deepEqual(scan.languages, ["JavaScript"]);
+  assert.deepEqual(scan.manifests, []);
+  assert.deepEqual(scan.stack, []);
+  assert.deepEqual(scan.validationCommands, []);
+});
+
 test("prefiere git ls-files y respeta exclusiones estándar", async (t) => {
   try {
     execFileSync("git", ["--version"], { stdio: "ignore" });

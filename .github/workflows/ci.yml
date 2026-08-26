@@ -5,7 +5,10 @@ on:
   push:
     branches:
       - main
-      - codex/project-brain-lite
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -30,3 +33,5 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      - if: matrix.os == 'ubuntu-latest' && matrix.node-version == 20
+        run: npm pack --dry-run
