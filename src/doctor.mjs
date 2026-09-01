@@ -8,7 +8,7 @@ import {
   REQUIRED_FILES,
   START_MARKER
 } from "./contract.mjs";
-import { insideRoot, managedPath, resolveRoot } from "./fs.mjs";
+import { insideRoot, managedPath, readText, resolveRoot } from "./fs.mjs";
 
 const CHECK_IDS = Object.freeze([
   "canonical-files",
@@ -793,7 +793,9 @@ export async function doctor(inputRoot = ".") {
     }
 
     try {
-      const content = await readFile(absolute, "utf8");
+      const content = relative === GENERATED_FILE
+        ? await readText(absolute)
+        : await readFile(absolute, "utf8");
       canonical.set(relative, {
         content,
         bytes: info.size,

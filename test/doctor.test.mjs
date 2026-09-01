@@ -5,6 +5,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rm,
   symlink,
   unlink,
@@ -14,7 +15,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { doctor } from "../src/doctor.mjs";
+import { doctor, doctorRepository } from "../src/index.mjs";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const templateRoot = path.join(packageRoot, "templates");
@@ -102,6 +103,32 @@ test("exige una sola pareja ordenada de marcadores generados", async () => {
 
   assert.equal(result.ok, false);
   assert.ok(codes(result.errors).includes("GENERATED_START_MARKER_COUNT"));
+});
+
+test("doctor informa UTF-8 inválido en CONTEXT.md y permanece read-only", async () => {
+  const root = await createFixture();
+  const contextPath = path.join(root, "AI_CONTEXT", "CONTEXT.md");
+  const original = await readFile(contextPath);
+  const marker = original.indexOf(Buffer.from("<!-- brain:generated:start -->"));
+  const invalid = Buffer.concat([
+    original.subarray(0, marker),
+    Buffer.from([0x80]),
+    original.subarray(marker)
+  ]);
+  await writeFile(contextPath, invalid);
+  const beforeEntries = (await readdir(path.join(root, "AI_CONTEXT"))).sort();
+
+  const result = await doctorRepository(root);
+
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((diagnostic) =>
+    diagnostic.code === "UNREADABLE_CANONICAL_FILE" &&
+    diagnostic.file === "AI_CONTEXT/CONTEXT.md" &&
+    diagnostic.reason === "INVALID_UTF8"
+  ));
+  assert.deepEqual(await readFile(contextPath), invalid);
+  assert.deepEqual((await readdir(path.join(root, "AI_CONTEXT"))).sort(), beforeEntries);
+  assert.equal(beforeEntries.some((name) => name.endsWith(".tmp")), false);
 });
 
 test("advierte límites por bytes, líneas y tamaño total", async () => {

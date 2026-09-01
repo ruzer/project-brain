@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { chmod, readFile, stat, writeFile } from "node:fs/promises";
+import { chmod, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { END_MARKER, START_MARKER } from "../src/contract.mjs";
+import { END_MARKER, REQUIRED_FILES, START_MARKER } from "../src/contract.mjs";
 import { initRepository, syncRepository } from "../src/index.mjs";
 import { get, put, temporaryRepository } from "../test-support/helpers.mjs";
 
@@ -70,6 +70,12 @@ const preservationCases = [
   combinedPreservationCase
 ];
 
+const invalidUtf8Cases = [
+  { name: "antes del bloque generado", placement: "before", bytes: Buffer.from([0x80]) },
+  { name: "dentro del bloque generado", placement: "inside", bytes: Buffer.from([0xc0, 0xaf]) },
+  { name: "después del bloque generado", placement: "after", bytes: Buffer.from([0xe2, 0x82]) }
+];
+
 function contextFixture({ prefix, suffix, lineEnding = "\n" }) {
   return Buffer.concat([
     prefix,
@@ -98,6 +104,49 @@ async function writeContextFixture(root, fixture) {
   const before = contextFixture(fixture);
   await writeFile(contextPath, before);
   return { before, contextPath };
+}
+
+function insertInvalidUtf8(content, { placement, bytes }) {
+  const start = content.indexOf(startMarkerBytes);
+  const end = content.indexOf(endMarkerBytes, start);
+  assert.notEqual(start, -1, "falta el marcador inicial");
+  assert.notEqual(end, -1, "falta el marcador final");
+  const offset = placement === "before"
+    ? start
+    : placement === "inside"
+      ? start + startMarkerBytes.length
+      : end + endMarkerBytes.length;
+  return Buffer.concat([content.subarray(0, offset), bytes, content.subarray(offset)]);
+}
+
+async function canonicalBuffers(root) {
+  return Object.fromEntries(await Promise.all(REQUIRED_FILES.map(async (relative) => [
+    relative,
+    await readFile(path.join(root, relative))
+  ])));
+}
+
+async function repositoryTree(root) {
+  return {
+    root: (await readdir(root)).sort(),
+    context: (await readdir(path.join(root, "AI_CONTEXT"))).sort()
+  };
+}
+
+async function repositoryState(root) {
+  return {
+    files: await canonicalBuffers(root),
+    tree: await repositoryTree(root)
+  };
+}
+
+async function assertRepositoryUnchanged(root, before) {
+  const after = await repositoryState(root);
+  assert.deepEqual(after, before);
+  assert.equal(
+    [...after.tree.root, ...after.tree.context].some((name) => name.endsWith(".tmp")),
+    false
+  );
 }
 
 test("sync cambia solo el bloque generado, preserva lo manual y es idempotente", async (t) => {
@@ -170,6 +219,53 @@ test("brain sync preserva bytes repository-owned e idempotencia desde la CLI rea
   assert.equal(second.stderr, "");
   assert.equal(JSON.parse(second.stdout).changed, false);
   assert.deepEqual(await readFile(contextPath), after);
+});
+
+test("sync rechaza UTF-8 inválido sin modificar ningún artefacto", async (t) => {
+  for (const fixture of invalidUtf8Cases) {
+    await t.test(fixture.name, async (t) => {
+      const root = await temporaryRepository(t);
+      await initRepository(root);
+      await put(root, "nuevo.js", "export default true;\n");
+      const contextPath = path.join(root, "AI_CONTEXT", "CONTEXT.md");
+      const invalid = insertInvalidUtf8(await readFile(contextPath), fixture);
+      await writeFile(contextPath, invalid);
+      const before = await repositoryState(root);
+
+      await assert.rejects(
+        () => syncRepository(root),
+        (error) => error?.code === "INVALID_UTF8" && /UTF-8 válido/u.test(error.message)
+      );
+
+      await assertRepositoryUnchanged(root, before);
+    });
+  }
+});
+
+test("brain sync --json rechaza UTF-8 inválido sin escribir", async (t) => {
+  const root = await temporaryRepository(t, "brain cli utf8 inválido ");
+  await initRepository(root);
+  await put(root, "nuevo.js", "export default true;\n");
+  const contextPath = path.join(root, "AI_CONTEXT", "CONTEXT.md");
+  await writeFile(
+    contextPath,
+    insertInvalidUtf8(await readFile(contextPath), invalidUtf8Cases[1])
+  );
+  const before = await repositoryState(root);
+
+  const failure = await execFileAsync(
+    process.execPath,
+    [brainBin, "sync", root, "--json"],
+    { encoding: "utf8" }
+  ).then(() => null, (error) => error);
+
+  assert.equal(failure?.code, 1);
+  assert.equal(failure.stderr, "");
+  const payload = JSON.parse(failure.stdout);
+  assert.equal(payload.ok, false);
+  assert.equal(payload.error.code, "COMMAND_FAILED");
+  assert.match(payload.error.message, /UTF-8 válido/u);
+  await assertRepositoryUnchanged(root, before);
 });
 
 test("sync falla de forma segura si faltan marcadores", async (t) => {

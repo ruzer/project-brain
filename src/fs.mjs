@@ -1,3 +1,4 @@
+import { isUtf8 } from "node:buffer";
 import { chmod, link, lstat, mkdir, readFile, realpath, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -51,7 +52,13 @@ export async function ensureRegularFile(filePath) {
 
 export async function readText(filePath) {
   await ensureRegularFile(filePath);
-  return readFile(filePath, "utf8");
+  const content = await readFile(filePath);
+  if (!isUtf8(content)) {
+    const error = new Error(`El archivo no contiene UTF-8 válido: ${filePath}`);
+    error.code = "INVALID_UTF8";
+    throw error;
+  }
+  return content.toString("utf8");
 }
 
 export async function writeNewFile(filePath, content) {

@@ -59,6 +59,27 @@ test("init preserva como bytes el contenido repository-owned de CONTEXT.md", asy
   assert.notEqual(after.at(-1), 0x0a);
 });
 
+test("init rechaza CONTEXT.md con UTF-8 inválido antes de crear artefactos", async (t) => {
+  const root = await temporaryRepository(t);
+  const contextPath = path.join(root, "AI_CONTEXT", "CONTEXT.md");
+  await mkdir(path.dirname(contextPath), { recursive: true });
+  const invalid = Buffer.concat([
+    Buffer.from(`# Contexto\n${START_MARKER}\n`),
+    Buffer.from([0x80]),
+    Buffer.from(`\n${END_MARKER}\nContenido repository-owned\n`)
+  ]);
+  await writeFile(contextPath, invalid);
+
+  await assert.rejects(
+    () => initRepository(root),
+    (error) => error?.code === "INVALID_UTF8" && /UTF-8 válido/u.test(error.message)
+  );
+
+  assert.deepEqual(await readFile(contextPath), invalid);
+  assert.deepEqual(await readdir(root), ["AI_CONTEXT"]);
+  assert.deepEqual(await readdir(path.join(root, "AI_CONTEXT")), ["CONTEXT.md"]);
+});
+
 test("init rechaza enlaces simbólicos canónicos antes de escribir", async (t) => {
   const root = await temporaryRepository(t);
   await put(root, "destino.md", "no tocar\n");
