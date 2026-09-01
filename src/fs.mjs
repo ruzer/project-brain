@@ -1,4 +1,4 @@
-import { link, lstat, mkdir, readFile, realpath, rename, unlink, writeFile } from "node:fs/promises";
+import { chmod, link, lstat, mkdir, readFile, realpath, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export async function pathExists(filePath) {
@@ -86,7 +86,7 @@ function sameIdentity(left, right) {
 export async function writeFileAtomic(root, filePath, content) {
   const parentIdentity = await managedParentIdentity(root, filePath);
   let mode = 0o644;
-  if (await pathExists(filePath)) mode = (await ensureRegularFile(filePath)).mode & 0o777;
+  if (await pathExists(filePath)) mode = (await ensureRegularFile(filePath)).mode & 0o7777;
   await mkdir(path.dirname(filePath), { recursive: true });
   const temporary = path.join(
     path.dirname(filePath),
@@ -94,6 +94,7 @@ export async function writeFileAtomic(root, filePath, content) {
   );
   try {
     await writeFile(temporary, content, { encoding: "utf8", flag: "wx", mode });
+    if (process.platform !== "win32") await chmod(temporary, mode);
     const afterWriteIdentity = await managedParentIdentity(root, filePath);
     if (!sameIdentity(parentIdentity, afterWriteIdentity)) {
       throw new Error("El directorio administrado cambió durante la escritura.");

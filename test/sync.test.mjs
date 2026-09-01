@@ -1,11 +1,104 @@
 import assert from "node:assert/strict";
-import { chmod, stat } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { chmod, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
-import { END_MARKER } from "../src/contract.mjs";
-import { initRepository } from "../src/init.mjs";
-import { syncRepository } from "../src/sync.mjs";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import { END_MARKER, START_MARKER } from "../src/contract.mjs";
+import { initRepository, syncRepository } from "../src/index.mjs";
 import { get, put, temporaryRepository } from "../test-support/helpers.mjs";
+
+const execFileAsync = promisify(execFile);
+const brainBin = fileURLToPath(new URL("../bin/brain.mjs", import.meta.url));
+const startMarkerBytes = Buffer.from(START_MARKER);
+const endMarkerBytes = Buffer.from(END_MARKER);
+const combinedPreservationCase = {
+  name: "combinación representativa",
+  prefix: Buffer.concat([
+    Buffer.from([0xef, 0xbb, 0xbf]),
+    Buffer.from("---\r\nproject_brain: 1\r\nrole: context\r\n---\r\n# caf\u00e9 y cafe\u0301 \u{1f9e0}\t  \r\n")
+  ]),
+  suffix: Buffer.from("\r\nContenido \u{1f680}\tcon trailing spaces  \r\nÚltima línea sin newline"),
+  lineEnding: "\r\n",
+  noFinalNewline: true
+};
+
+const preservationCases = [
+  {
+    name: "CRLF",
+    prefix: Buffer.from("# Contexto\r\n\r\n"),
+    suffix: Buffer.from("\r\n\r\nContenido del repositorio\r\n"),
+    lineEnding: "\r\n"
+  },
+  {
+    name: "BOM UTF-8",
+    prefix: Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from("# Contexto\n")]),
+    suffix: Buffer.from("\nContenido del repositorio\n")
+  },
+  {
+    name: "Unicode",
+    prefix: Buffer.from("# Español, 漢字 y العربية\n"),
+    suffix: Buffer.from("\nΕλληνικά y português\n")
+  },
+  {
+    name: "Unicode NFC y NFD",
+    prefix: Buffer.from("# caf\u00e9\n"),
+    suffix: Buffer.from("\ncafe\u0301\n")
+  },
+  {
+    name: "emoji",
+    prefix: Buffer.from("# Contexto \u{1f9e0}\n"),
+    suffix: Buffer.from("\nContenido \u{1f680}\n")
+  },
+  {
+    name: "tabs",
+    prefix: Buffer.from("#\tContexto\n"),
+    suffix: Buffer.from("\n\tContenido\t\n")
+  },
+  {
+    name: "trailing spaces",
+    prefix: Buffer.from("# Contexto  \nLínea con tab\t \n"),
+    suffix: Buffer.from("\nContenido con espacios   \n")
+  },
+  {
+    name: "ausencia de newline final",
+    prefix: Buffer.from("# Contexto\n"),
+    suffix: Buffer.from("\nContenido sin newline final"),
+    noFinalNewline: true
+  },
+  combinedPreservationCase
+];
+
+function contextFixture({ prefix, suffix, lineEnding = "\n" }) {
+  return Buffer.concat([
+    prefix,
+    startMarkerBytes,
+    Buffer.from(`${lineEnding}proyección obsoleta${lineEnding}`),
+    endMarkerBytes,
+    suffix
+  ]);
+}
+
+function contextSegments(content) {
+  const start = content.indexOf(startMarkerBytes);
+  const endStart = content.indexOf(endMarkerBytes, start);
+  assert.notEqual(start, -1, "falta el marcador inicial");
+  assert.notEqual(endStart, -1, "falta el marcador final");
+  const end = endStart + endMarkerBytes.length;
+  return {
+    prefix: content.subarray(0, start),
+    projection: content.subarray(start, end),
+    suffix: content.subarray(end)
+  };
+}
+
+async function writeContextFixture(root, fixture) {
+  const contextPath = path.join(root, "AI_CONTEXT", "CONTEXT.md");
+  const before = contextFixture(fixture);
+  await writeFile(contextPath, before);
+  return { before, contextPath };
+}
 
 test("sync cambia solo el bloque generado, preserva lo manual y es idempotente", async (t) => {
   const root = await temporaryRepository(t);
@@ -33,6 +126,52 @@ test("sync cambia solo el bloque generado, preserva lo manual y es idempotente",
   assert.equal(second.changed, false);
   assert.equal(await get(root, "AI_CONTEXT/CONTEXT.md"), after);
 });
+
+test("sync preserva byte por byte RepositoryOwnedContent UTF-8 válido", async (t) => {
+  for (const fixture of preservationCases) {
+    await t.test(fixture.name, async (t) => {
+      const root = await temporaryRepository(t);
+      await initRepository(root);
+      const { before, contextPath } = await writeContextFixture(root, fixture);
+      const beforeSegments = contextSegments(before);
+
+      const first = await syncRepository(root);
+      const after = await readFile(contextPath);
+      const afterSegments = contextSegments(after);
+
+      assert.equal(first.changed, true);
+      assert.deepEqual(afterSegments.prefix, beforeSegments.prefix);
+      assert.deepEqual(afterSegments.suffix, beforeSegments.suffix);
+      assert.notDeepEqual(afterSegments.projection, beforeSegments.projection);
+      if (fixture.noFinalNewline) assert.notEqual(after.at(-1), 0x0a);
+
+      const second = await syncRepository(root);
+      assert.equal(second.changed, false);
+      assert.deepEqual(await readFile(contextPath), after);
+    });
+  }
+});
+
+test("brain sync preserva bytes repository-owned e idempotencia desde la CLI real", async (t) => {
+  const root = await temporaryRepository(t, "brain cli bytes ");
+  await initRepository(root);
+  const { before, contextPath } = await writeContextFixture(root, combinedPreservationCase);
+  const beforeSegments = contextSegments(before);
+
+  const first = await execFileAsync(process.execPath, [brainBin, "sync", root, "--json"], { encoding: "utf8" });
+  assert.equal(first.stderr, "");
+  assert.equal(JSON.parse(first.stdout).changed, true);
+  const after = await readFile(contextPath);
+  const afterSegments = contextSegments(after);
+  assert.deepEqual(afterSegments.prefix, beforeSegments.prefix);
+  assert.deepEqual(afterSegments.suffix, beforeSegments.suffix);
+
+  const second = await execFileAsync(process.execPath, [brainBin, "sync", root, "--json"], { encoding: "utf8" });
+  assert.equal(second.stderr, "");
+  assert.equal(JSON.parse(second.stdout).changed, false);
+  assert.deepEqual(await readFile(contextPath), after);
+});
+
 test("sync falla de forma segura si faltan marcadores", async (t) => {
   const root = await temporaryRepository(t);
   await initRepository(root);
@@ -43,7 +182,7 @@ test("sync falla de forma segura si faltan marcadores", async (t) => {
   assert.equal(await get(root, "AI_CONTEXT/CONTEXT.md"), invalid);
 });
 
-test("sync preserva los permisos del archivo de contexto", async (t) => {
+test("sync preserva el modo POSIX completo aunque el umask restrinja el archivo temporal", async (t) => {
   if (process.platform === "win32") {
     t.skip("los permisos POSIX no aplican en Windows");
     return;
@@ -52,9 +191,16 @@ test("sync preserva los permisos del archivo de contexto", async (t) => {
   const root = await temporaryRepository(t);
   await initRepository(root);
   const contextPath = path.join(root, "AI_CONTEXT", "CONTEXT.md");
-  await chmod(contextPath, 0o600);
+  await chmod(contextPath, 0o1750);
+  const expectedMode = (await stat(contextPath)).mode & 0o7777;
+  assert.equal(expectedMode, 0o1750);
   await put(root, "nuevo.js", "export default true;\n");
 
-  await syncRepository(root);
-  assert.equal((await stat(contextPath)).mode & 0o777, 0o600);
+  const previousUmask = process.umask(0o077);
+  try {
+    await syncRepository(root);
+    assert.equal((await stat(contextPath)).mode & 0o7777, expectedMode);
+  } finally {
+    process.umask(previousUmask);
+  }
 });

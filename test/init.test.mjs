@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, readdir, symlink } from "node:fs/promises";
+import { chmod, mkdir, readFile, readdir, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
-import { REQUIRED_FILES } from "../src/contract.mjs";
+import { END_MARKER, REQUIRED_FILES, START_MARKER } from "../src/contract.mjs";
 import { initRepository } from "../src/init.mjs";
 import { get, put, temporaryRepository } from "../test-support/helpers.mjs";
 
@@ -31,6 +31,32 @@ test("init nunca sobrescribe contenido manual existente", async (t) => {
   assert.deepEqual(result.created, []);
   assert.deepEqual(result.preserved, REQUIRED_FILES);
   assert.equal(await get(root, "AI_CONTEXT/TASKS.md"), manual);
+});
+
+test("init preserva como bytes el contenido repository-owned de CONTEXT.md", async (t) => {
+  const root = await temporaryRepository(t);
+  const contextPath = path.join(root, "AI_CONTEXT", "CONTEXT.md");
+  await mkdir(path.dirname(contextPath), { recursive: true });
+  const prefix = Buffer.concat([
+    Buffer.from([0xef, 0xbb, 0xbf]),
+    Buffer.from("---\r\nproject_brain: 1\r\nrole: context\r\n---\r\n# caf\u00e9 y cafe\u0301 \u{1f9e0}\t  \r\n")
+  ]);
+  const suffix = Buffer.from("\r\nContenido \u{1f680}\tcon trailing spaces  \r\nÚltima línea sin newline");
+  await writeFile(contextPath, Buffer.concat([
+    prefix,
+    Buffer.from(`${START_MARKER}\r\nproyección obsoleta\r\n${END_MARKER}`),
+    suffix
+  ]));
+
+  const result = await initRepository(root);
+  const after = await readFile(contextPath);
+  const start = after.indexOf(Buffer.from(START_MARKER));
+  const end = after.indexOf(Buffer.from(END_MARKER), start) + Buffer.byteLength(END_MARKER);
+
+  assert.ok(result.preserved.includes("AI_CONTEXT/CONTEXT.md"));
+  assert.deepEqual(after.subarray(0, start), prefix);
+  assert.deepEqual(after.subarray(end), suffix);
+  assert.notEqual(after.at(-1), 0x0a);
 });
 
 test("init rechaza enlaces simbólicos canónicos antes de escribir", async (t) => {
