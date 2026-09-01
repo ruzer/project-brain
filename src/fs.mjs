@@ -50,7 +50,7 @@ export async function ensureRegularFile(filePath) {
   return info;
 }
 
-export async function readText(filePath) {
+export async function readTextSnapshot(filePath) {
   await ensureRegularFile(filePath);
   const content = await readFile(filePath);
   if (!isUtf8(content)) {
@@ -58,7 +58,11 @@ export async function readText(filePath) {
     error.code = "INVALID_UTF8";
     throw error;
   }
-  return content.toString("utf8");
+  return { bytes: content, text: content.toString("utf8") };
+}
+
+export async function readText(filePath) {
+  return (await readTextSnapshot(filePath)).text;
 }
 
 export async function writeNewFile(filePath, content) {
@@ -90,7 +94,7 @@ function sameIdentity(left, right) {
   return left.dev === right.dev && left.ino === right.ino;
 }
 
-export async function writeFileAtomic(root, filePath, content) {
+export async function writeFileAtomic(root, filePath, content, { expectedBytes } = {}) {
   const parentIdentity = await managedParentIdentity(root, filePath);
   let mode = 0o644;
   if (await pathExists(filePath)) mode = (await ensureRegularFile(filePath)).mode & 0o7777;
@@ -107,6 +111,12 @@ export async function writeFileAtomic(root, filePath, content) {
       throw new Error("El directorio administrado cambió durante la escritura.");
     }
     await ensureRegularFile(filePath);
+    if (expectedBytes) {
+      const currentBytes = await readFile(filePath);
+      if (!currentBytes.equals(expectedBytes)) {
+        throw new Error("CONTEXT.md cambió durante la sincronización; vuelve a intentarlo.");
+      }
+    }
     await rename(temporary, filePath);
   } catch (error) {
     const currentIdentity = await managedParentIdentity(root, filePath).catch(() => null);

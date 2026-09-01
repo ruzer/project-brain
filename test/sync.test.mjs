@@ -5,8 +5,9 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { END_MARKER, REQUIRED_FILES, START_MARKER } from "../src/contract.mjs";
+import { END_MARKER, GENERATED_FILE, REQUIRED_FILES, START_MARKER } from "../src/contract.mjs";
 import { initRepository, syncRepository } from "../src/index.mjs";
+import { __testing as syncTesting } from "../src/sync.mjs";
 import { get, put, temporaryRepository } from "../test-support/helpers.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -266,6 +267,39 @@ test("brain sync --json rechaza UTF-8 inválido sin escribir", async (t) => {
   assert.equal(payload.error.code, "COMMAND_FAILED");
   assert.match(payload.error.message, /UTF-8 válido/u);
   await assertRepositoryUnchanged(root, before);
+});
+
+test("sync aborta si CONTEXT.md cambia después de la segunda lectura", async (t) => {
+  const root = await temporaryRepository(t);
+  await initRepository(root);
+  await put(root, "nuevo.js", "export default true;\n");
+  const contextPath = path.join(root, GENERATED_FILE);
+  const competitor = Buffer.concat([
+    await readFile(contextPath),
+    Buffer.from("\nEdición competidora repository-owned completa.\n")
+  ]);
+  const before = await repositoryState(root);
+  let checkpointCalls = 0;
+
+  await assert.rejects(
+    () => syncTesting.syncWithCheckpoint(root, async () => {
+      checkpointCalls += 1;
+      await writeFile(contextPath, competitor);
+    }),
+    /CONTEXT\.md cambió durante la sincronización/u
+  );
+
+  const after = await repositoryState(root);
+  assert.equal(checkpointCalls, 1);
+  assert.deepEqual(after.files[GENERATED_FILE], competitor);
+  for (const relative of REQUIRED_FILES.filter((file) => file !== GENERATED_FILE)) {
+    assert.deepEqual(after.files[relative], before.files[relative]);
+  }
+  assert.deepEqual(after.tree, before.tree);
+  assert.equal(
+    [...after.tree.root, ...after.tree.context].some((name) => name.endsWith(".tmp")),
+    false
+  );
 });
 
 test("sync falla de forma segura si faltan marcadores", async (t) => {
