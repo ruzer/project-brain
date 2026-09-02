@@ -23,7 +23,9 @@ role: context
 - Ninguno
 <!-- brain:generated:end -->
 
-## Contexto manual
+## Contexto del repositorio
+
+Esta sección forma parte de `RepositoryOwnedContent`; sus bytes pertenecen al repositorio y deben preservarse.
 
 - **Propósito:** describe en una frase qué resuelve el proyecto.
 - **Alcance actual:** anota solo los límites que cambian cómo se debe trabajar.

@@ -1,6 +1,6 @@
 # Project Brain Lite
 
-Project Brain mantiene contexto útil para agentes sin convertirse en otra plataforma. Inspecciona hechos verificables del repositorio y deja las decisiones humanas en cuatro notas Markdown pequeñas.
+Project Brain Lite conserva un contexto técnico pequeño y verificable para humanos y agentes externos. Observa el repositorio de forma local y determinista; después de `init`, sólo escribe la proyección delimitada de `CONTEXT.md` y preserva el resto de los cinco archivos canónicos.
 
 ## Inicio rápido
 
@@ -36,21 +36,82 @@ npx brain doctor .
 
 ## Los tres comandos
 
-- `brain init [ruta]`: crea únicamente los cinco archivos que falten y sincroniza el inventario.
-- `brain sync [ruta]`: actualiza hechos comprobables dentro del bloque generado de `CONTEXT.md`; conserva byte por byte el contenido manual restante.
-- `brain doctor [ruta]`: detecta exceso de contexto, enlaces rotos, duplicados, archivos extra y posibles datos sensibles. Usa `--json` para automatización.
+- `brain init [ruta]`: crea únicamente los cinco archivos que falten y sincroniza la proyección inicial.
+- `brain sync [ruta]`: regenera `GeneratedProjection` dentro de sus marcadores y conserva byte por byte `RepositoryOwnedContent`.
+- `brain doctor [ruta]`: audita el contrato, los roles, la frescura, los enlaces y posibles riesgos sin escribir. Usa `--json` para automatización.
 
-El escáner usa primero el inventario de Git y respeta `.gitignore`; fuera de Git hace un recorrido local seguro. No llama modelos, servicios cloud ni procesos autónomos. La huella es determinista y no incluye marcas de tiempo.
+El escáner usa primero el inventario de Git y respeta `.gitignore`; fuera de Git hace un recorrido local seguro. No llama modelos, servicios cloud ni procesos autónomos, y tampoco ejecuta los comandos candidatos que detecta.
 
-## Responsabilidades claras
+## Modelo de dominio 0.3.1
 
-- **Project Brain:** mantiene el contexto técnico local del repositorio: stack, estructura, comandos verificables y notas técnicas. Crea el contrato y actualiza únicamente el bloque verificable de `CONTEXT.md`; el contenido manual pertenece al equipo.
-- **Project Memory Hub (opcional):** conserva y presenta la memoria de gestión: responsables, fechas, hitos, riesgos, decisiones, fuentes, roadmap y estado global.
-- **Graphify:** relaciones y grafos. Mantén su salida reconstruible en `graphify-out/`.
-- **Obsidian:** navegación y edición humana de Markdown.
-- **Git:** historial; no dupliques bitácoras en el contexto activo.
+Este glosario es la definición canónica del producto. Los documentos operativos usan estos términos sin redefinirlos.
 
-Cuando Project Brain y Project Memory Hub conviven, funcionan como repositorios hermanos e independientes. Se enlazan sus fuentes canónicas mediante referencias con procedencia; Project Brain no copia ni sincroniza la memoria de gestión del hub, y sus respectivos archivos `AI_CONTEXT` no se fusionan.
+**Repository**: Repositorio de software observado localmente y autoridad factual primaria sobre su contenido técnico.
+
+**TechnicalContextBundle**: Agregado exacto de los cinco `ContextArtifact` canónicos; no es un sexto artefacto.
+
+**ContextArtifact**: Uno de los cinco archivos Markdown persistentes del contrato: `AGENTS.md`, `CONTEXT.md`, `DECISIONS.md`, `TASKS.md` o `LEARNINGS.md`.
+
+**GeneratedProjection**: Región delimitada de `CONTEXT.md`, derivada y regenerable, cuya representación puede escribir Project Brain después de `init`.
+
+**RepositoryOwnedContent**: Todos los bytes exteriores a `GeneratedProjection`; pertenecen al repositorio, no se regeneran y deben preservarse aunque procedan originalmente de una plantilla.
+
+**RepositoryObservation**: Resultado determinista de una lectura local del repositorio; es recalculable, pero no es un snapshot transaccional ni un hash de contenido.
+
+**TechnicalSource**: Localizador repository-local de evidencia técnica.
+
+**ObservedFact**: Afirmación sustentada directamente por una `TechnicalSource`.
+
+**Detection**: Inferencia heurística determinista producida por reglas conocidas; no es un hecho observado.
+
+**TechnicalDecision**: Registro humano y no regenerable de una decisión técnica.
+
+**TechnicalTask**: Registro humano y no regenerable de trabajo técnico activo.
+
+**TechnicalLearning**: Registro humano y no regenerable de un hallazgo técnico reutilizable.
+
+**ContextContract**: Reglas de topología, roles, marcadores, ownership y presupuestos editoriales del bundle; no concede autoridad de escritura sobre `RepositoryOwnedContent`.
+
+**DoctorCheckResult**: Resumen efímero y recalculable de una comprobación read-only de `doctor`.
+
+**Diagnostic**: Mensaje derivado que identifica check, severidad, código y ubicación; no es memoria canónica.
+
+**IntegrationReference**: Puntero Markdown repository-owned hacia otra autoridad; no copia contenido, no hace fetching ni transfiere autoridad.
+
+## Matriz de autoridad
+
+Project Brain es autoridad de escritura únicamente sobre `GeneratedProjection`; no sustituye la autoridad factual del `Repository`.
+
+| Información | Autoridad del dato | Autoridad de escritura | Regeneración |
+| --- | --- | --- | --- |
+| Contenido técnico y evidencia | `Repository` | Repositorio y sus autores | Project Brain no lo regenera |
+| `GeneratedProjection` | Datos del `Repository`; representación de Project Brain | Project Brain mediante `sync` | Sí |
+| `RepositoryOwnedContent` —incluidas decisiones, tareas, aprendizajes y referencias— | `Repository` | Repositorio y sus autores | No |
+| Owners, fechas, riesgos, milestones y estado de gestión | Project Memory Hub, cuando se usa | Project Memory Hub | Según el Hub |
+| Historial detallado | Git | Git | Consultable desde Git |
+| Observaciones, resultados de checks y diagnósticos | Evidencia del `Repository` y reglas de Project Brain | No son estado persistente | Se recalculan |
+
+Project Memory Hub conserva la autoridad sobre owners, fechas, riesgos, milestones y estado de gestión. Git conserva la autoridad sobre el historial detallado.
+
+## No-equivalencias
+
+```text
+fingerprint != content hash
+doctor OK != context fresh
+detected command != executed command
+```
+
+- El fingerprint resume el inventario mediante ruta y tamaño; no prueba igualdad del contenido.
+- `doctor` puede terminar correctamente y comunicar warnings, incluida una proyección desactualizada.
+- Un comando candidato detectado no fue ejecutado, aprobado ni validado por Project Brain.
+
+## Herramientas complementarias
+
+- **Graphify:** deriva relaciones y grafos. Mantén su salida reconstruible en `graphify-out/`.
+- **Obsidian:** permite navegar y editar los mismos archivos Markdown sin transferir ownership.
+- **Git:** conserva el pasado; el contexto activo no duplica una bitácora.
+
+Cuando Project Brain y Project Memory Hub conviven, funcionan como repositorios hermanos e independientes. Una `IntegrationReference` puede relacionar sus fuentes canónicas sin copiar ni sincronizar registros, y sus respectivos archivos `AI_CONTEXT` no se fusionan.
 
 El escáner de Project Brain excluye `graphify-out/`, `.graphify/` y `.obsidian/` para evitar ciclos; no instala ni configura Graphify u Obsidian. No se necesita migración: adopta este contrato solo en proyectos donde decidas ejecutar `brain init`.
 

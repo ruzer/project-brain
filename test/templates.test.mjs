@@ -8,6 +8,24 @@ import { CONTRACT, REQUIRED_FILES } from "../src/contract.mjs";
 
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const templatesRoot = path.join(projectRoot, "templates");
+const DOMAIN_TERMS = [
+  "Repository",
+  "TechnicalContextBundle",
+  "ContextArtifact",
+  "GeneratedProjection",
+  "RepositoryOwnedContent",
+  "RepositoryObservation",
+  "TechnicalSource",
+  "ObservedFact",
+  "Detection",
+  "TechnicalDecision",
+  "TechnicalTask",
+  "TechnicalLearning",
+  "ContextContract",
+  "DoctorCheckResult",
+  "Diagnostic",
+  "IntegrationReference"
+];
 
 async function listFiles(directory, prefix = "") {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -136,9 +154,62 @@ test("todos los enlaces Markdown internos existen y conectan el contexto", async
   assert.deepEqual([...visited].sort(), [...REQUIRED_FILES].sort());
 });
 
+test("README publica el glosario canónico, autoridades y no-equivalencias", async () => {
+  const readme = await readFile(path.join(projectRoot, "README.md"), "utf8");
+
+  for (const term of DOMAIN_TERMS) {
+    assert.match(readme, new RegExp(`\\*\\*${term}\\*\\*:`, "u"), `falta ${term}`);
+  }
+
+  assert.match(readme, /Repository[^\n]*autoridad factual/iu);
+  assert.match(readme, /TechnicalContextBundle[^\n]*cinco[^\n]*ContextArtifact/iu);
+  assert.doesNotMatch(readme, /ownership derivado/iu);
+  assert.match(readme, /Project Brain[^\n]*autoridad de escritura únicamente[^\n]*GeneratedProjection/iu);
+  assert.match(readme, /RepositoryOwnedContent[^\n]*repositorio[^\n]*preserv/iu);
+  assert.match(readme, /Memory Hub[^\n]*owners[^\n]*fechas[^\n]*riesgos[^\n]*milestones[^\n]*estado de gestión/iu);
+  assert.match(readme, /Git[^\n]*historial/iu);
+
+  for (const statement of [
+    "fingerprint != content hash",
+    "doctor OK != context fresh",
+    "detected command != executed command"
+  ]) {
+    assert.match(readme, new RegExp(statement, "u"));
+  }
+
+  const currentProduct = readme.split("## Migración desde 0.2.x", 1)[0];
+  assert.doesNotMatch(
+    currentProduct,
+    /\b(?:swarm|governance|orchestrator|LLM routing|runtime memory|patch proposals)\b/iu
+  );
+});
+
+test("documentación y plantillas no contradicen el ownership 0.3.1", async () => {
+  const documents = await Promise.all([
+    "README.md",
+    "AGENTS.md",
+    "AI_CONTEXT/CONTEXT.md",
+    "templates/AGENTS.md",
+    "templates/AI_CONTEXT/CONTEXT.md"
+  ].map((relative) => readFile(path.join(projectRoot, relative), "utf8")));
+
+  for (const content of documents) {
+    assert.doesNotMatch(content, /\b(?:contenido|contexto) manual\b/iu);
+  }
+
+  const [readme, agents, , templateAgents, templateContext] = documents;
+  assert.doesNotMatch(readme, /Project Brain[^\n]*(?:owners|fechas|riesgos|milestones|estado de gestión)/iu);
+  assert.doesNotMatch(`${agents}\n${templateAgents}`, /Project Brain[^\n]*hechos verificables/iu);
+  assert.match(templateAgents, /Project Brain[^\n]*GeneratedProjection/iu);
+  assert.match(templateAgents, /RepositoryOwnedContent[^\n]*preserv/iu);
+  assert.match(templateAgents, /observaciones[^\n]*detecciones[^\n]*comandos candidatos/iu);
+  assert.match(templateContext, /^## Contexto del repositorio$/mu);
+  assert.doesNotMatch(templateContext, /^## RepositoryOwnedContent$/mu);
+});
+
 test("las responsabilidades de Project Brain, Graphify y Obsidian son explícitas", async () => {
   const agents = await readFile(path.join(templatesRoot, "AGENTS.md"), "utf8");
-  assert.match(agents, /Project Brain.*hechos verificables/i);
+  assert.match(agents, /Project Brain.*GeneratedProjection/i);
   assert.match(agents, /Graphify.*relaciones y visualizaciones/i);
   assert.match(agents, /Obsidian.*archivos Markdown/i);
   assert.match(agents, /no es contexto fuente/i);
