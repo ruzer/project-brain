@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { unlink } from "node:fs/promises";
+import { readFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
-import { runCli } from "../src/cli.mjs";
+import { runCli, VERSION } from "../src/cli.mjs";
 import { initRepository } from "../src/index.mjs";
 import { put, temporaryRepository } from "../test-support/helpers.mjs";
 
@@ -26,6 +26,21 @@ test("la ayuda publica únicamente init, sync y doctor", async () => {
     [...help.matchAll(/^  brain (\w+)/gm)].map((match) => match[1]),
     ["init", "sync", "doctor"]
   );
+});
+
+test("la versión pública de la CLI coincide exactamente con package.json", async () => {
+  const packageJson = JSON.parse(
+    await readFile(new URL("../package.json", import.meta.url), "utf8")
+  );
+
+  assert.equal(VERSION, packageJson.version);
+  for (const option of ["-v", "--version"]) {
+    const { output, io } = capture();
+    assert.equal(await runCli([option], io), 0);
+    assert.deepEqual(output.logs, [packageJson.version]);
+    assert.deepEqual(output.errors, []);
+    assert.deepEqual(output.warnings, []);
+  }
 });
 
 test("un comando desconocido devuelve error accionable", async () => {

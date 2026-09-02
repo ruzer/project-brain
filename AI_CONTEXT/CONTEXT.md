@@ -9,7 +9,7 @@ role: context
 ## Observaciones verificadas del repositorio
 
 - Archivos observados: 36
-- Huella del inventario basada en ruta:tamaño (no es hash de contenido): `sha256:4f02c1464f411ea60056ef4eb8f72873ae0e1103365c4aa2e1cca8f6b859c536`
+- Huella del inventario basada en ruta:tamaño (no es hash de contenido): `sha256:64313aa25ac1a518e92ebb2752ac94ed885609bec15fdb492de490440c502ba0`
 - Raíces observadas: .github, bin, schema, src, templates, test, test-support
 - Manifiestos observados: [package-lock.json](../package-lock.json), [package.json](../package.json)
 
