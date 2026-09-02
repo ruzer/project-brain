@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { access, chmod, mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  lstat,
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  writeFile
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,6 +28,20 @@ async function put(root, relativePath, content = "") {
   const filePath = path.join(root, ...relativePath.split("/"));
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, content);
+}
+
+async function repositorySnapshot(root) {
+  const names = (await readdir(root, { recursive: true })).sort();
+  const entries = [];
+  for (const name of names) {
+    const target = path.join(root, name);
+    const info = await lstat(target);
+    entries.push([
+      name,
+      info.isFile() ? await readFile(target, "hex") : "directory"
+    ]);
+  }
+  return entries;
 }
 
 test("genera un inventario determinista y excluye artefactos, builds y cachés", async (t) => {
@@ -61,6 +86,7 @@ test("genera un inventario determinista y excluye artefactos, builds y cachés",
   const second = await scanRepository(root);
 
   assert.deepEqual(second, first);
+  assert.equal(first.inventoryMode, "filesystem");
   assert.equal(first.fileCount, 7);
   assert.match(first.fingerprint, /^[a-f0-9]{64}$/);
   assert.deepEqual(first.roots, ["src", "test"]);
@@ -130,11 +156,38 @@ test("prefiere git ls-files y respeta exclusiones estándar", async (t) => {
   execFileSync("git", ["-C", root, "add", ".gitignore", "src/tracked.js"]);
 
   const scan = await scanRepository(root);
+  assert.equal(scan.inventoryMode, "git");
   assert.equal(scan.fileCount, 3);
   assert.deepEqual(scan.roots, ["src"]);
 
   await put(root, "ignored-by-git.txt", "ignored, incluso si cambia de tamaño\n");
   assert.equal((await scanRepository(root)).fingerprint, scan.fingerprint);
+});
+
+test("usa fallback de filesystem cuando falla el inventario de Git", async (t) => {
+  const root = await temporaryRepository(t);
+  await put(root, ".git", "gitdir: directorio-inexistente\n");
+  await put(root, "src/index.js", "export const ready = true;\n");
+
+  const scan = await scanRepository(root);
+
+  assert.equal(scan.inventoryMode, "filesystem");
+  assert.equal(scan.fileCount, 1);
+  assert.deepEqual(scan.roots, ["src"]);
+});
+
+test("informa un único modo de inventario de forma determinista y read-only", async (t) => {
+  const root = await temporaryRepository(t);
+  await put(root, "código fuente.js", "export const mensaje = 'sin mutaciones';\n");
+  const before = await repositorySnapshot(root);
+
+  const first = await scanRepository(root);
+  const second = await scanRepository(root);
+
+  assert.deepEqual(second, first);
+  assert.ok(["git", "filesystem"].includes(first.inventoryMode));
+  assert.equal(Object.hasOwn(first, "inventoryMode"), true);
+  assert.deepEqual(await repositorySnapshot(root), before);
 });
 
 test("neutraliza hooks fsmonitor al consultar el inventario de Git", async (t) => {

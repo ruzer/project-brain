@@ -229,7 +229,9 @@ async function walkLocal(root) {
 }
 
 async function collectRecords(root) {
-  const candidates = (await listWithGit(root)) ?? (await walkLocal(root));
+  const gitCandidates = await listWithGit(root);
+  const inventoryMode = gitCandidates === undefined ? "filesystem" : "git";
+  const candidates = gitCandidates ?? (await walkLocal(root));
   const uniquePaths = [...new Set(candidates.filter((filePath) => !isIgnoredPath(filePath)))].sort(lexicalCompare);
   const records = [];
 
@@ -246,7 +248,7 @@ async function collectRecords(root) {
     }
   }
 
-  return records;
+  return { records, inventoryMode };
 }
 
 function extensionFor(filePath) {
@@ -517,7 +519,7 @@ async function detectValidationCommands(root, records, manifests, packages) {
 
 export async function scanRepository(root = ".") {
   const resolvedRoot = await resolveRoot(root);
-  const records = await collectRecords(resolvedRoot);
+  const { records, inventoryMode } = await collectRecords(resolvedRoot);
   const manifests = records.map((record) => record.path).filter(isManifest).sort(lexicalCompare);
   const languages = buildLanguages(records);
   const packages = await readPackageManifests(resolvedRoot, manifests);
@@ -525,6 +527,7 @@ export async function scanRepository(root = ".") {
   return {
     fileCount: records.length,
     fingerprint: buildFingerprint(records),
+    inventoryMode,
     roots: buildRoots(records),
     extensions: buildExtensions(records),
     languages,

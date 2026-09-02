@@ -69,6 +69,11 @@
           "pattern": "^[a-f0-9]{64}$",
           "description": "SHA-256 del inventario estable ruta:tamaño; no representa el contenido completo."
         },
+        "inventoryMode": {
+          "type": "string",
+          "enum": ["git", "filesystem"],
+          "description": "Modo único usado para construir el inventario local."
+        },
         "roots": {
           "type": "array",
           "items": { "type": "string" },
@@ -105,6 +110,7 @@
         {
           "fileCount": 2,
           "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+          "inventoryMode": "git",
           "roots": ["src"],
           "extensions": { ".mjs": 1, ".json": 1 },
           "languages": ["JavaScript"],

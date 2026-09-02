@@ -271,7 +271,29 @@ test("los contratos son aditivos y preservan los campos existentes", () => {
     validationCommands
   });
   const observation = CONTRACT_SCHEMA.$defs.RepositoryObservation.examples[0];
-  assert.deepEqual(legacyConsumer({ ...observation, futureField: true }), observation);
+  assert.deepEqual(
+    legacyConsumer({ ...observation, futureField: true }),
+    legacyConsumer(observation)
+  );
+});
+
+test("RepositoryObservation publica inventoryMode como campo aditivo", () => {
+  const definition = CONTRACT_SCHEMA.$defs.RepositoryObservation;
+  const example = structuredClone(definition.examples[0]);
+
+  assert.deepEqual(definition.properties.inventoryMode, {
+    type: "string",
+    enum: ["git", "filesystem"],
+    description: "Modo único usado para construir el inventario local."
+  });
+  assert.equal(definition.required.includes("inventoryMode"), false);
+  assertMatches({ ...example, inventoryMode: "git" }, "RepositoryObservation");
+  assertMatches({ ...example, inventoryMode: "filesystem" }, "RepositoryObservation");
+  assertMatches(
+    Object.fromEntries(Object.entries(example).filter(([key]) => key !== "inventoryMode")),
+    "RepositoryObservation"
+  );
+  assertDoesNotMatch({ ...example, inventoryMode: "unknown" }, "RepositoryObservation");
 });
 
 test("CONTRACT_SCHEMA conserva el export raíz y el subpath publicado", async () => {

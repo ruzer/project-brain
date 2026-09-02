@@ -40,7 +40,7 @@ npx brain doctor .
 - `brain sync [ruta]`: regenera `GeneratedProjection` dentro de sus marcadores y conserva byte por byte `RepositoryOwnedContent`.
 - `brain doctor [ruta]`: audita el contrato, los roles, la frescura, los enlaces y posibles riesgos sin escribir. Usa `--json` para automatización.
 
-El escáner usa primero el inventario de Git y respeta `.gitignore`; fuera de Git hace un recorrido local seguro. No llama modelos, servicios cloud ni procesos autónomos, y tampoco ejecuta los comandos candidatos que detecta.
+El escáner usa primero el inventario de Git y respeta `.gitignore`; fuera de Git, o si Git falla, hace un recorrido local seguro. `RepositoryObservation.inventoryMode` informa `git` o `filesystem` según el único modo usado en esa observación. Es un campo aditivo que no forma parte de `GeneratedProjection`. El escáner no llama modelos, servicios cloud ni procesos autónomos, y tampoco ejecuta los comandos candidatos que detecta.
 
 ## Resultados públicos 0.3.x
 

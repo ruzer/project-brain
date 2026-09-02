@@ -74,3 +74,26 @@ test("cada categoría conserva fallbacks deterministas cuando no hay elementos",
   assert.match(sections.detections, /Lenguajes detectados heurísticamente: no detectados/u);
   assert.match(sections.commands, /\n- Ninguno\n/u);
 });
+
+test("el modo de inventario permanece fuera de GeneratedProjection", () => {
+  const facts = {
+    fileCount: 1,
+    fingerprint: "abc123",
+    roots: ["src"],
+    manifests: ["package.json"],
+    stack: ["Node.js"],
+    languages: ["JavaScript"],
+    validationCommands: ["npm test"]
+  };
+
+  const legacyProjection = renderGeneratedBlock(facts);
+  assert.equal(
+    renderGeneratedBlock({ ...facts, inventoryMode: "git" }),
+    legacyProjection
+  );
+  assert.equal(
+    renderGeneratedBlock({ ...facts, inventoryMode: "filesystem" }),
+    legacyProjection
+  );
+  assert.doesNotMatch(legacyProjection, /inventoryMode|modo de inventario/iu);
+});
