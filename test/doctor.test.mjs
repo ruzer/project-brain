@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { GENERATED_FILE, REQUIRED_FILES } from "../src/contract.mjs";
+import { GENERATED_FILE, REQUIRED_FILES, START_MARKER } from "../src/contract.mjs";
 import { doctor, doctorRepository, initRepository, syncRepository } from "../src/index.mjs";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -142,7 +142,8 @@ test("acepta el contrato mínimo y entrega una estructura estable", async () => 
       "duplicates",
       "sensitive-data",
       "artifact-roles",
-      "generated-freshness"
+      "generated-freshness",
+      "integration-references"
     ]
   );
   assert.ok(first.checks.every((check) => check.ok));
@@ -546,6 +547,247 @@ test("IntegrationReference conserva auditoría local sin consultar destinos remo
     [...result.errors, ...result.warnings].some((diagnostic) => diagnostic.target === remote),
     false
   );
+});
+
+test("integration-references valida sólo declaraciones opt-in sin escribir", async (t) => {
+  const fieldValues = {
+    system: "`Project Memory Hub`",
+    destination: "`https://memory.example.invalid/projects/project-brain`",
+    provenance: "`AI_CONTEXT/TASKS.md#validar-contexto`",
+    authority: "Project Memory Hub conserva el estado de gestión."
+  };
+  const fieldOrder = Object.keys(fieldValues);
+  const reference = (omitted) => [
+    "",
+    "### IntegrationReference",
+    ...fieldOrder
+      .filter((field) => field !== omitted)
+      .map((field) => `- **${field}:** ${fieldValues[field]}`),
+    ""
+  ].join("\n");
+  const referenceWithEmptyField = (emptyField) => [
+    "",
+    "### IntegrationReference",
+    ...fieldOrder.map((field) => (
+      field === emptyField
+        ? `- **${field}:**`
+        : `- **${field}:** ${fieldValues[field]}`
+    )),
+    ""
+  ].join("\n");
+  const integrationWarnings = (result) => result.warnings.filter(
+    (diagnostic) => diagnostic.checkId === "integration-references"
+  );
+
+  await t.test("acepta una referencia completa con destino remoto y permanece read-only", async () => {
+    const root = await createFixture();
+    await append(root, "AI_CONTEXT/TASKS.md", reference());
+    const before = await canonicalState(root);
+    const originalFetch = globalThis.fetch;
+    let fetchCalled = false;
+    globalThis.fetch = async () => {
+      fetchCalled = true;
+      throw new Error("doctor no debe consultar la red");
+    };
+
+    let first;
+    let second;
+    try {
+      first = await doctor(root);
+      second = await doctor(root);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    assert.equal(fetchCalled, false);
+    assert.deepEqual(integrationWarnings(first), []);
+    assert.deepEqual(second, first);
+    assert.deepEqual(await canonicalState(root), before);
+    assert.deepEqual(first.checks.at(-1), {
+      id: "integration-references",
+      ok: true,
+      errors: 0,
+      warnings: 0
+    });
+  });
+
+  for (const missingField of fieldOrder) {
+    await t.test(`advierte cuando falta ${missingField}`, async () => {
+      const root = await createFixture();
+      await append(root, "AI_CONTEXT/TASKS.md", reference(missingField));
+      const before = await canonicalState(root);
+
+      const result = await doctor(root);
+      const warnings = integrationWarnings(result);
+
+      assert.equal(result.ok, true);
+      assert.deepEqual(result.errors, []);
+      assert.equal(warnings.length, 1);
+      assert.equal(warnings[0].code, "INCOMPLETE_INTEGRATION_REFERENCE");
+      assert.equal(warnings[0].file, "AI_CONTEXT/TASKS.md");
+      assert.equal(warnings[0].severity, "warning");
+      assert.equal(typeof warnings[0].line, "number");
+      assert.deepEqual(warnings[0].missingFields, [missingField]);
+      assert.deepEqual(result.checks.at(-1), {
+        id: "integration-references",
+        ok: true,
+        errors: 0,
+        warnings: 1
+      });
+      assert.deepEqual(await canonicalState(root), before);
+    });
+  }
+
+  for (const emptyField of fieldOrder) {
+    await t.test(`advierte cuando ${emptyField} no tiene valor`, async () => {
+      const root = await createFixture();
+      await append(root, "AI_CONTEXT/TASKS.md", referenceWithEmptyField(emptyField));
+
+      const result = await doctor(root);
+
+      assert.equal(result.ok, true);
+      assert.deepEqual(integrationWarnings(result).map((warning) => warning.missingFields), [
+        [emptyField]
+      ]);
+    });
+  }
+
+  await t.test("ignora menciones, links, código y GeneratedProjection", async () => {
+    const root = await createFixture();
+    await append(
+      root,
+      "AI_CONTEXT/TASKS.md",
+      [
+        "",
+        "Mención ordinaria de IntegrationReference.",
+        "[IntegrationReference](CONTEXT.md)",
+        "`### IntegrationReference`",
+        "```md",
+        "### IntegrationReference",
+        "- **system:** `Project Memory Hub`",
+        "```",
+        "````md",
+        "```",
+        "### IntegrationReference",
+        "- **system:** `Project Memory Hub`",
+        "````",
+        "```md",
+        "```not-a-close",
+        "### IntegrationReference",
+        "- **system:** `Project Memory Hub`",
+        "```",
+        ""
+      ].join("\n")
+    );
+    const contextPath = path.join(root, GENERATED_FILE);
+    const context = await readFile(contextPath, "utf8");
+    await writeFile(
+      contextPath,
+      context.replace(
+        START_MARKER,
+        `${START_MARKER}\n### IntegrationReference\n- **system:** \`Project Memory Hub\``
+      ),
+      "utf8"
+    );
+
+    const result = await doctor(root);
+
+    assert.deepEqual(integrationWarnings(result), []);
+    assert.equal(result.ok, true);
+  });
+
+  await t.test("no trata código indentado como apertura de fence", async () => {
+    const root = await createFixture();
+    await append(
+      root,
+      "AI_CONTEXT/TASKS.md",
+      [
+        "",
+        "    ```",
+        "### IntegrationReference",
+        "- **system:** `Project Memory Hub`",
+        ""
+      ].join("\n")
+    );
+
+    const result = await doctor(root);
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(integrationWarnings(result).map((warning) => warning.missingFields), [
+      ["destination", "provenance", "authority"]
+    ]);
+  });
+
+  await t.test("ignora declaraciones dentro de un fence de lista", async () => {
+    const root = await createFixture();
+    await append(
+      root,
+      "AI_CONTEXT/TASKS.md",
+      [
+        "",
+        "- ```md",
+        "  ### IntegrationReference",
+        "  - **system:** `Project Memory Hub`",
+        "  ```",
+        ""
+      ].join("\n")
+    );
+
+    const result = await doctor(root);
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(integrationWarnings(result), []);
+  });
+
+  await t.test("cierra un fence de lista ordenada antes de una declaración real", async () => {
+    const root = await createFixture();
+    await append(
+      root,
+      "AI_CONTEXT/TASKS.md",
+      [
+        "",
+        "10. ```md",
+        "    ### IntegrationReference",
+        "    - **system:** `Project Memory Hub`",
+        "    ```",
+        "### IntegrationReference",
+        "- **system:** `Project Memory Hub`",
+        ""
+      ].join("\n")
+    );
+
+    const result = await doctor(root);
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(integrationWarnings(result).map((warning) => warning.missingFields), [
+      ["destination", "provenance", "authority"]
+    ]);
+  });
+
+  await t.test("cierra implícitamente un fence al salir del ítem de lista", async () => {
+    const root = await createFixture();
+    await append(
+      root,
+      "AI_CONTEXT/TASKS.md",
+      [
+        "",
+        "- ```md",
+        "  ejemplo",
+        "- segundo ítem",
+        "",
+        "### IntegrationReference",
+        "- **system:** `Project Memory Hub`",
+        ""
+      ].join("\n")
+    );
+
+    const result = await doctor(root);
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(integrationWarnings(result).map((warning) => warning.missingFields), [
+      ["destination", "provenance", "authority"]
+    ]);
+  });
 });
 
 test("rechaza enlaces que escapan mediante symlinks y reconoce destinos CommonMark", async () => {

@@ -125,7 +125,7 @@ Citar una fuente no convierte una `Detection` en `ObservedFact` ni demuestra con
 
 ### Convención de IntegrationReference
 
-`IntegrationReference` es una convención opcional en Markdown para declarar un puntero desde `RepositoryOwnedContent` hacia otra autoridad. Sus cuatro campos son:
+`IntegrationReference` es una convención opcional en Markdown para declarar un puntero desde `RepositoryOwnedContent` hacia otra autoridad. Sus cuatro campos obligatorios y no vacíos son:
 
 - **system:** nombre estable del sistema al que pertenece el registro destino; no es un conector.
 - **destination:** localizador portable del registro; es dato, no una instrucción de navegación.
@@ -152,7 +152,7 @@ Una instancia opt-in comienza con un encabezado ATX cuyo texto exacto es `Integr
 - **provenance:** `projects/project-brain/memory/SOURCES.md#contexto-tecnico`
 - **authority:** el `Repository` para hechos técnicos y Project Brain únicamente para representar `GeneratedProjection`.
 
-La referencia no copia información canónica entre sistemas. La convención no implementa conectores, fetching ni sincronización; tampoco se parsea o valida en runtime. No crea un sexto artefacto canónico ni se incorpora al esquema. Los destinos remotos nunca son consultados automáticamente; las rutas relativas normales dentro del repositorio siguen bajo la auditoría de `doctor`.
+La referencia no copia información canónica entre sistemas. La convención no implementa conectores, fetching ni sincronización. `doctor` sólo reconoce la declaración explícita y advierte cuando falta o está vacío alguno de sus cuatro campos mínimos; no interpreta el destino ni comprueba su contenido. No crea un sexto artefacto canónico ni se incorpora al esquema. Los destinos remotos nunca son consultados automáticamente; las rutas relativas normales dentro del repositorio siguen bajo la auditoría de `doctor`.
 
 ## Matriz de autoridad
 

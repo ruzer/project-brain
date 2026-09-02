@@ -21,7 +21,8 @@ const CHECK_IDS = Object.freeze([
   "duplicates",
   "sensitive-data",
   "artifact-roles",
-  "generated-freshness"
+  "generated-freshness",
+  "integration-references"
 ]);
 
 const CONTEXT_DIRECTORY = "AI_CONTEXT";
@@ -37,6 +38,12 @@ const ARTIFACT_ROLES = new Map([
   ["AI_CONTEXT/LEARNINGS.md", "learnings"]
 ]);
 const KNOWN_ARTIFACT_ROLES = new Set(ARTIFACT_ROLES.values());
+const INTEGRATION_REFERENCE_FIELDS = Object.freeze([
+  "system",
+  "destination",
+  "provenance",
+  "authority"
+]);
 
 function compareText(left = "", right = "") {
   if (left < right) return -1;
@@ -254,6 +261,14 @@ async function collectExtraContextFiles(root, contextPath, recorder) {
   return files.sort(compareText);
 }
 
+function markdownIndentWidth(prefix) {
+  let width = 0;
+  for (const character of prefix) {
+    width = character === "\t" ? width + (4 - (width % 4)) : width + 1;
+  }
+  return width;
+}
+
 function markdownLines(content) {
   const output = [];
   const lines = content.split(/\r\n|\r|\n/);
@@ -261,14 +276,47 @@ function markdownLines(content) {
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
-    const marker = line.match(/^\s*(`{3,}|~{3,})/u)?.[1] ?? null;
-    if (marker) {
-      if (!fence) fence = marker[0];
-      else if (marker[0] === fence) fence = null;
+
+    if (fence) {
+      const leadingWhitespace = line.match(/^[\t ]*/u)?.[0] ?? "";
+      const leftContainer = (
+        fence.indent > 0
+        && line.trim()
+        && markdownIndentWidth(leadingWhitespace) < fence.indent
+      );
+      if (leftContainer) {
+        fence = null;
+      } else {
+        const closing = line.match(/^([\t ]*)(`{3,}|~{3,})/u);
+        const marker = closing?.[2] ?? null;
+        const indent = closing ? markdownIndentWidth(closing[1]) : -1;
+        if (
+          marker
+          && marker[0] === fence.marker[0]
+          && marker.length >= fence.marker.length
+          && indent >= fence.indent
+          && indent <= fence.indent + 3
+          && /^[\t ]*$/u.test(line.slice(closing[0].length))
+        ) fence = null;
+        continue;
+      }
+    }
+
+    const opening = line.match(
+      /^( {0,3})(?:([-+*]|\d{1,9}[.)])([\t ]+))?(`{3,}|~{3,})/u
+    );
+    if (opening) {
+      const marker = opening[4];
+      fence = {
+        indent: opening[2]
+          ? markdownIndentWidth(line.slice(0, opening[0].length - marker.length))
+          : 0,
+        marker
+      };
       continue;
     }
-    if (fence) continue;
-    output.push({ line: index + 1, text: stripInlineCode(line) });
+
+    output.push({ line: index + 1, raw: line, text: stripInlineCode(line) });
   }
   return output;
 }
@@ -306,6 +354,67 @@ function stripInlineCode(line) {
     offset = closing + openingLength;
   }
   return characters.join("");
+}
+
+function inspectIntegrationReferences(notes, recorder) {
+  for (const [relative, note] of [...notes.entries()].sort(
+    ([left], [right]) => compareText(left, right)
+  )) {
+    let current = null;
+    let insideGeneratedProjection = false;
+
+    const finish = () => {
+      if (!current) return;
+      const missingFields = INTEGRATION_REFERENCE_FIELDS.filter(
+        (field) => !current.fields.has(field)
+      );
+      if (missingFields.length > 0) {
+        recorder.warning("integration-references", {
+          code: "INCOMPLETE_INTEGRATION_REFERENCE",
+          file: relative,
+          line: current.line,
+          missingFields,
+          message: "La IntegrationReference declarada está incompleta."
+        });
+      }
+      current = null;
+    };
+
+    for (const entry of markdownLines(note.content)) {
+      if (relative === GENERATED_FILE && entry.text.includes(START_MARKER)) {
+        finish();
+        insideGeneratedProjection = true;
+        continue;
+      }
+      if (relative === GENERATED_FILE && entry.text.includes(END_MARKER)) {
+        insideGeneratedProjection = false;
+        continue;
+      }
+      if (insideGeneratedProjection) continue;
+
+      const heading = entry.text.match(
+        /^\s{0,3}(#{1,6})[\t ]+(.+?)(?:[\t ]+#+)?[\t ]*$/u
+      );
+      if (heading) {
+        const level = heading[1].length;
+        const label = heading[2].trim();
+        if (current && (level <= current.level || label === "IntegrationReference")) finish();
+        if (label === "IntegrationReference") {
+          current = { fields: new Set(), level, line: entry.line };
+        }
+        continue;
+      }
+
+      if (!current) continue;
+      const fieldMatch = entry.text.match(
+        /^\s{0,3}-[\t ]+\*\*(system|destination|provenance|authority):\*\*/u
+      );
+      const field = fieldMatch?.[1];
+      if (field && entry.raw.slice(fieldMatch[0].length).trim()) current.fields.add(field);
+    }
+
+    finish();
+  }
 }
 
 function isEscaped(text, index) {
@@ -1048,6 +1157,7 @@ export async function doctor(inputRoot = ".") {
   await inspectLinks(root, auditedNotes, knownPaths, recorder);
   inspectDuplicates(auditedNotes, recorder);
   inspectSensitiveData(auditedNotes, recorder);
+  inspectIntegrationReferences(auditedNotes, recorder);
 
   return recorder.result();
 }

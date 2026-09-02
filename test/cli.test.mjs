@@ -103,3 +103,45 @@ test("doctor CLI reporta frontmatter ausente como warning exitoso", async (t) =>
   assert.equal(warning?.checkId, "artifact-roles");
   assert.equal(warning?.severity, "warning");
 });
+
+test("doctor CLI reporta IntegrationReference incompleta como warning exitoso", async (t) => {
+  const root = await temporaryRepository(t);
+  await initRepository(root);
+  await put(
+    root,
+    "AI_CONTEXT/TASKS.md",
+    [
+      "---",
+      "project_brain: 1",
+      "role: tasks",
+      "---",
+      "",
+      "# Tareas",
+      "",
+      "### IntegrationReference",
+      "- **system:** `Project Memory Hub`",
+      "- **provenance:** `AI_CONTEXT/TASKS.md#tarea`",
+      "- **authority:** Project Memory Hub conserva el estado de gestión.",
+      ""
+    ].join("\n")
+  );
+  const run = capture();
+
+  assert.equal(await runCli(["doctor", root, "--json"], run.io), 0);
+  const result = JSON.parse(run.output.logs.join("\n"));
+  const warning = result.warnings.find((diagnostic) =>
+    diagnostic.code === "INCOMPLETE_INTEGRATION_REFERENCE"
+  );
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.errors, []);
+  assert.equal(warning?.checkId, "integration-references");
+  assert.equal(warning?.severity, "warning");
+  assert.deepEqual(warning?.missingFields, ["destination"]);
+  assert.deepEqual(result.checks.at(-1), {
+    id: "integration-references",
+    ok: true,
+    errors: 0,
+    warnings: 1
+  });
+});
