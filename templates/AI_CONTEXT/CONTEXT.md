@@ -6,18 +6,21 @@ role: context
 # Contexto
 
 <!-- brain:generated:start -->
-## Hechos verificados del repositorio
+## Observaciones verificadas del repositorio
 
-- Archivos analizados: 0
-- Huella del inventario: `sha256:pendiente`
-- Stack: pendiente de sincronización
-- Raíces principales: pendiente de sincronización
-- Lenguajes: pendiente de sincronización
-- Manifiestos: ninguno detectado
+- Archivos observados: 0
+- Huella del inventario basada en ruta:tamaño (no es hash de contenido): `sha256:pendiente`
+- Raíces observadas: pendiente de sincronización
+- Manifiestos observados: ninguno
 
-### Comandos de validación detectados
+## Detecciones heurísticas
 
-- Ninguno detectado
+- Stack detectado heurísticamente: pendiente de sincronización
+- Lenguajes detectados heurísticamente: pendiente de sincronización
+
+## Comandos candidatos de validación
+
+- Ninguno
 <!-- brain:generated:end -->
 
 ## Contexto manual

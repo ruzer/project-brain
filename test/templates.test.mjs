@@ -81,6 +81,21 @@ test("las notas usan frontmatter simple y roles únicos", async () => {
   }
 });
 
+test("la plantilla CONTEXT separa las tres clases de GeneratedProjection", async () => {
+  const content = await readFile(path.join(templatesRoot, "AI_CONTEXT/CONTEXT.md"), "utf8");
+  const headings = [
+    "## Observaciones verificadas del repositorio",
+    "## Detecciones heurísticas",
+    "## Comandos candidatos de validación"
+  ];
+  const indexes = headings.map((heading) => content.indexOf(heading));
+
+  assert.ok(indexes.every((index) => index >= 0));
+  assert.deepEqual([...indexes].sort((left, right) => left - right), indexes);
+  assert.doesNotMatch(content, /## Hechos verificados del repositorio/u);
+  assert.match(content, /ruta:tamaño.*no es hash de contenido/u);
+});
+
 test("todos los enlaces Markdown internos existen y conectan el contexto", async () => {
   const contents = new Map(
     await Promise.all(

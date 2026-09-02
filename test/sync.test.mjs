@@ -193,6 +193,42 @@ test("sync cambia solo el bloque generado, preserva lo manual y es idempotente",
   assert.equal(await get(root, "AI_CONTEXT/CONTEXT.md"), after);
 });
 
+test("sync separa las tres clases sin ejecutar comandos candidatos", async (t) => {
+  const root = await temporaryRepository(t);
+  const sentinelPath = path.join(root, ".comando-ejecutado");
+  await put(root, "package.json", JSON.stringify({
+    scripts: {
+      test: "node -e \"require('node:fs').writeFileSync('.comando-ejecutado', 'sí')\""
+    }
+  }, null, 2));
+  await put(root, "src/index.js", "export const answer = 42;\n");
+  await initRepository(root);
+  const { before, contextPath } = await writeContextFixture(root, combinedPreservationCase);
+  const beforeSegments = contextSegments(before);
+
+  const first = await syncRepository(root);
+  const after = await readFile(contextPath);
+  const afterSegments = contextSegments(after);
+  const projection = afterSegments.projection.toString("utf8");
+
+  assert.equal(first.changed, true);
+  assert.deepEqual(afterSegments.prefix, beforeSegments.prefix);
+  assert.deepEqual(afterSegments.suffix, beforeSegments.suffix);
+  assert.match(projection, /## Observaciones verificadas del repositorio/u);
+  assert.match(projection, /## Detecciones heurísticas/u);
+  assert.match(projection, /## Comandos candidatos de validación/u);
+  assert.match(projection, /\[package\.json\]/u);
+  assert.match(projection, /Node\.js/u);
+  assert.match(projection, /JavaScript/u);
+  assert.match(projection, /`npm run test`/u);
+  await assert.rejects(() => readFile(sentinelPath), (error) => error?.code === "ENOENT");
+
+  const second = await syncRepository(root);
+  assert.equal(second.changed, false);
+  assert.deepEqual(await readFile(contextPath), after);
+  await assert.rejects(() => readFile(sentinelPath), (error) => error?.code === "ENOENT");
+});
+
 test("sync preserva byte por byte RepositoryOwnedContent UTF-8 válido", async (t) => {
   for (const fixture of preservationCases) {
     await t.test(fixture.name, async (t) => {

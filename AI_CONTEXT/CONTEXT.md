@@ -6,16 +6,19 @@ role: context
 # Contexto
 
 <!-- brain:generated:start -->
-## Hechos verificados del repositorio
+## Observaciones verificadas del repositorio
 
-- Archivos analizados: 35
-- Huella del inventario: `sha256:2712d9e15d20f0990f27c8046087b3cbadd6fd556bafbbcce15eee1d68809a6e`
-- Stack: Node.js
-- Raíces principales: .github, bin, schema, src, templates, test, test-support
-- Lenguajes: JavaScript
-- Manifiestos: [package-lock.json](../package-lock.json), [package.json](../package.json)
+- Archivos observados: 35
+- Huella del inventario basada en ruta:tamaño (no es hash de contenido): `sha256:5c8cf5cf02603a2d41f9f7b64681fa175107f03d99ab4651fffbfa912642f5c3`
+- Raíces observadas: .github, bin, schema, src, templates, test, test-support
+- Manifiestos observados: [package-lock.json](../package-lock.json), [package.json](../package.json)
 
-### Comandos de validación detectados
+## Detecciones heurísticas
+
+- Stack detectado heurísticamente: Node.js
+- Lenguajes detectados heurísticamente: JavaScript
+
+## Comandos candidatos de validación
 
 - `npm run check`
 - `npm run test`

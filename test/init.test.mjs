@@ -18,7 +18,10 @@ test("init crea exactamente el contrato mínimo y sincroniza hechos", async (t) 
     "CONTEXT.md", "DECISIONS.md", "LEARNINGS.md", "TASKS.md"
   ]);
   const context = await get(root, "AI_CONTEXT/CONTEXT.md");
-  assert.match(context, /Huella del inventario: `sha256:[a-f0-9]{64}`/);
+  assert.match(
+    context,
+    /Huella del inventario basada en ruta:tamaño \(no es hash de contenido\): `sha256:[a-f0-9]{64}`/u
+  );
 });
 
 test("init nunca sobrescribe contenido manual existente", async (t) => {

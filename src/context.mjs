@@ -52,20 +52,23 @@ export function renderGeneratedBlock(facts) {
   const commands = asList(facts.validationCommands);
   const lines = [
     START_MARKER,
-    "## Hechos verificados del repositorio",
+    "## Observaciones verificadas del repositorio",
     "",
-    `- Archivos analizados: ${Number(facts.fileCount ?? 0)}`,
-    `- Huella del inventario: ${codeSpan(fingerprintLabel(facts.fingerprint))}`,
-    `- Stack: ${compact(facts.stack, "no detectado")}`,
-    `- Raíces principales: ${compact(facts.roots, "ninguna")}`,
-    `- Lenguajes: ${compact(facts.languages, "no detectados")}`,
-    `- Manifiestos: ${manifests.length > 0 ? manifests.map(markdownLink).join(", ") : "ninguno detectado"}`,
+    `- Archivos observados: ${Number(facts.fileCount ?? 0)}`,
+    `- Huella del inventario basada en ruta:tamaño (no es hash de contenido): ${codeSpan(fingerprintLabel(facts.fingerprint))}`,
+    `- Raíces observadas: ${compact(facts.roots, "ninguna")}`,
+    `- Manifiestos observados: ${manifests.length > 0 ? manifests.map(markdownLink).join(", ") : "ninguno"}`,
     "",
-    "### Comandos de validación detectados",
+    "## Detecciones heurísticas",
+    "",
+    `- Stack detectado heurísticamente: ${compact(facts.stack, "no detectado")}`,
+    `- Lenguajes detectados heurísticamente: ${compact(facts.languages, "no detectados")}`,
+    "",
+    "## Comandos candidatos de validación",
     ""
   ];
 
-  if (commands.length === 0) lines.push("- Ninguno detectado");
+  if (commands.length === 0) lines.push("- Ninguno");
   else for (const command of commands) lines.push(`- ${codeSpan(command)}`);
 
   lines.push(END_MARKER);
