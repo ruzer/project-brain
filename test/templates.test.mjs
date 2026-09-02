@@ -61,7 +61,8 @@ function parseFrontmatter(content) {
 }
 
 function markdownTargets(content) {
-  return [...content.matchAll(/(?<!!)\[[^\]]+\]\(([^)]+)\)/g)].map((match) => match[1]);
+  const prose = content.replace(/`[^`\r\n]*`/gu, "");
+  return [...prose.matchAll(/(?<!!)\[[^\]]+\]\(([^)]+)\)/g)].map((match) => match[1]);
 }
 
 test("las plantillas implementan exactamente el contrato mínimo", async () => {
@@ -182,6 +183,31 @@ test("README publica el glosario canónico, autoridades y no-equivalencias", asy
     currentProduct,
     /\b(?:swarm|governance|orchestrator|LLM routing|runtime memory|patch proposals)\b/iu
   );
+});
+
+test("TechnicalDecision limita autoridad, reemplazo y campos de gestión", async () => {
+  const readme = await readFile(path.join(projectRoot, "README.md"), "utf8");
+  const decisions = await readFile(
+    path.join(templatesRoot, "AI_CONTEXT", "DECISIONS.md"),
+    "utf8"
+  );
+
+  assert.match(readme, /propuesta \(`proposed`\)[^\n]*no autoritativa/iu);
+  assert.match(readme, /aceptada \(`accepted`\)[^\n]*único estado normativo/iu);
+  assert.match(readme, /reemplazada \(`replaced`\)[^\n]*deja de ser normativa[^\n]*sucesora/iu);
+  assert.match(readme, /Git[^\n]*historial detallado/iu);
+  assert.match(readme, /estado técnico[^\n]*estado de gestión/iu);
+
+  assert.match(decisions, /decisiones técnicas del repositorio/iu);
+  assert.match(decisions, /\*\*Estado:\*\* propuesta \| aceptada \| reemplazada/u);
+  assert.match(decisions, /aceptada[^\n]*único estado normativo/iu);
+  assert.match(decisions, /propuesta[^\n]*no autoritativa/iu);
+  assert.match(decisions, /reemplazada[^\n]*referencia[^\n]*sucesora/iu);
+
+  const successor = decisions.match(/`\[[^\]]+\]\((#[^)]+)\)`/u)?.[1];
+  assert.equal(successor, "#decision-sucesora");
+  assert.doesNotMatch(decisions, /\[\[[^\]]+\]\]/u);
+  assert.doesNotMatch(decisions, /^\s*-\s+\*\*(?:Owner|Responsable|Fecha|Milestone|Hito|Riesgo|Estado global):\*\*/imu);
 });
 
 test("documentación y plantillas no contradicen el ownership 0.3.1", async () => {

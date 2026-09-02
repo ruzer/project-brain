@@ -78,6 +78,14 @@ Este glosario es la definición canónica del producto. Los documentos operativo
 
 **IntegrationReference**: Puntero Markdown repository-owned hacia otra autoridad; no copia contenido, no hace fetching ni transfiere autoridad.
 
+### Ciclo de TechnicalDecision
+
+- propuesta (`proposed`): candidata en discusión y no autoritativa; por sí sola no condiciona el trabajo.
+- aceptada (`accepted`): único estado normativo; expresa una elección técnica vigente del repositorio.
+- reemplazada (`replaced`): deja de ser normativa y añade una referencia breve a la decisión sucesora aceptada.
+
+El campo `Estado` es un estado técnico documental, no el estado de gestión del proyecto. Project Brain no propone, acepta, migra ni reescribe decisiones; Git conserva el historial detallado.
+
 ## Matriz de autoridad
 
 Project Brain es autoridad de escritura únicamente sobre `GeneratedProjection`; no sustituye la autoridad factual del `Repository`.
