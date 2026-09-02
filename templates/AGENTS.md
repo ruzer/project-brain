@@ -20,6 +20,7 @@ Empieza por [AI_CONTEXT/CONTEXT.md](AI_CONTEXT/CONTEXT.md). Consulta decisiones,
 ## Reglas de trabajo
 
 - Distingue `ObservedFact` de `Detection`, propuesta o supuesto.
+- Cita un `TechnicalSource` repository-local por cada `ObservedFact`; una fuente no convierte una `Detection` en hecho.
 - No edites el bloque generado de `CONTEXT.md`; usa `brain sync .`.
 - `RepositoryOwnedContent` debe preservarse byte por byte fuera de los marcadores generados.
 - Actualiza únicamente el archivo cuyo propósito corresponda al cambio.

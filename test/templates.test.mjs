@@ -261,6 +261,32 @@ test("TechnicalLearning exige evidencia y no convierte hipótesis en reglas", as
   );
 });
 
+test("TechnicalSource localiza evidencia sin elevar detecciones a hechos", async () => {
+  const readme = await readFile(path.join(projectRoot, "README.md"), "utf8");
+  const agents = await readFile(path.join(projectRoot, "AGENTS.md"), "utf8");
+  const templateAgents = await readFile(path.join(templatesRoot, "AGENTS.md"), "utf8");
+  const section = readme.match(
+    /^### Alcance de TechnicalSource\s*$([\s\S]*?)(?=^### |^## )/mu
+  )?.[1];
+
+  assert.ok(section, "falta la sección de TechnicalSource");
+  assert.match(section, /TechnicalSource[^\n]*localizador[^\n]*ubicación verificable[^\n]*Repository/iu);
+  assert.match(section, /TechnicalSource[^\n]*no es[^\n]*afirmación/iu);
+  assert.match(section, /ObservedFact[^\n]*afirmación[^\n]*directamente sustentada/iu);
+  assert.match(section, /Detection[^\n]*inferencia heurística determinista/iu);
+  assert.match(section, /fuente[^\n]*no convierte[^\n]*Detection[^\n]*ObservedFact/iu);
+
+  assert.match(section, /Válido:[^\n]*`package\.json`[^\n]*`engines\.node`/iu);
+  assert.match(section, /Inválidos:[^\n]*`Node\.js`[^\n]*sin localizador/iu);
+  assert.match(section, /`npm test`[^\n]*comando candidato/iu);
+  assert.match(section, /Memory Hub[^\n]*no[^\n]*TechnicalSource/iu);
+  assert.match(section, /TechnicalSource[^\n]*no representa[^\n]*owners[^\n]*fechas[^\n]*riesgos[^\n]*milestones[^\n]*estado/iu);
+
+  for (const content of [agents, templateAgents]) {
+    assert.match(content, /TechnicalSource[^\n]*ObservedFact[^\n]*Detection/iu);
+  }
+});
+
 test("documentación y plantillas no contradicen el ownership 0.3.1", async () => {
   const documents = await Promise.all([
     "README.md",

@@ -111,6 +111,18 @@ La estructura recomendada registra:
 
 Si el aprendizaje cambia una regla normativa, referencia una `TechnicalDecision` aceptada; la decisión, no el aprendizaje, conserva la autoridad normativa. Owners, fechas de entrega, riesgos, milestones y estado de gestión permanecen fuera de `TechnicalLearning`.
 
+### Alcance de TechnicalSource
+
+`TechnicalSource` es un localizador repository-local que identifica una ubicación verificable dentro del `Repository`; no es una afirmación. `ObservedFact` es una afirmación directamente sustentada por una o más fuentes repository-local. `Detection` sigue siendo una inferencia heurística determinista producida por reglas conocidas.
+
+Citar una fuente no convierte una `Detection` en `ObservedFact` ni demuestra conclusiones que la evidencia no sustenta directamente.
+
+- **Válido:** `package.json` localiza la evidencia de que ese archivo declara `engines.node`.
+- **Inválidos:** `Node.js` sin localizador no identifica evidencia; `npm test` es un comando candidato, no una fuente.
+- **Frontera de gestión:** Project Memory Hub conserva datos de gestión y no es un `TechnicalSource` de Project Brain.
+
+`TechnicalSource` no representa owners, fechas, riesgos, milestones ni estado de gestión. Una referencia externa es una `IntegrationReference`, no transfiere autoridad y no provoca acceso de red.
+
 ## Matriz de autoridad
 
 Project Brain es autoridad de escritura únicamente sobre `GeneratedProjection`; no sustituye la autoridad factual del `Repository`.

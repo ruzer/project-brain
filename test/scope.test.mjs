@@ -49,3 +49,18 @@ test("la API pública expone operaciones estables sin añadir comandos", async (
     assert.equal(typeof api[name], "function", `falta export público: ${name}`);
   }
 });
+
+test("la documentación de TechnicalSource no introduce fetching", async () => {
+  const readme = await readFile(path.join(root, "README.md"), "utf8");
+  const section = readme.match(
+    /^### Alcance de TechnicalSource\s*$([\s\S]*?)(?=^### |^## )/mu
+  )?.[1];
+
+  assert.ok(section, "falta la sección de TechnicalSource");
+  assert.match(
+    section,
+    /referencia externa[^\n]*IntegrationReference[^\n]*no transfiere autoridad[^\n]*no provoca acceso de red/iu
+  );
+  assert.doesNotMatch(section, /\]\(https?:\/\//iu);
+  assert.doesNotMatch(section, /\b(?:curl|wget)\b|\bfetch\s*\(/iu);
+});
