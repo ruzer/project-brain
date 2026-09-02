@@ -1,0 +1,369 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ruzer/project-brain/schema/context-contract.schema.json",
+  "title": "Project Brain Lite context contract",
+  "description": "Contrato portable para el conjunto mínimo de contexto.",
+  "type": "object",
+  "required": [
+    "contractVersion",
+    "files",
+    "generatedFile",
+    "markers",
+    "limits"
+  ],
+  "properties": {
+    "contractVersion": { "const": 1 },
+    "files": {
+      "type": "array",
+      "prefixItems": [
+        { "const": "AGENTS.md" },
+        { "const": "AI_CONTEXT/CONTEXT.md" },
+        { "const": "AI_CONTEXT/DECISIONS.md" },
+        { "const": "AI_CONTEXT/TASKS.md" },
+        { "const": "AI_CONTEXT/LEARNINGS.md" }
+      ],
+      "minItems": 5,
+      "maxItems": 5
+    },
+    "generatedFile": { "const": "AI_CONTEXT/CONTEXT.md" },
+    "markers": {
+      "type": "object",
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "const": "<!-- brain:generated:start -->" },
+        "end": { "const": "<!-- brain:generated:end -->" }
+      },
+      "additionalProperties": false
+    },
+    "limits": {
+      "type": "object",
+      "required": ["bytesPerFile", "linesPerFile", "totalBytes"],
+      "properties": {
+        "bytesPerFile": { "type": "integer", "minimum": 1 },
+        "linesPerFile": { "type": "integer", "minimum": 1 },
+        "totalBytes": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "RepositoryObservation": {
+      "title": "RepositoryObservation",
+      "description": "Observación local y determinista del repositorio. fingerprint resume el inventario ruta:tamaño; no es un hash de contenido. validationCommands contiene candidatos detectados que Project Brain no ejecuta.",
+      "type": "object",
+      "required": [
+        "fileCount",
+        "fingerprint",
+        "roots",
+        "extensions",
+        "languages",
+        "manifests",
+        "stack",
+        "validationCommands"
+      ],
+      "properties": {
+        "fileCount": { "type": "integer", "minimum": 0 },
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "SHA-256 del inventario estable ruta:tamaño; no representa el contenido completo."
+        },
+        "inventoryMode": {
+          "type": "string",
+          "enum": ["git", "filesystem"],
+          "description": "Modo único usado para construir el inventario local."
+        },
+        "roots": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "extensions": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 1 }
+        },
+        "languages": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "manifests": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "stack": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "validationCommands": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true,
+          "description": "Comandos candidatos detectados; su presencia no implica ejecución, aprobación ni éxito."
+        }
+      },
+      "additionalProperties": true,
+      "examples": [
+        {
+          "fileCount": 2,
+          "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+          "inventoryMode": "git",
+          "roots": ["src"],
+          "extensions": { ".mjs": 1, ".json": 1 },
+          "languages": ["JavaScript"],
+          "manifests": ["package.json"],
+          "stack": ["Node.js"],
+          "validationCommands": ["npm test"]
+        }
+      ]
+    },
+    "InitResult": {
+      "title": "InitResult",
+      "description": "Resultado público de initRepository. Los campos adicionales dentro de 0.3.x son compatibles y aditivos.",
+      "type": "object",
+      "required": ["root", "created", "preserved", "changed", "facts"],
+      "properties": {
+        "root": { "type": "string", "minLength": 1 },
+        "created": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "preserved": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "changed": { "type": "boolean" },
+        "facts": { "$ref": "#/$defs/RepositoryObservation" }
+      },
+      "additionalProperties": true,
+      "examples": [
+        {
+          "root": "/repo",
+          "created": [
+            "AGENTS.md",
+            "AI_CONTEXT/CONTEXT.md",
+            "AI_CONTEXT/DECISIONS.md",
+            "AI_CONTEXT/TASKS.md",
+            "AI_CONTEXT/LEARNINGS.md"
+          ],
+          "preserved": [],
+          "changed": true,
+          "facts": {
+            "fileCount": 1,
+            "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+            "roots": ["src"],
+            "extensions": { ".mjs": 1 },
+            "languages": ["JavaScript"],
+            "manifests": [],
+            "stack": [],
+            "validationCommands": []
+          }
+        }
+      ]
+    },
+    "SyncResult": {
+      "title": "SyncResult",
+      "description": "Resultado público de syncRepository. changed sólo comunica si se reemplazó GeneratedProjection.",
+      "type": "object",
+      "required": ["root", "changed", "facts"],
+      "properties": {
+        "root": { "type": "string", "minLength": 1 },
+        "changed": { "type": "boolean" },
+        "facts": { "$ref": "#/$defs/RepositoryObservation" }
+      },
+      "additionalProperties": true,
+      "examples": [
+        {
+          "root": "/repo",
+          "changed": false,
+          "facts": {
+            "fileCount": 1,
+            "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+            "roots": ["src"],
+            "extensions": { ".mjs": 1 },
+            "languages": ["JavaScript"],
+            "manifests": [],
+            "stack": [],
+            "validationCommands": []
+          }
+        }
+      ]
+    },
+    "Diagnostic": {
+      "title": "Diagnostic",
+      "description": "Diagnóstico derivado de doctor. code y checkId pueden crecer aditivamente dentro de 0.3.x.",
+      "type": "object",
+      "required": ["code", "file", "message", "checkId", "severity"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "file": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 },
+        "checkId": { "type": "string", "minLength": 1 },
+        "severity": { "enum": ["error", "warning"] },
+        "line": { "type": "integer", "minimum": 1 },
+        "target": { "type": "string", "minLength": 1 },
+        "relatedFile": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 },
+        "actual": { "type": ["string", "number", "boolean", "null"] },
+        "expected": { "type": ["string", "number", "boolean", "null"] },
+        "limit": { "type": "integer", "minimum": 1 },
+        "missingFields": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "similarity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "sharedWords": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": true,
+      "examples": [
+        {
+          "code": "STALE_GENERATED_PROJECTION",
+          "file": "AI_CONTEXT/CONTEXT.md",
+          "message": "La proyección generada no corresponde al repositorio actual.",
+          "checkId": "generated-freshness",
+          "severity": "warning"
+        }
+      ]
+    },
+    "DoctorCheckResult": {
+      "title": "DoctorCheckResult",
+      "description": "Resumen de un check read-only. ok depende únicamente de errors; un check con sólo warnings conserva ok: true.",
+      "type": "object",
+      "required": ["id", "ok", "errors", "warnings"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "ok": { "type": "boolean" },
+        "errors": { "type": "integer", "minimum": 0 },
+        "warnings": { "type": "integer", "minimum": 0 }
+      },
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ok": { "const": true },
+            "errors": { "const": 0 }
+          }
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ok": { "const": false },
+            "errors": { "type": "integer", "minimum": 1 }
+          }
+        }
+      ],
+      "additionalProperties": true,
+      "examples": [
+        {
+          "id": "generated-freshness",
+          "ok": true,
+          "errors": 0,
+          "warnings": 1
+        }
+      ]
+    },
+    "DoctorResult": {
+      "title": "DoctorResult",
+      "description": "Resultado público de doctor. ok es false sólo cuando errors contiene diagnósticos; warning-only implica ok: true.",
+      "type": "object",
+      "required": ["ok", "errors", "warnings", "checks"],
+      "properties": {
+        "ok": { "type": "boolean" },
+        "errors": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              { "$ref": "#/$defs/Diagnostic" },
+              {
+                "type": "object",
+                "properties": { "severity": { "const": "error" } }
+              }
+            ]
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              { "$ref": "#/$defs/Diagnostic" },
+              {
+                "type": "object",
+                "properties": { "severity": { "const": "warning" } }
+              }
+            ]
+          }
+        },
+        "checks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/DoctorCheckResult" }
+        }
+      },
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ok": { "const": true },
+            "errors": { "type": "array", "maxItems": 0 }
+          }
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ok": { "const": false },
+            "errors": { "type": "array", "minItems": 1 }
+          }
+        }
+      ],
+      "additionalProperties": true,
+      "examples": [
+        {
+          "ok": true,
+          "errors": [],
+          "warnings": [
+            {
+              "code": "STALE_GENERATED_PROJECTION",
+              "file": "AI_CONTEXT/CONTEXT.md",
+              "message": "La proyección generada no corresponde al repositorio actual.",
+              "checkId": "generated-freshness",
+              "severity": "warning"
+            }
+          ],
+          "checks": [
+            {
+              "id": "generated-freshness",
+              "ok": true,
+              "errors": 0,
+              "warnings": 1
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "default": {
+    "contractVersion": 1,
+    "files": [
+      "AGENTS.md",
+      "AI_CONTEXT/CONTEXT.md",
+      "AI_CONTEXT/DECISIONS.md",
+      "AI_CONTEXT/TASKS.md",
+      "AI_CONTEXT/LEARNINGS.md"
+    ],
+    "generatedFile": "AI_CONTEXT/CONTEXT.md",
+    "markers": {
+      "start": "<!-- brain:generated:start -->",
+      "end": "<!-- brain:generated:end -->"
+    },
+    "limits": {
+      "bytesPerFile": 12288,
+      "linesPerFile": 240,
+      "totalBytes": 40960
+    }
+  }
+}

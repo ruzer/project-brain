@@ -1,26 +1,10 @@
 node_modules/
-pb-output/
-project-brain/pb-output/
-.env
-.env.local
-logs/
-tmp/
-.tmp/
-.tmp-ai-fixture/
+coverage/
 dist/
 build/
-.cache/
-cache/
-coverage/
 .DS_Store
-sample-output/
+.brain/
 BRAIN/
-.project-brain-local/
-
-# Local agent/runtime state
-.claude/
-
-# Generated runtime diagnostics
-AI_CONTEXT/doctor/
-reports/doctor.md
-.project-brain/runtime/
+graphify-out/
+.graphify/
+.obsidian/

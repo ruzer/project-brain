@@ -1,8 +1,0 @@
-name: fixture-ci
-on:
-  push:
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "fixture"

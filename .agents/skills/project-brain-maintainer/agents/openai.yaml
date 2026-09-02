@@ -1,4 +1,0 @@
-interface:
-  display_name: "Project Brain Maintainer"
-  short_description: "Maintain and evolve project-brain safely"
-  default_prompt: "Use $project-brain-maintainer to improve this repo without breaking governance, resume flows, or bounded swarm behavior."

@@ -1,1 +1,0 @@
-export { WeeklyScheduler } from "../scheduler";

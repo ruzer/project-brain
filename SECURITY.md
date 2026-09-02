@@ -1,34 +1,11 @@
-# Security Policy
+# Seguridad
 
-## Supported versions
+Project Brain Lite opera sobre archivos locales, no ejecuta modelos y no transmite el contenido del repositorio.
 
-Security fixes are expected on the latest state of `main`.
+- Revisa rutas canónicas antes de escribir y rechaza enlaces simbólicos.
+- `init` no sobrescribe archivos existentes.
+- `sync` realiza una sustitución atómica limitada al bloque generado.
+- `doctor` busca patrones comunes de credenciales y datos personales, pero no sustituye un escáner de secretos dedicado.
+- CI audita dependencias de producción y desarrollo con umbral alto; Dependabot revisa semanalmente npm y GitHub Actions.
 
-## Reporting a vulnerability
-
-- Do not open a public issue for an exploitable vulnerability.
-- Prefer GitHub private vulnerability reporting if it is enabled for this repository.
-- If private reporting is not available, contact the maintainer directly through GitHub with a minimal reproduction, impact summary, and affected files or commands.
-
-## Scope
-
-Please report issues such as:
-
-- command injection or unsafe shell execution
-- unsafe file writes or path traversal in generated artifacts
-- leakage of secrets or credentials in reports, logs, or generated context
-- unsafe agent behavior that could cause destructive repository changes
-
-Non-sensitive hardening suggestions can still be opened as normal issues.
-
-## Baseline controls
-
-The repository now includes:
-
-- local `pre-commit`, `pre-push`, and `commit-msg` hooks
-- repository safety scanning for staged changes and CI
-- GitHub dependency review on pull requests
-- a security baseline workflow with production dependency audit
-- `CODEOWNERS` for sensitive areas
-
-Branch protection, required reviews, secret scanning, and GitHub private vulnerability reporting still need to be enabled in the repository settings. See `docs/github-hardening.md`.
+No guardes tokens, contraseñas, llaves privadas ni información restringida en `AGENTS.md` o `AI_CONTEXT/`. Reporta vulnerabilidades mediante un aviso privado de seguridad en GitHub, no mediante un issue público.

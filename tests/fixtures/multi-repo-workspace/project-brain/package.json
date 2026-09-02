@@ -1,7 +1,0 @@
-{
-  "name": "project-brain",
-  "version": "1.0.0",
-  "dependencies": {
-    "commander": "^12.1.0"
-  }
-}

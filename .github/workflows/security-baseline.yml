@@ -1,4 +1,4 @@
-name: security-baseline
+name: Security baseline
 
 on:
   pull_request:
@@ -14,29 +14,20 @@ permissions:
 jobs:
   security-baseline:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
         node-version:
           - 20
           - 22
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Repository safety scan
-        run: npm run security:repo
-
-      - name: Production dependency audit
-        run: npm run security:audit
+      - run: npm ci
+      - name: Audit production and development dependencies
+        run: npm audit --audit-level=high
+      - run: npm run check
