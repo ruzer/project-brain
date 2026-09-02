@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { chmod, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, readdir, rename, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -12,6 +12,7 @@ import { get, put, temporaryRepository } from "../test-support/helpers.mjs";
 
 const execFileAsync = promisify(execFile);
 const brainBin = fileURLToPath(new URL("../bin/brain.mjs", import.meta.url));
+const fsModuleUrl = new URL("../src/fs.mjs", import.meta.url).href;
 const startMarkerBytes = Buffer.from(START_MARKER);
 const endMarkerBytes = Buffer.from(END_MARKER);
 const combinedPreservationCase = {
@@ -148,6 +149,21 @@ async function assertRepositoryUnchanged(root, before) {
     [...after.tree.root, ...after.tree.context].some((name) => name.endsWith(".tmp")),
     false
   );
+}
+
+function filesystemIdentity(info) {
+  return { dev: info.dev, ino: info.ino };
+}
+
+function sameFilesystemIdentity(left, right) {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+async function assertNoTemporaryFiles(...directories) {
+  for (const directory of directories) {
+    const entries = await readdir(directory);
+    assert.equal(entries.some((name) => name.endsWith(".tmp")), false);
+  }
 }
 
 test("sync cambia solo el bloque generado, preserva lo manual y es idempotente", async (t) => {
@@ -300,6 +316,253 @@ test("sync aborta si CONTEXT.md cambia después de la segunda lectura", async (t
     [...after.tree.root, ...after.tree.context].some((name) => name.endsWith(".tmp")),
     false
   );
+});
+
+test("sync aborta si CONTEXT.md cambia de identidad aunque conserve los mismos bytes", async (t) => {
+  const root = await temporaryRepository(t);
+  await initRepository(root);
+  await put(root, "nuevo.js", "export default true;\n");
+  const contextDirectory = path.join(root, "AI_CONTEXT");
+  const contextPath = path.join(root, GENERATED_FILE);
+  const backupPath = path.join(contextDirectory, "CONTEXT.original.md");
+  const replacementPath = path.join(contextDirectory, "CONTEXT.replacement.md");
+  const originalBytes = await readFile(contextPath);
+  await writeFile(replacementPath, originalBytes);
+  const originalIdentity = filesystemIdentity(await lstat(contextPath));
+  const replacementIdentity = filesystemIdentity(await lstat(replacementPath));
+  if (sameFilesystemIdentity(originalIdentity, replacementIdentity)) {
+    t.skip("el filesystem no expone identidades distinguibles para archivos distintos");
+    return;
+  }
+
+  let checkpointCalls = 0;
+  await assert.rejects(
+    () => syncTesting.syncWithCheckpoint(root, async () => {
+      checkpointCalls += 1;
+      await rename(contextPath, backupPath);
+      await rename(replacementPath, contextPath);
+    }),
+    /CONTEXT\.md cambió de identidad durante la sincronización/u
+  );
+
+  assert.equal(checkpointCalls, 1);
+  assert.deepEqual(filesystemIdentity(await lstat(contextPath)), replacementIdentity);
+  assert.deepEqual(filesystemIdentity(await lstat(backupPath)), originalIdentity);
+  assert.deepEqual(await readFile(contextPath), originalBytes);
+  assert.deepEqual(await readFile(backupPath), originalBytes);
+  await assertNoTemporaryFiles(root, contextDirectory);
+});
+
+test("sync aborta si cambia la identidad del directorio AI_CONTEXT", async (t) => {
+  const root = await temporaryRepository(t);
+  await initRepository(root);
+  await put(root, "nuevo.js", "export default true;\n");
+  const contextDirectory = path.join(root, "AI_CONTEXT");
+  const replacementDirectory = path.join(root, "AI_CONTEXT.replacement");
+  const backupDirectory = path.join(root, "AI_CONTEXT.original");
+  const contextPath = path.join(contextDirectory, "CONTEXT.md");
+  const replacementContextPath = path.join(replacementDirectory, "CONTEXT.md");
+  const originalFiles = await canonicalBuffers(root);
+  await mkdir(replacementDirectory);
+  await writeFile(replacementContextPath, originalFiles[GENERATED_FILE]);
+  const originalParentIdentity = filesystemIdentity(await lstat(contextDirectory));
+  const replacementParentIdentity = filesystemIdentity(await lstat(replacementDirectory));
+  if (sameFilesystemIdentity(originalParentIdentity, replacementParentIdentity)) {
+    t.skip("el filesystem no expone identidades distinguibles para directorios distintos");
+    return;
+  }
+  const originalFileIdentity = filesystemIdentity(await lstat(contextPath));
+  const replacementFileIdentity = filesystemIdentity(await lstat(replacementContextPath));
+  assert.equal(sameFilesystemIdentity(replacementFileIdentity, originalFileIdentity), false);
+
+  let checkpointCalls = 0;
+  await assert.rejects(
+    () => syncTesting.syncWithCheckpoint(root, async () => {
+      checkpointCalls += 1;
+      await rename(contextDirectory, backupDirectory);
+      await rename(replacementDirectory, contextDirectory);
+    }),
+    /directorio administrado cambió durante la sincronización/u
+  );
+
+  assert.equal(checkpointCalls, 1);
+  assert.deepEqual(filesystemIdentity(await lstat(contextDirectory)), replacementParentIdentity);
+  assert.deepEqual(filesystemIdentity(await lstat(contextPath)), replacementFileIdentity);
+  assert.deepEqual(await readFile(contextPath), originalFiles[GENERATED_FILE]);
+  for (const relative of REQUIRED_FILES) {
+    const preservedPath = path.dirname(relative) === "AI_CONTEXT"
+      ? path.join(backupDirectory, path.basename(relative))
+      : path.join(root, relative);
+    assert.deepEqual(await readFile(preservedPath), originalFiles[relative]);
+  }
+  await assertNoTemporaryFiles(root, contextDirectory, backupDirectory);
+});
+
+test("sync limpia el temporal si AI_CONTEXT cambia después de crearlo", async (t) => {
+  const root = await temporaryRepository(t);
+  await initRepository(root);
+  await put(root, "nuevo.js", "export default true;\n");
+  const contextDirectory = path.join(root, "AI_CONTEXT");
+  const replacementDirectory = path.join(root, "AI_CONTEXT.replacement");
+  const backupDirectory = path.join(root, "AI_CONTEXT.original");
+  const contextPath = path.join(contextDirectory, "CONTEXT.md");
+  const replacementContextPath = path.join(replacementDirectory, "CONTEXT.md");
+  const originalBytes = await readFile(contextPath);
+  await mkdir(replacementDirectory);
+  await writeFile(replacementContextPath, originalBytes);
+  const replacementParentIdentity = filesystemIdentity(await lstat(replacementDirectory));
+  const replacementFileIdentity = filesystemIdentity(await lstat(replacementContextPath));
+  let checkpointCalls = 0;
+
+  await assert.rejects(
+    () => syncTesting.syncWithCheckpoint(root, {
+      async afterTemporaryWrite() {
+        checkpointCalls += 1;
+        await rename(contextDirectory, backupDirectory);
+        await rename(replacementDirectory, contextDirectory);
+      }
+    }),
+    /directorio administrado cambió durante la sincronización/u
+  );
+
+  assert.equal(checkpointCalls, 1);
+  assert.deepEqual(filesystemIdentity(await lstat(contextDirectory)), replacementParentIdentity);
+  assert.deepEqual(filesystemIdentity(await lstat(contextPath)), replacementFileIdentity);
+  assert.deepEqual(await readFile(contextPath), originalBytes);
+  await assertNoTemporaryFiles(root, contextDirectory, backupDirectory);
+});
+
+test("sync aborta si cambian los bytes del temporal antes del commit", async (t) => {
+  const root = await temporaryRepository(t);
+  await initRepository(root);
+  await put(root, "nuevo.js", "export default true;\n");
+  const contextDirectory = path.join(root, "AI_CONTEXT");
+  const contextPath = path.join(root, GENERATED_FILE);
+  const originalBytes = await readFile(contextPath);
+  let checkpointCalls = 0;
+
+  await assert.rejects(
+    () => syncTesting.syncWithCheckpoint(root, {
+      async afterTemporaryWrite() {
+        checkpointCalls += 1;
+        const temporaryNames = (await readdir(root)).filter((name) => name.endsWith(".tmp"));
+        assert.equal(temporaryNames.length, 1);
+        await writeFile(path.join(root, temporaryNames[0]), "contenido competidor\n");
+      }
+    }),
+    /archivo temporal cambió durante la sincronización/u
+  );
+
+  assert.equal(checkpointCalls, 1);
+  assert.deepEqual(await readFile(contextPath), originalBytes);
+  await assertNoTemporaryFiles(root, contextDirectory);
+});
+
+test("sync no sigue un symlink que sustituye CONTEXT.md", async (t) => {
+  const root = await temporaryRepository(t);
+  const outside = await temporaryRepository(t, "brain fuera del root ");
+  await initRepository(root);
+  await put(root, "nuevo.js", "export default true;\n");
+  const contextDirectory = path.join(root, "AI_CONTEXT");
+  const contextPath = path.join(root, GENERATED_FILE);
+  const backupPath = path.join(contextDirectory, "CONTEXT.original.md");
+  const sentinelPath = path.join(outside, "sentinel.md");
+  const sentinelBytes = Buffer.from("contenido fuera del repositorio\n");
+  await writeFile(sentinelPath, sentinelBytes);
+  const probePath = path.join(contextDirectory, ".symlink-probe");
+  try {
+    await symlink(sentinelPath, probePath);
+    await unlink(probePath);
+  } catch (error) {
+    await unlink(probePath).catch(() => {});
+    if (["EACCES", "ENOSYS", "ENOTSUP", "EOPNOTSUPP", "EPERM"].includes(error?.code)) {
+      t.skip("el filesystem no admite symlinks");
+      return;
+    }
+    throw error;
+  }
+  const originalBytes = await readFile(contextPath);
+
+  await assert.rejects(
+    () => syncTesting.syncWithCheckpoint(root, async () => {
+      await rename(contextPath, backupPath);
+      await symlink(sentinelPath, contextPath);
+    }),
+    /No se permiten enlaces simbólicos administrados/u
+  );
+
+  assert.equal((await lstat(contextPath)).isSymbolicLink(), true);
+  assert.deepEqual(await readFile(backupPath), originalBytes);
+  assert.deepEqual(await readFile(sentinelPath), sentinelBytes);
+  await assertNoTemporaryFiles(root, contextDirectory, outside);
+});
+
+test("la lectura rechaza un symlink transitorio aunque vuelva el inode original", async (t) => {
+  const root = await temporaryRepository(t, "brain symlink transitorio ");
+  const outside = await temporaryRepository(t, "brain sentinel externo ");
+  const script = `
+    import { rename, symlink, writeFile } from "node:fs/promises";
+    import path from "node:path";
+    const [root, outside, moduleUrl] = process.argv.slice(1);
+    const { readTextSnapshot } = await import(moduleUrl);
+    const target = path.join(root, "CONTEXT.md");
+    const backup = path.join(root, "CONTEXT.backup");
+    const symlinkSlot = path.join(root, "CONTEXT.link");
+    const sentinel = path.join(outside, "sentinel.md");
+    await writeFile(target, "inside");
+    await writeFile(sentinel, "OUTSIDE-SENTINEL");
+    try {
+      await symlink(sentinel, symlinkSlot);
+    } catch (error) {
+      console.log(JSON.stringify({ unsupported: error.code }));
+      process.exit(0);
+    }
+    const reading = readTextSnapshot(target).then(
+      (result) => ({ rejected: false, text: result.text }),
+      (error) => ({ rejected: true, code: error.code ?? null })
+    );
+    const moved = rename(target, backup);
+    const installed = rename(symlinkSlot, target);
+    await moved;
+    await installed;
+    await rename(backup, target);
+    console.log(JSON.stringify(await reading));
+  `;
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    ["--input-type=module", "-e", script, root, outside, fsModuleUrl],
+    { encoding: "utf8", env: { ...process.env, UV_THREADPOOL_SIZE: "1" } }
+  );
+  const result = JSON.parse(stdout);
+  if (["EACCES", "ENOSYS", "ENOTSUP", "EOPNOTSUPP", "EPERM"].includes(result.unsupported)) {
+    t.skip("el filesystem no admite symlinks");
+    return;
+  }
+  assert.equal(result.unsupported, undefined);
+  assert.equal(result.rejected, true);
+  assert.notEqual(result.text, "OUTSIDE-SENTINEL");
+});
+
+test("sync aborta si CONTEXT.md cambia de archivo regular a directorio", async (t) => {
+  const root = await temporaryRepository(t);
+  await initRepository(root);
+  await put(root, "nuevo.js", "export default true;\n");
+  const contextDirectory = path.join(root, "AI_CONTEXT");
+  const contextPath = path.join(root, GENERATED_FILE);
+  const backupPath = path.join(contextDirectory, "CONTEXT.original.md");
+  const originalBytes = await readFile(contextPath);
+
+  await assert.rejects(
+    () => syncTesting.syncWithCheckpoint(root, async () => {
+      await rename(contextPath, backupPath);
+      await mkdir(contextPath);
+    }),
+    /No es un archivo regular/u
+  );
+
+  assert.equal((await lstat(contextPath)).isDirectory(), true);
+  assert.deepEqual(await readFile(backupPath), originalBytes);
+  await assertNoTemporaryFiles(root, contextDirectory, contextPath);
 });
 
 test("sync falla de forma segura si faltan marcadores", async (t) => {
