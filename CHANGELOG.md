@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1 - 2026-09-02
+
+### Endurecimiento compatible
+
+- Preserva byte por byte `RepositoryOwnedContent`, rechaza UTF-8 inválido y falla cerrado ante cambios concurrentes de contenido o identidad.
+- Separa observaciones verificadas, detecciones heurísticas y comandos candidatos dentro de `GeneratedProjection`.
+- Añade warnings compatibles para roles, frontmatter, frescura e `IntegrationReference`, manteniendo `ok: true` cuando sólo existen warnings.
+- Formaliza los resultados públicos, la semántica de `Diagnostic` y el modo aditivo de inventario de `RepositoryObservation`.
+- Define el modelo de dominio y la frontera de autoridad con Project Memory Hub sin introducir conectores ni sincronización.
+- Añade cobertura black-box del proceso real y validación del paquete desde un consumidor temporal offline.
+
 ## 0.3.0 - 2026-08-26
 
 ### Cambios incompatibles

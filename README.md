@@ -7,7 +7,7 @@ Project Brain Lite conserva un contexto técnico pequeño y verificable para hum
 Requiere Node.js 20 o posterior.
 
 ```bash
-npm install --save-dev github:ruzer/project-brain#v0.3.0
+npm install --save-dev github:ruzer/project-brain#v0.3.1
 npx brain init .
 ```
 
@@ -207,7 +207,7 @@ La versión 0.3.0 reemplaza deliberadamente el motor autónomo 0.2.x por el núc
 - El ejecutable `project-brain` y los comandos de análisis, reportes, agentes, swarm y governance se retiran; el único ejecutable es `brain` con `init`, `sync` y `doctor`.
 - Los resultados y contextos creados por 0.2.x no se importan. El tag `v0.2.5` conserva esa versión para consulta o recuperación.
 
-Antes de adoptar 0.3.0 en un repositorio existente, confirma o respalda los archivos anteriores, desinstala `project-brain`, instala el tag 0.3.0 o un clon local y ejecuta `brain init` en una rama de trabajo. `init` preserva archivos existentes y se detiene si no puede aplicar el contrato con seguridad.
+Antes de adoptar la línea 0.3.x en un repositorio existente, confirma o respalda los archivos anteriores, desinstala `project-brain`, instala el tag `v0.3.1` o un clon local y ejecuta `brain init` en una rama de trabajo. `init` preserva archivos existentes y se detiene si no puede aplicar el contrato con seguridad.
 
 ## Desarrollo
 

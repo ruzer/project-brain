@@ -2,7 +2,7 @@ import { doctorRepository } from "./doctor.mjs";
 import { initRepository } from "./init.mjs";
 import { syncRepository } from "./sync.mjs";
 
-export const VERSION = "0.3.0";
+export const VERSION = "0.3.1";
 
 const HELP = `Project Brain Lite ${VERSION}
 
