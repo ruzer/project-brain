@@ -8,8 +8,8 @@ role: context
 <!-- brain:generated:start -->
 ## Observaciones verificadas del repositorio
 
-- Archivos observados: 35
-- Huella del inventario basada en ruta:tamaño (no es hash de contenido): `sha256:937d1941fd8cdbed11a82d0a88e8695a822aac02412b24c2a08130716e7ed9ac`
+- Archivos observados: 36
+- Huella del inventario basada en ruta:tamaño (no es hash de contenido): `sha256:4f02c1464f411ea60056ef4eb8f72873ae0e1103365c4aa2e1cca8f6b859c536`
 - Raíces observadas: .github, bin, schema, src, templates, test, test-support
 - Manifiestos observados: [package-lock.json](../package-lock.json), [package.json](../package.json)
 

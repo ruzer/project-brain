@@ -42,6 +42,14 @@ npx brain doctor .
 
 El escáner usa primero el inventario de Git y respeta `.gitignore`; fuera de Git hace un recorrido local seguro. No llama modelos, servicios cloud ni procesos autónomos, y tampoco ejecuta los comandos candidatos que detecta.
 
+## Resultados públicos 0.3.x
+
+El schema distribuido publica en `$defs` las formas JSON serializables de `RepositoryObservation`, `InitResult`, `SyncResult`, `DoctorCheckResult`, `Diagnostic` y `DoctorResult`. Esas definiciones describen los campos obligatorios existentes y admiten campos adicionales: cualquier ampliación compatible dentro de 0.3.x es aditiva; no elimina, renombra ni reinterpreta campos ya publicados.
+
+En `DoctorResult`, `ok` depende exclusivamente de `errors`: un resultado que contiene warnings y ningún error conserva `ok: true`. La misma regla aplica a cada `DoctorCheckResult`. Los valores de `code`, `checkId` e `id` de check no forman enums cerrados y pueden ampliarse sin cambiar los arrays públicos `errors`, `warnings` y `checks`.
+
+El contrato sigue disponible como `CONTRACT_SCHEMA` desde el export raíz y mediante el subpath `@ruzer/project-brain/schema`. Es documentación estructurada distribuida con el paquete; no añade validación de runtime ni dependencias.
+
 ## Modelo de dominio 0.3.1
 
 Este glosario es la definición canónica del producto. Los documentos operativos usan estos términos sin redefinirlos.
