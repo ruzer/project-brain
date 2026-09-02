@@ -71,3 +71,19 @@ test("doctor CLI conserva exit codes y serializa metadatos de Diagnostic", async
     diagnostic.severity === "error" && typeof diagnostic.checkId === "string"
   ));
 });
+
+test("doctor CLI reporta proyección desactualizada como warning exitoso", async (t) => {
+  const root = await temporaryRepository(t);
+  await initRepository(root);
+  await put(root, "nuevo.js", "export default true;\n");
+  const run = capture();
+
+  assert.equal(await runCli(["doctor", root, "--json"], run.io), 0);
+  const result = JSON.parse(run.output.logs.join("\n"));
+  const stale = result.warnings.find((diagnostic) =>
+    diagnostic.code === "STALE_GENERATED_PROJECTION"
+  );
+  assert.equal(result.ok, true);
+  assert.equal(stale?.checkId, "generated-freshness");
+  assert.equal(stale?.severity, "warning");
+});

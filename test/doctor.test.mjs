@@ -7,6 +7,7 @@ import {
   readFile,
   readdir,
   rm,
+  stat,
   symlink,
   unlink,
   writeFile
@@ -15,7 +16,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { doctor, doctorRepository } from "../src/index.mjs";
+import { GENERATED_FILE, REQUIRED_FILES } from "../src/contract.mjs";
+import { doctor, doctorRepository, syncRepository } from "../src/index.mjs";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const templateRoot = path.join(packageRoot, "templates");
@@ -37,6 +39,7 @@ async function createFixture() {
       path.join(root, "AI_CONTEXT", name)
     );
   }
+  await syncRepository(root);
   return root;
 }
 
@@ -78,6 +81,28 @@ function assertDiagnosticCounts(result) {
   }
 }
 
+async function canonicalState(root) {
+  return {
+    files: Object.fromEntries(await Promise.all(REQUIRED_FILES.map(async (relative) => {
+      const filePath = path.join(root, relative);
+      const info = await stat(filePath);
+      return [relative, {
+        bytes: await readFile(filePath),
+        ino: info.ino,
+        mode: info.mode,
+        mtimeMs: info.mtimeMs,
+        size: info.size
+      }];
+    }))),
+    rootEntries: (await readdir(root)).sort(),
+    contextEntries: (await readdir(path.join(root, "AI_CONTEXT"))).sort()
+  };
+}
+
+function staleWarnings(result) {
+  return result.warnings.filter((diagnostic) => diagnostic.code === "STALE_GENERATED_PROJECTION");
+}
+
 test("acepta el contrato mínimo y entrega una estructura estable", async () => {
   const root = await createFixture();
 
@@ -97,10 +122,92 @@ test("acepta el contrato mínimo y entrega una estructura estable", async () => 
       "extra-context-files",
       "links",
       "duplicates",
-      "sensitive-data"
+      "sensitive-data",
+      "generated-freshness"
     ]
   );
   assert.ok(first.checks.every((check) => check.ok));
+});
+
+test("generated-freshness compara la proyección esperada sin escribir", async (t) => {
+  await t.test("bloque manipulado produce warning y sync lo elimina", async () => {
+    const root = await createFixture();
+    const contextPath = path.join(root, GENERATED_FILE);
+    const current = await readFile(contextPath, "utf8");
+    await writeFile(
+      contextPath,
+      current.replace(/Archivos observados: \d+/u, "Archivos observados: 999"),
+      "utf8"
+    );
+    const beforeDoctor = await canonicalState(root);
+
+    const first = await doctor(root);
+    const second = await doctor(root);
+
+    assert.equal(first.ok, true);
+    assert.deepEqual(second, first);
+    assert.equal(staleWarnings(first).length, 1);
+    assert.equal(staleWarnings(first)[0].checkId, "generated-freshness");
+    assert.equal(staleWarnings(first)[0].severity, "warning");
+    assert.deepEqual(await canonicalState(root), beforeDoctor);
+
+    const synced = await syncRepository(root);
+    assert.equal(synced.changed, true);
+    assert.equal(staleWarnings(await doctor(root)).length, 0);
+  });
+
+  await t.test("archivo añadido y eliminado desactualiza la proyección", async () => {
+    const root = await createFixture();
+    const sourcePath = path.join(root, "src", "value.js");
+    await mkdir(path.dirname(sourcePath), { recursive: true });
+    await writeFile(sourcePath, "export const value = 1;\n", "utf8");
+
+    assert.equal(staleWarnings(await doctor(root)).length, 1);
+    await syncRepository(root);
+    assert.equal(staleWarnings(await doctor(root)).length, 0);
+
+    await unlink(sourcePath);
+    assert.equal(staleWarnings(await doctor(root)).length, 1);
+  });
+
+  await t.test("cambios de manifest, stack y scripts desactualizan la proyección", async () => {
+    const root = await createFixture();
+    const manifestPath = path.join(root, "package.json");
+    await writeFile(manifestPath, JSON.stringify({
+      engines: { node: ">=20" },
+      scripts: { test: "node --test" }
+    }), "utf8");
+
+    assert.equal(staleWarnings(await doctor(root)).length, 1);
+    await syncRepository(root);
+    assert.equal(staleWarnings(await doctor(root)).length, 0);
+
+    await writeFile(manifestPath, JSON.stringify({
+      engines: { node: ">=20" },
+      scripts: { check: "node --check index.js" }
+    }), "utf8");
+    assert.equal(staleWarnings(await doctor(root)).length, 1);
+  });
+
+  await t.test("igual tamaño sólo avisa cuando cambia la semántica proyectada", async () => {
+    const root = await createFixture();
+    const sourcePath = path.join(root, "value.js");
+    await writeFile(sourcePath, "abc\n", "utf8");
+    await syncRepository(root);
+    await writeFile(sourcePath, "xyz\n", "utf8");
+
+    assert.equal(staleWarnings(await doctor(root)).length, 0);
+
+    const manifestPath = path.join(root, "package.json");
+    const withLint = '{"scripts":{"lint":"echo x"}}\n';
+    const withTest = '{"scripts":{"test":"echo x"}}\n';
+    assert.equal(Buffer.byteLength(withLint), Buffer.byteLength(withTest));
+    await writeFile(manifestPath, withLint, "utf8");
+    await syncRepository(root);
+    await writeFile(manifestPath, withTest, "utf8");
+
+    assert.equal(staleWarnings(await doctor(root)).length, 1);
+  });
 });
 
 test("cada Diagnostic expone checkId y severity sin alterar resultados existentes", async (t) => {
@@ -200,6 +307,7 @@ test("exige una sola pareja ordenada de marcadores generados", async () => {
 
   assert.equal(result.ok, false);
   assert.ok(codes(result.errors).includes("GENERATED_START_MARKER_COUNT"));
+  assert.equal(staleWarnings(result).length, 0);
 });
 
 test("doctor informa UTF-8 inválido en CONTEXT.md y permanece read-only", async () => {

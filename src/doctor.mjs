@@ -8,7 +8,9 @@ import {
   REQUIRED_FILES,
   START_MARKER
 } from "./contract.mjs";
+import { replaceGeneratedBlock } from "./context.mjs";
 import { insideRoot, managedPath, readText, resolveRoot } from "./fs.mjs";
+import { scanRepository } from "./scanner.mjs";
 
 const CHECK_IDS = Object.freeze([
   "canonical-files",
@@ -17,7 +19,8 @@ const CHECK_IDS = Object.freeze([
   "extra-context-files",
   "links",
   "duplicates",
-  "sensitive-data"
+  "sensitive-data",
+  "generated-freshness"
 ]);
 
 const CONTEXT_DIRECTORY = "AI_CONTEXT";
@@ -814,6 +817,7 @@ export async function doctor(inputRoot = ".") {
   }
 
   const generated = canonical.get(GENERATED_FILE);
+  let generatedMarkersValid = false;
   if (generated) {
     const startCount = countOccurrences(generated.content, START_MARKER);
     const endCount = countOccurrences(generated.content, END_MARKER);
@@ -835,15 +839,29 @@ export async function doctor(inputRoot = ".") {
         expected: 1
       });
     }
+    const markersOrdered =
+      generated.content.indexOf(START_MARKER) < generated.content.indexOf(END_MARKER);
     if (
       startCount === 1 &&
       endCount === 1 &&
-      generated.content.indexOf(START_MARKER) > generated.content.indexOf(END_MARKER)
+      !markersOrdered
     ) {
       recorder.error("generated-markers", {
         code: "GENERATED_MARKER_ORDER",
         file: GENERATED_FILE,
         message: "El marcador final aparece antes del marcador inicial."
+      });
+    }
+    generatedMarkersValid = startCount === 1 && endCount === 1 && markersOrdered;
+  }
+
+  if (generated && generatedMarkersValid) {
+    const expected = replaceGeneratedBlock(generated.content, await scanRepository(root));
+    if (expected !== generated.content) {
+      recorder.warning("generated-freshness", {
+        code: "STALE_GENERATED_PROJECTION",
+        file: GENERATED_FILE,
+        message: "La proyección generada no coincide con el estado observable del repositorio."
       });
     }
   }
