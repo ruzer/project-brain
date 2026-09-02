@@ -512,6 +512,42 @@ test("detecta archivos extra y enlaces Markdown y wikilinks rotos", async () => 
   assert.ok(codes(result.errors).includes("BROKEN_WIKILINK"));
 });
 
+test("IntegrationReference conserva auditoría local sin consultar destinos remotos", async () => {
+  const root = await createFixture();
+  const remote = "https://memory.example.invalid/projects/project-brain";
+  await append(
+    root,
+    "AI_CONTEXT/TASKS.md",
+    "\n- [Contexto local](CONTEXT.md)\n- [Local ausente](missing.md)\n- [Destino remoto](" +
+      remote +
+      ")\n"
+  );
+
+  const originalFetch = globalThis.fetch;
+  let fetchCalled = false;
+  globalThis.fetch = async () => {
+    fetchCalled = true;
+    throw new Error("doctor no debe consultar la red");
+  };
+
+  let result;
+  try {
+    result = await doctor(root);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(fetchCalled, false);
+  assert.ok(result.errors.some((diagnostic) =>
+    diagnostic.code === "BROKEN_MARKDOWN_LINK" && diagnostic.target === "missing.md"
+  ));
+  assert.equal(result.errors.some((diagnostic) => diagnostic.target === "CONTEXT.md"), false);
+  assert.equal(
+    [...result.errors, ...result.warnings].some((diagnostic) => diagnostic.target === remote),
+    false
+  );
+});
+
 test("rechaza enlaces que escapan mediante symlinks y reconoce destinos CommonMark", async () => {
   const root = await createFixture();
   const outside = await mkdtemp(path.join(tmpdir(), "project-brain-outside-"));

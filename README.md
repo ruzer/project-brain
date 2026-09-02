@@ -123,6 +123,37 @@ Citar una fuente no convierte una `Detection` en `ObservedFact` ni demuestra con
 
 `TechnicalSource` no representa owners, fechas, riesgos, milestones ni estado de gestión. Una referencia externa es una `IntegrationReference`, no transfiere autoridad y no provoca acceso de red.
 
+### Convención de IntegrationReference
+
+`IntegrationReference` es una convención opcional en Markdown para declarar un puntero desde `RepositoryOwnedContent` hacia otra autoridad. Sus cuatro campos son:
+
+- **system:** nombre estable del sistema al que pertenece el registro destino; no es un conector.
+- **destination:** localizador portable del registro; es dato, no una instrucción de navegación.
+- **provenance:** ubicación repository-owned desde la que se declara la referencia.
+- **authority:** declaración explícita de quién conserva autoridad sobre cada clase de información, independientemente del `system` que hospeda el destino.
+
+Una instancia opt-in comienza con un encabezado ATX cuyo texto exacto es `IntegrationReference`; menciones, enlaces y texto inline ordinarios no declaran una instancia.
+
+#### Brain → Memory Hub
+
+##### IntegrationReference
+
+- **system:** `Project Memory Hub`
+- **destination:** `memory-hub:project-brain`
+- **provenance:** `AI_CONTEXT/TASKS.md#validar-contexto`
+- **authority:** Project Memory Hub para owners, fechas, riesgos, milestones y estado de gestión.
+
+#### Memory Hub → Brain
+
+##### IntegrationReference
+
+- **system:** `Project Brain Lite`
+- **destination:** `project-brain:AI_CONTEXT/CONTEXT.md`
+- **provenance:** `projects/project-brain/memory/SOURCES.md#contexto-tecnico`
+- **authority:** el `Repository` para hechos técnicos y Project Brain únicamente para representar `GeneratedProjection`.
+
+La referencia no copia información canónica entre sistemas. La convención no implementa conectores, fetching ni sincronización; tampoco se parsea o valida en runtime. No crea un sexto artefacto canónico ni se incorpora al esquema. Los destinos remotos nunca son consultados automáticamente; las rutas relativas normales dentro del repositorio siguen bajo la auditoría de `doctor`.
+
 ## Matriz de autoridad
 
 Project Brain es autoridad de escritura únicamente sobre `GeneratedProjection`; no sustituye la autoridad factual del `Repository`.

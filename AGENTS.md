@@ -24,6 +24,7 @@ Al cambiar vocabulario, ownership o la frontera con Project Memory Hub, consulta
 
 - Distingue `ObservedFact` de `Detection`, propuesta o supuesto.
 - Cita un `TechnicalSource` repository-local por cada `ObservedFact`; una fuente no convierte una `Detection` en hecho.
+- Trata `IntegrationReference` como un puntero: no copies información canónica ni resuelvas destinos automáticamente.
 - No edites el bloque generado de `CONTEXT.md`; usa `brain sync .`.
 - `RepositoryOwnedContent` debe preservarse byte por byte fuera de los marcadores generados.
 - Actualiza únicamente el archivo cuyo propósito corresponda al cambio.

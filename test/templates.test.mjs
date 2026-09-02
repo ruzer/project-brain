@@ -287,6 +287,47 @@ test("TechnicalSource localiza evidencia sin elevar detecciones a hechos", async
   }
 });
 
+test("IntegrationReference usa cuatro campos y ejemplos bidireccionales", async () => {
+  const readme = await readFile(path.join(projectRoot, "README.md"), "utf8");
+  const tasks = await readFile(path.join(templatesRoot, "AI_CONTEXT", "TASKS.md"), "utf8");
+  const section = readme.match(
+    /^### Convención de IntegrationReference\s*$([\s\S]*?)(?=^### |^## )/mu
+  )?.[1];
+
+  assert.ok(section, "falta la convención de IntegrationReference");
+  assert.match(section, /opcional[^\n]*Markdown/iu);
+  assert.match(
+    section,
+    /authority:\*\* declaración explícita de quién conserva autoridad[^\n]*independientemente[^\n]*system/iu
+  );
+
+  const examples = [
+    section.match(/(?:^|\n)#### Brain → Memory Hub\s*\n([\s\S]*?)(?=\n#### |$)/u)?.[1],
+    section.match(/(?:^|\n)#### Memory Hub → Brain\s*\n([\s\S]*?)(?=\n#### |$)/u)?.[1]
+  ];
+  for (const [index, example] of examples.entries()) {
+    assert.ok(example, `falta el ejemplo bidireccional ${index + 1}`);
+    assert.match(example, /^##### IntegrationReference\s*$/mu);
+    assert.deepEqual(
+      [...example.matchAll(/^- \*\*(system|destination|provenance|authority):\*\*/gmu)]
+        .map((match) => match[1]),
+      ["system", "destination", "provenance", "authority"]
+    );
+  }
+
+  assert.match(examples[0], /system:\*\* `Project Memory Hub`/u);
+  assert.match(examples[0], /authority:\*\*[^\n]*owners[^\n]*fechas[^\n]*riesgos[^\n]*milestones[^\n]*estado de gestión/iu);
+  assert.match(examples[1], /system:\*\* `Project Brain Lite`/u);
+  assert.match(examples[1], /authority:\*\*[^\n]*Repository[^\n]*hechos técnicos[^\n]*GeneratedProjection/iu);
+  assert.match(section, /no copia[^\n]*información canónica/iu);
+
+  assert.match(tasks, /Referencia opcional[^\n]*IntegrationReference[^\n]*system[^\n]*destination[^\n]*provenance[^\n]*authority/iu);
+  assert.equal(
+    [...tasks.matchAll(/^\s*- \*\*(Resultado técnico|Siguiente validación|Bloqueos técnicos|Referencia opcional):\*\*/gmu)].length,
+    4
+  );
+});
+
 test("documentación y plantillas no contradicen el ownership 0.3.1", async () => {
   const documents = await Promise.all([
     "README.md",

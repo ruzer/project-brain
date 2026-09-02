@@ -64,3 +64,17 @@ test("la documentación de TechnicalSource no introduce fetching", async () => {
   assert.doesNotMatch(section, /\]\(https?:\/\//iu);
   assert.doesNotMatch(section, /\b(?:curl|wget)\b|\bfetch\s*\(/iu);
 });
+
+test("IntegrationReference no amplía el runtime ni el contrato canónico", async () => {
+  const readme = await readFile(path.join(root, "README.md"), "utf8");
+  const section = readme.match(
+    /^### Convención de IntegrationReference\s*$([\s\S]*?)(?=^### |^## )/mu
+  )?.[1];
+
+  assert.ok(section, "falta la convención de IntegrationReference");
+  assert.match(section, /no (?:implementa|introduce)[^\n]*conectores[^\n]*fetching[^\n]*sincronización/iu);
+  assert.match(section, /no crea[^\n]*sexto artefacto canónico/iu);
+  assert.match(section, /destinos remotos[^\n]*nunca[^\n]*(?:consultados|accedidos) automáticamente/iu);
+  assert.doesNotMatch(section, /\bbrain\s+(?:connect|integrate|pull|push)\b/iu);
+  assert.doesNotMatch(section, /schema obligatorio/iu);
+});
