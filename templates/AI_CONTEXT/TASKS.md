@@ -5,14 +5,15 @@ role: tasks
 
 # Tareas
 
-Mantén aquí solo trabajo activo. Cierra o elimina entradas terminadas; Git conserva el historial.
+Mantén únicamente actividad técnica local activa. Retira una entrada al concluir; Git conserva el pasado.
 
-## En curso
+## Plantilla
 
-- [ ] Resultado concreto — responsable — siguiente paso verificable.
+### Descripción breve
 
-## Bloqueos
-
-- Ninguno.
+- **Resultado técnico:** resultado observable esperado en el repositorio.
+- **Siguiente validación:** próxima comprobación candidata; no implica que ya fue ejecutada.
+- **Bloqueos técnicos:** impedimentos técnicos actuales; usa “Ninguno” si no existen.
+- **Referencia opcional:** enlaza el registro de Memory Hub cuando exista; omite el campo si no hay integración.
 
 Las restricciones vigentes viven en [Contexto](CONTEXT.md) y las elecciones duraderas en [Decisiones](DECISIONS.md).

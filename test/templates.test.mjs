@@ -210,6 +210,31 @@ test("TechnicalDecision limita autoridad, reemplazo y campos de gestión", async
   assert.doesNotMatch(decisions, /^\s*-\s+\*\*(?:Owner|Responsable|Fecha|Milestone|Hito|Riesgo|Estado global):\*\*/imu);
 });
 
+test("TechnicalTask conserva sólo actividad técnica local y referencia opcional", async () => {
+  const readme = await readFile(path.join(projectRoot, "README.md"), "utf8");
+  const tasks = await readFile(path.join(templatesRoot, "AI_CONTEXT", "TASKS.md"), "utf8");
+
+  for (const field of [
+    "Resultado técnico",
+    "Siguiente validación",
+    "Bloqueos técnicos",
+    "Referencia opcional"
+  ]) {
+    assert.match(tasks, new RegExp(`^\\s*- \\*\\*${field}:\\*\\*`, "mu"), `falta ${field}`);
+  }
+
+  assert.match(readme, /TechnicalTask[^\n]*actividad técnica local activa/iu);
+  assert.match(readme, /Memory Hub[^\n]*integración opcional/iu);
+  assert.match(readme, /Siguiente validación[^\n]*no implica[^\n]*ejecutada/iu);
+  assert.match(readme, /TechnicalTask[^\n]*Git[^\n]*pasado/iu);
+  assert.match(tasks, /Referencia opcional[^\n]*Memory Hub[^\n]*omite/iu);
+
+  assert.doesNotMatch(tasks, /^\s*- \[[ xX]\]/mu);
+  assert.doesNotMatch(tasks, /\bresponsable\b/iu);
+  assert.doesNotMatch(tasks, /\b(?:roadmap|sprint|task board)\b/iu);
+  assert.doesNotMatch(tasks, /^\s*-\s+\*\*(?:Owner|Fecha|Milestone|Hito|Riesgo|Estado|Estado global):\*\*/imu);
+});
+
 test("documentación y plantillas no contradicen el ownership 0.3.1", async () => {
   const documents = await Promise.all([
     "README.md",

@@ -86,6 +86,19 @@ Este glosario es la definición canónica del producto. Los documentos operativo
 
 El campo `Estado` es un estado técnico documental, no el estado de gestión del proyecto. Project Brain no propone, acepta, migra ni reescribe decisiones; Git conserva el historial detallado.
 
+### Alcance de TechnicalTask
+
+`TechnicalTask` representa actividad técnica local activa; se retira del contexto al concluir y Git conserva el pasado. No es estado persistente de gestión.
+
+La estructura recomendada contiene cuatro campos:
+
+- **Resultado técnico:** cambio observable esperado en el `Repository`, no un milestone de gestión.
+- **Siguiente validación:** próxima comprobación candidata; registrarla no implica que fue ejecutada, aprobada o superada.
+- **Bloqueos técnicos:** impedimentos técnicos actuales; se usa “Ninguno” cuando no existen.
+- **Referencia opcional:** puntero al registro de gestión correspondiente, si existe.
+
+Project Memory Hub es una integración opcional y conserva la autoridad sobre owners, fechas, riesgos, milestones y estado de gestión. Si no existe, la referencia se omite; nunca se copian esos valores a `TechnicalTask`.
+
 ## Matriz de autoridad
 
 Project Brain es autoridad de escritura únicamente sobre `GeneratedProjection`; no sustituye la autoridad factual del `Repository`.

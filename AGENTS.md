@@ -8,7 +8,7 @@ Al cambiar vocabulario, ownership o la frontera con Project Memory Hub, consulta
 
 - [Contexto técnico](AI_CONTEXT/CONTEXT.md): propósito, proyección derivada y restricciones del repositorio.
 - [Decisiones](AI_CONTEXT/DECISIONS.md): elecciones técnicas; sólo una decisión aceptada es normativa.
-- [Tareas](AI_CONTEXT/TASKS.md): trabajo activo; no es un historial.
+- [Tareas](AI_CONTEXT/TASKS.md): actividad técnica local activa; la gestión permanece en Memory Hub cuando exista.
 - [Aprendizajes](AI_CONTEXT/LEARNINGS.md): hallazgos reutilizables y confirmados.
 
 ## Responsabilidades de las herramientas

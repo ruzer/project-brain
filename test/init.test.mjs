@@ -24,16 +24,21 @@ test("init crea exactamente el contrato mínimo y sincroniza hechos", async (t) 
   );
 });
 
-test("init nunca sobrescribe contenido manual existente", async (t) => {
+test("init preserva byte por byte un TASKS.md existente", async (t) => {
   const root = await temporaryRepository(t);
   await initRepository(root);
-  const manual = "# Tareas\n\n- [ ] Mantener esta línea exactamente.\n";
-  await put(root, "AI_CONTEXT/TASKS.md", manual);
+  const tasksPath = path.join(root, "AI_CONTEXT", "TASKS.md");
+  const existing = Buffer.concat([
+    Buffer.from([0xef, 0xbb, 0xbf]),
+    Buffer.from("# Tarea existente\r\n\r\nPreservar trailing spaces  \r\nÚltima línea")
+  ]);
+  await writeFile(tasksPath, existing);
 
   const result = await initRepository(root);
+
   assert.deepEqual(result.created, []);
-  assert.deepEqual(result.preserved, REQUIRED_FILES);
-  assert.equal(await get(root, "AI_CONTEXT/TASKS.md"), manual);
+  assert.ok(result.preserved.includes("AI_CONTEXT/TASKS.md"));
+  assert.deepEqual(await readFile(tasksPath), existing);
 });
 
 test("init preserva byte por byte un DECISIONS.md existente", async (t) => {
