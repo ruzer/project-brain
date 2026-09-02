@@ -87,3 +87,19 @@ test("doctor CLI reporta proyección desactualizada como warning exitoso", async
   assert.equal(stale?.checkId, "generated-freshness");
   assert.equal(stale?.severity, "warning");
 });
+
+test("doctor CLI reporta frontmatter ausente como warning exitoso", async (t) => {
+  const root = await temporaryRepository(t);
+  await initRepository(root);
+  await put(root, "AI_CONTEXT/TASKS.md", "# Tareas sin frontmatter\n");
+  const run = capture();
+
+  assert.equal(await runCli(["doctor", root, "--json"], run.io), 0);
+  const result = JSON.parse(run.output.logs.join("\n"));
+  const warning = result.warnings.find((diagnostic) =>
+    diagnostic.code === "MISSING_ARTIFACT_FRONTMATTER"
+  );
+  assert.equal(result.ok, true);
+  assert.equal(warning?.checkId, "artifact-roles");
+  assert.equal(warning?.severity, "warning");
+});

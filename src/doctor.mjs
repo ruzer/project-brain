@@ -20,6 +20,7 @@ const CHECK_IDS = Object.freeze([
   "links",
   "duplicates",
   "sensitive-data",
+  "artifact-roles",
   "generated-freshness"
 ]);
 
@@ -29,6 +30,13 @@ const AUDITABLE_EXTRA_NAMES = /(?:\.md|\.markdown|\.txt|\.json|\.ya?ml|\.toml|\.
 const REQUIRED_CONTEXT_FILES = new Set(
   REQUIRED_FILES.filter((file) => file.startsWith(`${CONTEXT_DIRECTORY}/`))
 );
+const ARTIFACT_ROLES = new Map([
+  ["AI_CONTEXT/CONTEXT.md", "context"],
+  ["AI_CONTEXT/DECISIONS.md", "decisions"],
+  ["AI_CONTEXT/TASKS.md", "tasks"],
+  ["AI_CONTEXT/LEARNINGS.md", "learnings"]
+]);
+const KNOWN_ARTIFACT_ROLES = new Set(ARTIFACT_ROLES.values());
 
 function compareText(left = "", right = "") {
   if (left < right) return -1;
@@ -130,6 +138,87 @@ function countOccurrences(content, marker) {
     offset = index + marker.length;
   }
   return count;
+}
+
+function parseArtifactFrontmatter(content) {
+  const source = content.startsWith("\uFEFF") ? content.slice(1) : content;
+  const lines = source.split(/\r\n|\r|\n/u);
+  if (lines[0] !== "---") return { status: "missing" };
+
+  const end = lines.indexOf("---", 1);
+  if (end === -1) return { status: "malformed" };
+
+  const fields = new Map();
+  for (const line of lines.slice(1, end)) {
+    if (line.trim() === "") continue;
+    const separator = line.indexOf(":");
+    const key = separator > 0 ? line.slice(0, separator).trim() : "";
+    if (!/^[a-z_][a-z\d_-]*$/iu.test(key) || fields.has(key)) {
+      return { status: "malformed" };
+    }
+    fields.set(key, line.slice(separator + 1).trim());
+  }
+
+  return { status: "valid", fields };
+}
+
+function inspectArtifactRoles(canonical, recorder) {
+  for (const [relative, expectedRole] of ARTIFACT_ROLES) {
+    const note = canonical.get(relative);
+    if (!note || note.bytes > MAX_AUDIT_FILE_BYTES) continue;
+
+    const frontmatter = parseArtifactFrontmatter(note.content);
+    if (frontmatter.status === "missing") {
+      recorder.warning("artifact-roles", {
+        code: "MISSING_ARTIFACT_FRONTMATTER",
+        file: relative,
+        message: "El artefacto canónico no tiene frontmatter inicial."
+      });
+      continue;
+    }
+    if (frontmatter.status === "malformed") {
+      recorder.warning("artifact-roles", {
+        code: "MALFORMED_ARTIFACT_FRONTMATTER",
+        file: relative,
+        message: "El frontmatter del artefacto canónico no usa el formato simple esperado."
+      });
+      continue;
+    }
+
+    const marker = frontmatter.fields.get("project_brain");
+    if (marker !== "1") {
+      recorder.warning("artifact-roles", {
+        code: "INVALID_PROJECT_BRAIN_MARKER",
+        file: relative,
+        message: "El frontmatter debe declarar project_brain: 1.",
+        actual: marker
+      });
+    }
+
+    const role = frontmatter.fields.get("role");
+    if (!role) {
+      recorder.warning("artifact-roles", {
+        code: "MISSING_ARTIFACT_ROLE",
+        file: relative,
+        message: "El frontmatter no declara el role del artefacto."
+      });
+    } else if (!KNOWN_ARTIFACT_ROLES.has(role)) {
+      recorder.warning("artifact-roles", {
+        code: "UNKNOWN_ARTIFACT_ROLE",
+        file: relative,
+        message: "El frontmatter declara un role desconocido.",
+        actual: role
+      });
+    } else if (role !== expectedRole) {
+      recorder.warning("artifact-roles", {
+        code: "ARTIFACT_ROLE_MISMATCH",
+        file: relative,
+        message: "El role no corresponde a la ruta canónica del artefacto.",
+        expected: expectedRole,
+        actual: role
+      });
+    }
+  }
 }
 
 async function collectExtraContextFiles(root, contextPath, recorder) {
@@ -854,6 +943,8 @@ export async function doctor(inputRoot = ".") {
     }
     generatedMarkersValid = startCount === 1 && endCount === 1 && markersOrdered;
   }
+
+  inspectArtifactRoles(canonical, recorder);
 
   if (generated && generatedMarkersValid) {
     const expected = replaceGeneratedBlock(generated.content, await scanRepository(root));

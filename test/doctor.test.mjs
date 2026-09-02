@@ -17,11 +17,17 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { GENERATED_FILE, REQUIRED_FILES } from "../src/contract.mjs";
-import { doctor, doctorRepository, syncRepository } from "../src/index.mjs";
+import { doctor, doctorRepository, initRepository, syncRepository } from "../src/index.mjs";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const templateRoot = path.join(packageRoot, "templates");
 const temporaryRoots = new Set();
+const ARTIFACT_ROLES = new Map([
+  ["AI_CONTEXT/CONTEXT.md", "context"],
+  ["AI_CONTEXT/DECISIONS.md", "decisions"],
+  ["AI_CONTEXT/TASKS.md", "tasks"],
+  ["AI_CONTEXT/LEARNINGS.md", "learnings"]
+]);
 
 afterEach(async () => {
   await Promise.all([...temporaryRoots].map((root) => rm(root, { recursive: true, force: true })));
@@ -103,6 +109,18 @@ function staleWarnings(result) {
   return result.warnings.filter((diagnostic) => diagnostic.code === "STALE_GENERATED_PROJECTION");
 }
 
+function roleWarnings(result) {
+  return result.warnings.filter((diagnostic) => diagnostic.checkId === "artifact-roles");
+}
+
+async function writeArtifactFrontmatter(root, relative, frontmatter) {
+  const target = path.join(root, relative);
+  const content = await readFile(target, "utf8");
+  const match = content.match(/^\uFEFF?---(?:\r\n|\r|\n)[\s\S]*?(?:\r\n|\r|\n)---(?:\r\n|\r|\n)/u);
+  assert.ok(match, `fixture sin frontmatter inicial: ${relative}`);
+  await writeFile(target, `${frontmatter}${content.slice(match[0].length)}`, "utf8");
+}
+
 test("acepta el contrato mínimo y entrega una estructura estable", async () => {
   const root = await createFixture();
 
@@ -123,10 +141,129 @@ test("acepta el contrato mínimo y entrega una estructura estable", async () => 
       "links",
       "duplicates",
       "sensitive-data",
+      "artifact-roles",
       "generated-freshness"
     ]
   );
   assert.ok(first.checks.every((check) => check.ok));
+});
+
+test("artifact-roles advierte drift sin corregir contenido repository-owned", async (t) => {
+  await t.test("frontmatter ausente y malformado producen warnings diferenciados", async () => {
+    const missingRoot = await createFixture();
+    await writeArtifactFrontmatter(missingRoot, "AI_CONTEXT/TASKS.md", "");
+    const missing = await doctor(missingRoot);
+
+    assert.equal(missing.ok, true);
+    assert.deepEqual(codes(roleWarnings(missing)), ["MISSING_ARTIFACT_FRONTMATTER"]);
+    assert.deepEqual(
+      missing.checks.find((check) => check.id === "artifact-roles"),
+      { id: "artifact-roles", ok: true, errors: 0, warnings: 1 }
+    );
+
+    for (const frontmatter of [
+      "---\nproject_brain: 1\nrole: tasks\n",
+      "---\nproject_brain: 1\nrole: tasks\nrole: tasks\n---\n",
+      "---\nproject_brain: 1\nesta línea no es un campo\n---\n"
+    ]) {
+      const malformedRoot = await createFixture();
+      await writeArtifactFrontmatter(malformedRoot, "AI_CONTEXT/TASKS.md", frontmatter);
+      const malformed = await doctor(malformedRoot);
+
+      assert.equal(malformed.ok, true);
+      assert.deepEqual(codes(roleWarnings(malformed)), ["MALFORMED_ARTIFACT_FRONTMATTER"]);
+    }
+  });
+
+  await t.test("marcador y role ausentes o inválidos se distinguen", async () => {
+    const cases = [
+      {
+        frontmatter: "---\nrole: tasks\n---\n",
+        code: "INVALID_PROJECT_BRAIN_MARKER"
+      },
+      {
+        frontmatter: "---\nproject_brain: 2\nrole: tasks\n---\n",
+        code: "INVALID_PROJECT_BRAIN_MARKER"
+      },
+      {
+        frontmatter: "---\nproject_brain: 1\n---\n",
+        code: "MISSING_ARTIFACT_ROLE"
+      },
+      {
+        frontmatter: "---\nproject_brain: 1\nrole: roadmap\n---\n",
+        code: "UNKNOWN_ARTIFACT_ROLE"
+      }
+    ];
+
+    for (const { frontmatter, code } of cases) {
+      const root = await createFixture();
+      await writeArtifactFrontmatter(root, "AI_CONTEXT/TASKS.md", frontmatter);
+      const result = await doctor(root);
+
+      assert.equal(result.ok, true);
+      assert.deepEqual(codes(roleWarnings(result)), [code]);
+      assert.equal(roleWarnings(result)[0].file, "AI_CONTEXT/TASKS.md");
+      assert.equal(roleWarnings(result)[0].severity, "warning");
+    }
+  });
+
+  await t.test("cada ruta exige su role correspondiente", async () => {
+    for (const [relative, expectedRole] of ARTIFACT_ROLES) {
+      const root = await createFixture();
+      const otherRole = expectedRole === "context" ? "tasks" : "context";
+      const target = path.join(root, relative);
+      const content = await readFile(target, "utf8");
+      await writeFile(target, content.replace(`role: ${expectedRole}`, `role: ${otherRole}`), "utf8");
+
+      const result = await doctor(root);
+      const warnings = roleWarnings(result);
+      assert.equal(result.ok, true);
+      assert.equal(warnings.length, 1);
+      assert.equal(warnings[0].code, "ARTIFACT_ROLE_MISMATCH");
+      assert.equal(warnings[0].file, relative);
+      assert.equal(warnings[0].expected, expectedRole);
+      assert.equal(warnings[0].actual, otherRole);
+    }
+  });
+
+  await t.test("acepta BOM, line endings y campos en distinto orden; AGENTS queda exento", async () => {
+    const root = await createFixture();
+    await writeArtifactFrontmatter(
+      root,
+      "AI_CONTEXT/TASKS.md",
+      "\uFEFF---\r\nrole: tasks\r\nextra: permitido\r\nproject_brain: 1\r\n---\r\n"
+    );
+
+    const result = await doctor(root);
+
+    assert.deepEqual(roleWarnings(result), []);
+    assert.deepEqual(
+      result.checks.find((check) => check.id === "artifact-roles"),
+      { id: "artifact-roles", ok: true, errors: 0, warnings: 0 }
+    );
+    assert.equal(result.warnings.some((diagnostic) => diagnostic.file === "AGENTS.md"), false);
+  });
+
+  await t.test("doctor, sync e init preservan exactamente los bytes con warning", async () => {
+    const root = await createFixture();
+    await writeArtifactFrontmatter(root, "AI_CONTEXT/TASKS.md", "");
+    const before = await canonicalState(root);
+
+    const firstDoctor = await doctor(root);
+    assert.deepEqual(codes(roleWarnings(firstDoctor)), ["MISSING_ARTIFACT_FRONTMATTER"]);
+    assert.deepEqual(await canonicalState(root), before);
+
+    const synced = await syncRepository(root);
+    assert.equal(synced.changed, false);
+    assert.deepEqual(await canonicalState(root), before);
+
+    const initialized = await initRepository(root);
+    assert.deepEqual(initialized.created, []);
+    assert.deepEqual(initialized.preserved, REQUIRED_FILES);
+    assert.equal(initialized.changed, false);
+    assert.deepEqual(await canonicalState(root), before);
+    assert.deepEqual(codes(roleWarnings(await doctor(root))), ["MISSING_ARTIFACT_FRONTMATTER"]);
+  });
 });
 
 test("generated-freshness compara la proyección esperada sin escribir", async (t) => {
