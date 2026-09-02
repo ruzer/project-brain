@@ -50,6 +50,34 @@ function codes(diagnostics) {
   return diagnostics.map((diagnostic) => diagnostic.code);
 }
 
+function assertDiagnosticListMetadata(diagnostics, severity) {
+  for (const diagnostic of diagnostics) {
+    assert.equal(diagnostic.severity, severity);
+    assert.equal(typeof diagnostic.checkId, "string");
+    assert.equal(typeof diagnostic.code, "string");
+    assert.equal(typeof diagnostic.file, "string");
+    assert.equal(typeof diagnostic.message, "string");
+  }
+}
+
+function assertDiagnosticMetadata(result) {
+  assertDiagnosticListMetadata(result.errors, "error");
+  assertDiagnosticListMetadata(result.warnings, "warning");
+}
+
+function assertDiagnosticCounts(result) {
+  for (const check of result.checks) {
+    assert.equal(
+      check.errors,
+      result.errors.filter((diagnostic) => diagnostic.checkId === check.id).length
+    );
+    assert.equal(
+      check.warnings,
+      result.warnings.filter((diagnostic) => diagnostic.checkId === check.id).length
+    );
+  }
+}
+
 test("acepta el contrato mínimo y entrega una estructura estable", async () => {
   const root = await createFixture();
 
@@ -73,6 +101,75 @@ test("acepta el contrato mínimo y entrega una estructura estable", async () => 
     ]
   );
   assert.ok(first.checks.every((check) => check.ok));
+});
+
+test("cada Diagnostic expone checkId y severity sin alterar resultados existentes", async (t) => {
+  await t.test("fixture warning-only conserva ok true y deduplicación", async () => {
+    const root = await createFixture();
+    await append(
+      root,
+      "AI_CONTEXT/TASKS.md",
+      "\nContacto duplicado en la misma línea: persona@dominio.mx persona@dominio.mx\n"
+    );
+
+    const result = await doctor(root);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.errors.length, 0);
+    assert.equal(
+      result.warnings.filter((diagnostic) => diagnostic.code === "PERSONAL_EMAIL").length,
+      1
+    );
+    assert.equal(
+      result.warnings.find((diagnostic) => diagnostic.code === "PERSONAL_EMAIL")?.checkId,
+      "sensitive-data"
+    );
+    assertDiagnosticMetadata(result);
+    assertDiagnosticCounts(result);
+  });
+
+  await t.test("fixture error-only conserva ok false", async () => {
+    const root = await createFixture();
+    await unlink(path.join(root, "AI_CONTEXT", "TASKS.md"));
+
+    const result = await doctor(root);
+    const missing = result.errors.find((diagnostic) => diagnostic.code === "MISSING_CANONICAL_FILE");
+
+    assert.equal(result.ok, false);
+    assert.equal(missing?.checkId, "canonical-files");
+    assert.equal(missing?.severity, "error");
+    assertDiagnosticMetadata(result);
+    assertDiagnosticCounts(result);
+  });
+
+  await t.test("fixture mixta conserva arrays, orden, counts y alias", async () => {
+    const root = await createFixture();
+    await writeFile(path.join(root, "AI_CONTEXT", "EXTRA.md"), "# Extra\n", "utf8");
+    await append(
+      root,
+      "AI_CONTEXT/TASKS.md",
+      "\n- [Destino ausente](missing.md)\nContacto: persona@dominio.mx\n"
+    );
+
+    const first = await doctor(root);
+    const second = await doctor(root);
+    const throughAlias = await doctorRepository(root);
+
+    assert.equal(first.ok, false);
+    assert.ok(first.errors.some((diagnostic) =>
+      diagnostic.code === "BROKEN_MARKDOWN_LINK" && diagnostic.checkId === "links"
+    ));
+    assert.ok(first.warnings.some((diagnostic) =>
+      diagnostic.code === "EXTRA_CONTEXT_FILE" && diagnostic.checkId === "extra-context-files"
+    ));
+    assert.ok(first.warnings.some((diagnostic) =>
+      diagnostic.code === "PERSONAL_EMAIL" && diagnostic.checkId === "sensitive-data"
+    ));
+    assert.deepEqual(second, first);
+    assert.deepEqual(throughAlias, first);
+    assertDiagnosticMetadata(first);
+    assertDiagnosticCounts(first);
+  });
 });
 
 test("reporta archivos canónicos ausentes y enlaces simbólicos sin seguirlos", async () => {

@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
+import { unlink } from "node:fs/promises";
+import path from "node:path";
 import test from "node:test";
 import { runCli } from "../src/cli.mjs";
+import { initRepository } from "../src/index.mjs";
+import { put, temporaryRepository } from "../test-support/helpers.mjs";
 
 function capture() {
   const output = { logs: [], errors: [], warnings: [] };
@@ -43,4 +47,27 @@ test("--json conserva salida estructurada incluso ante una excepción", async ()
   const payload = JSON.parse(output.logs.join("\n"));
   assert.equal(payload.ok, false);
   assert.equal(payload.error.code, "COMMAND_FAILED");
+});
+
+test("doctor CLI conserva exit codes y serializa metadatos de Diagnostic", async (t) => {
+  const root = await temporaryRepository(t);
+  await initRepository(root);
+  await put(root, "AI_CONTEXT/EXTRA.md", "# Extra\n");
+  const warningRun = capture();
+
+  assert.equal(await runCli(["doctor", root, "--json"], warningRun.io), 0);
+  const warningResult = JSON.parse(warningRun.output.logs.join("\n"));
+  assert.equal(warningResult.ok, true);
+  assert.ok(warningResult.warnings.every((diagnostic) =>
+    diagnostic.severity === "warning" && typeof diagnostic.checkId === "string"
+  ));
+
+  await unlink(path.join(root, "AI_CONTEXT", "TASKS.md"));
+  const errorRun = capture();
+  assert.equal(await runCli(["doctor", root, "--json"], errorRun.io), 1);
+  const errorResult = JSON.parse(errorRun.output.logs.join("\n"));
+  assert.equal(errorResult.ok, false);
+  assert.ok(errorResult.errors.every((diagnostic) =>
+    diagnostic.severity === "error" && typeof diagnostic.checkId === "string"
+  ));
 });

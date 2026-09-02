@@ -54,7 +54,9 @@ function createRecorder() {
       code: diagnostic.code,
       file: diagnostic.file ?? ".",
       message: diagnostic.message,
-      ...diagnostic
+      ...diagnostic,
+      checkId: check,
+      severity: kind === "errors" ? "error" : "warning"
     };
     const key = [
       kind,
