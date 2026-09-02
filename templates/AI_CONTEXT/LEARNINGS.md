@@ -5,14 +5,15 @@ role: learnings
 
 # Aprendizajes
 
-Guarda hallazgos confirmados que eviten repetir investigación o errores.
+Guarda conocimiento técnico confirmado que evite repetir investigación o errores. Una hipótesis sin evidencia no es un hallazgo confirmado.
 
 ## Plantilla
 
 ### Hallazgo
 
-- **Evidencia:** dónde se comprobó.
-- **Aplicación:** cuándo debe reutilizarse.
-- **Límite:** en qué casos podría dejar de ser válido.
+- **Evidencia:** ruta, prueba o manifiesto identificable dentro del repositorio donde se comprobó.
+- **Aplicación:** cuándo y cómo debe reutilizarse.
+- **Límite:** condiciones en las que deja de ser válido.
+- **Decisión relacionada (opcional):** si cambia una regla, enlaza una `TechnicalDecision` aceptada, por ejemplo `[Decisión](DECISIONS.md#decision)`.
 
-Relaciona el hallazgo con una [Decisión](DECISIONS.md) solo si cambia una regla vigente.
+El aprendizaje no es normativo; la decisión aceptada relacionada conserva esa autoridad.

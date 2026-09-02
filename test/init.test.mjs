@@ -58,6 +58,23 @@ test("init preserva byte por byte un DECISIONS.md existente", async (t) => {
   assert.deepEqual(await readFile(decisionsPath), existing);
 });
 
+test("init preserva byte por byte un LEARNINGS.md existente", async (t) => {
+  const root = await temporaryRepository(t);
+  await initRepository(root);
+  const learningsPath = path.join(root, "AI_CONTEXT", "LEARNINGS.md");
+  const existing = Buffer.concat([
+    Buffer.from([0xef, 0xbb, 0xbf]),
+    Buffer.from("# Aprendizaje existente\r\n\r\nEvidencia local con trailing spaces  \r\nÚltima línea")
+  ]);
+  await writeFile(learningsPath, existing);
+
+  const result = await initRepository(root);
+
+  assert.deepEqual(result.created, []);
+  assert.ok(result.preserved.includes("AI_CONTEXT/LEARNINGS.md"));
+  assert.deepEqual(await readFile(learningsPath), existing);
+});
+
 test("init preserva como bytes el contenido repository-owned de CONTEXT.md", async (t) => {
   const root = await temporaryRepository(t);
   const contextPath = path.join(root, "AI_CONTEXT", "CONTEXT.md");

@@ -235,6 +235,32 @@ test("TechnicalTask conserva sólo actividad técnica local y referencia opciona
   assert.doesNotMatch(tasks, /^\s*-\s+\*\*(?:Owner|Fecha|Milestone|Hito|Riesgo|Estado|Estado global):\*\*/imu);
 });
 
+test("TechnicalLearning exige evidencia y no convierte hipótesis en reglas", async () => {
+  const readme = await readFile(path.join(projectRoot, "README.md"), "utf8");
+  const learnings = await readFile(
+    path.join(templatesRoot, "AI_CONTEXT", "LEARNINGS.md"),
+    "utf8"
+  );
+
+  for (const field of ["Evidencia", "Aplicación", "Límite"]) {
+    assert.match(learnings, new RegExp(`^\\s*- \\*\\*${field}:\\*\\*`, "mu"), `falta ${field}`);
+  }
+
+  assert.match(readme, /TechnicalLearning[^\n]*conocimiento técnico[^\n]*confirmado/iu);
+  assert.match(readme, /hipótesis[^\n]*no es[^\n]*TechnicalLearning/iu);
+  assert.match(readme, /`src\/scanner\.mjs`[^\n]*evidencia repository-local/iu);
+  assert.match(readme, /TechnicalLearning[^\n]*no es normativo/iu);
+  assert.match(readme, /cambia una regla[^\n]*TechnicalDecision[^\n]*aceptada/iu);
+
+  assert.match(learnings, /Evidencia[^\n]*(?:ruta|prueba|manifiesto)[^\n]*repositorio/iu);
+  assert.match(learnings, /hipótesis[^\n]*no[^\n]*hallazgo confirmado/iu);
+  assert.match(learnings, /Decisión relacionada[^\n]*aceptada/iu);
+  assert.doesNotMatch(
+    learnings,
+    /^\s*-\s+\*\*(?:Owner|Responsable|Fecha de entrega|Due date|Milestone|Hito|Riesgo|Estado global):\*\*/imu
+  );
+});
+
 test("documentación y plantillas no contradicen el ownership 0.3.1", async () => {
   const documents = await Promise.all([
     "README.md",

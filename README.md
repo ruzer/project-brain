@@ -99,6 +99,18 @@ La estructura recomendada contiene cuatro campos:
 
 Project Memory Hub es una integración opcional y conserva la autoridad sobre owners, fechas, riesgos, milestones y estado de gestión. Si no existe, la referencia se omite; nunca se copian esos valores a `TechnicalTask`.
 
+### Alcance de TechnicalLearning
+
+`TechnicalLearning` es conocimiento técnico humano, confirmado y repository-owned; no es normativo. Una hipótesis sin evidencia no es un `TechnicalLearning` y no debe presentarse como conocimiento confirmado.
+
+La estructura recomendada registra:
+
+- **Evidencia:** localizador técnico identificable dentro del `Repository`; por ejemplo, `src/scanner.mjs` es evidencia repository-local cuando sustenta directamente el hallazgo.
+- **Aplicación:** cuándo y cómo puede reutilizarse el conocimiento.
+- **Límite:** condiciones en las que el hallazgo deja de aplicar, para no convertirlo en una verdad universal.
+
+Si el aprendizaje cambia una regla normativa, referencia una `TechnicalDecision` aceptada; la decisión, no el aprendizaje, conserva la autoridad normativa. Owners, fechas de entrega, riesgos, milestones y estado de gestión permanecen fuera de `TechnicalLearning`.
+
 ## Matriz de autoridad
 
 Project Brain es autoridad de escritura únicamente sobre `GeneratedProjection`; no sustituye la autoridad factual del `Repository`.
